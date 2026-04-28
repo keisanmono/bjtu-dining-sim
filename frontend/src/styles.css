@@ -211,18 +211,11 @@ input {
   text-align: left;
 }
 
-.stagger-row {
-  grid-template-columns: 46px minmax(0, 1fr);
-}
-
-.stagger-checkboxes {
+.candidate-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-}
-
-.stagger-checkboxes .el-checkbox {
-  margin-right: 0;
+  gap: 8px;
+  justify-content: space-between;
 }
 
 .candidate-row {

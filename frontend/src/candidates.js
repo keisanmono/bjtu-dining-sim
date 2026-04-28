@@ -18,7 +18,9 @@ export function createDefaultCandidateSettings(config) {
     seatMin: roundDownToStep(Number(config.num_seats || seatStep) * 0.75, seatStep),
     seatMax: roundUpToStep(Number(config.num_seats || seatStep) * 1.25, seatStep),
     seatStep,
-    staggers: [0, 5, 10]
+    staggerMin: 0,
+    staggerMax: 10,
+    staggerStep: 5
   }
 }
 
@@ -43,9 +45,7 @@ export function buildCandidatesFromSettings(settings) {
   return {
     windows: buildIntegerRange(settings.windowMin, settings.windowMax, 1, 1, 30),
     seats: buildIntegerRange(settings.seatMin, settings.seatMax, settings.seatStep, 1, 2000),
-    staggers: [...new Set((settings.staggers || []).map(Number))]
-      .filter((value) => value >= 0 && value <= 120)
-      .sort((a, b) => a - b)
+    staggers: buildIntegerRange(settings.staggerMin, settings.staggerMax, settings.staggerStep, 0, 120)
   }
 }
 

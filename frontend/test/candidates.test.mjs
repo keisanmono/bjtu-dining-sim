@@ -32,7 +32,9 @@ test('default candidate settings provide an editable range around the baseline',
     seatMin: 80,
     seatMax: 160,
     seatStep: 20,
-    staggers: [0, 5, 10]
+    staggerMin: 0,
+    staggerMax: 10,
+    staggerStep: 5
   })
 })
 
@@ -47,10 +49,12 @@ test('candidate settings build actual recommendation payload options', () => {
     seatMin: 80,
     seatMax: 120,
     seatStep: 20,
-    staggers: [10, 0, 10]
+    staggerMin: 0,
+    staggerMax: 15,
+    staggerStep: 5
   })
 
   assert.deepEqual(candidates.windows, [2, 3, 4])
   assert.deepEqual(candidates.seats, [80, 100, 120])
-  assert.deepEqual(candidates.staggers, [0, 10])
+  assert.deepEqual(candidates.staggers, [0, 5, 10, 15])
 })

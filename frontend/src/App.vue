@@ -122,17 +122,21 @@
                 <el-input-number v-model="candidateSettings.seatStep" :min="1" :max="200" :step="5" size="small" controls-position="right" />
                 <span class="range-hint">座位候选间隔</span>
               </div>
-              <div class="candidate-editor-row stagger-row">
+              <div class="candidate-editor-row">
                 <span>错峰</span>
-                <el-checkbox-group v-model="candidateSettings.staggers" class="stagger-checkboxes">
-                  <el-checkbox :value="0">不启用</el-checkbox>
-                  <el-checkbox :value="5">5 分钟</el-checkbox>
-                  <el-checkbox :value="10">10 分钟</el-checkbox>
-                  <el-checkbox :value="15">15 分钟</el-checkbox>
-                  <el-checkbox :value="20">20 分钟</el-checkbox>
-                </el-checkbox-group>
+                <el-input-number v-model="candidateSettings.staggerMin" :min="0" :max="120" :step="5" size="small" controls-position="right" />
+                <span class="range-separator">至</span>
+                <el-input-number v-model="candidateSettings.staggerMax" :min="0" :max="120" :step="5" size="small" controls-position="right" />
               </div>
-              <el-button size="small" :icon="Refresh" @click="resetCandidateSettings">按当前参数重置范围</el-button>
+              <div class="candidate-editor-row">
+                <span>步长</span>
+                <el-input-number v-model="candidateSettings.staggerStep" :min="1" :max="60" :step="5" size="small" controls-position="right" />
+                <span class="range-hint">错峰候选间隔</span>
+              </div>
+              <div class="candidate-actions">
+                <el-button size="small" :icon="Refresh" @click="resetCandidateSettings">按当前参数重置范围</el-button>
+                <el-button type="primary" size="small" :icon="MagicStick" :loading="isRecommending" @click="generateRecommendation">生成推荐</el-button>
+              </div>
             </div>
             <div class="candidate-groups">
               <div v-for="group in candidateGroups" :key="group.key" class="candidate-row">
@@ -419,6 +423,7 @@ const currentState = ref(null)
 const isRunning = ref(false)
 const isDone = ref(false)
 const timer = ref(null)
+const isRecommending = ref(false)
 const recommendation = ref(null)
 const explanation = ref(null)
 
@@ -602,6 +607,7 @@ function applyRunResponse(response) {
 
 async function generateRecommendation() {
   try {
+    isRecommending.value = true
     const payload = {
       base_config: { ...config },
       window_options: windowCandidates.value,
@@ -622,6 +628,8 @@ async function generateRecommendation() {
     activeView.value = 'recommend'
   } catch (error) {
     ElMessage.error(error?.response?.data?.detail || '生成推荐失败')
+  } finally {
+    isRecommending.value = false
   }
 }
 
