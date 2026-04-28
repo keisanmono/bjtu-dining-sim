@@ -350,6 +350,7 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { api } from './api'
+import { canRenderChartElement } from './chartUtils'
 
 const defaultConfig = {
   num_windows: 4,
@@ -388,6 +389,7 @@ const analysisChartEl = ref(null)
 let queueChart
 let trendChart
 let analysisChart
+let chartRenderFrame = 0
 
 const previewSeatLimit = 240
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
@@ -437,6 +439,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   pauseRun()
   window.removeEventListener('resize', resizeCharts)
+  if (chartRenderFrame) {
+    window.cancelAnimationFrame(chartRenderFrame)
+  }
   queueChart?.dispose()
   trendChart?.dispose()
   analysisChart?.dispose()
@@ -444,6 +449,7 @@ onBeforeUnmount(() => {
 
 watch(records, renderCharts, { deep: true })
 watch(metrics, renderCharts)
+watch(activeView, renderCharts)
 
 async function checkHealth() {
   try {
@@ -581,15 +587,25 @@ function exportRecords() {
 
 function renderCharts() {
   nextTick(() => {
-    renderQueueChart()
-    renderTrendChart()
-    renderAnalysisChart()
+    if (chartRenderFrame) {
+      window.cancelAnimationFrame(chartRenderFrame)
+    }
+    chartRenderFrame = window.requestAnimationFrame(() => {
+      chartRenderFrame = window.requestAnimationFrame(() => {
+        chartRenderFrame = 0
+        renderQueueChart()
+        renderTrendChart()
+        renderAnalysisChart()
+      })
+    })
   })
 }
 
 function renderQueueChart() {
-  if (!queueChartEl.value) return
-  queueChart ||= echarts.init(queueChartEl.value)
+  const element = queueChartEl.value
+  if (!canRenderChartElement(element)) return
+  queueChart ||= echarts.init(element)
+  queueChart.resize()
   const lengths = currentRecord.value?.queue_lengths || Array.from({ length: config.num_windows }, () => 0)
   queueChart.setOption({
     color: ['#3f6fa9'],
@@ -601,14 +617,18 @@ function renderQueueChart() {
 }
 
 function renderTrendChart() {
-  if (!trendChartEl.value) return
-  trendChart ||= echarts.init(trendChartEl.value)
+  const element = trendChartEl.value
+  if (!canRenderChartElement(element)) return
+  trendChart ||= echarts.init(element)
+  trendChart.resize()
   trendChart.setOption(trendOption())
 }
 
 function renderAnalysisChart() {
-  if (!analysisChartEl.value) return
-  analysisChart ||= echarts.init(analysisChartEl.value)
+  const element = analysisChartEl.value
+  if (!canRenderChartElement(element)) return
+  analysisChart ||= echarts.init(element)
+  analysisChart.resize()
   analysisChart.setOption(trendOption(true))
 }
 
