@@ -29,11 +29,35 @@
           </template>
           <el-form label-position="top" :model="config" class="config-form">
             <div class="form-pair">
-              <el-form-item label="开放窗口数">
+              <el-form-item label="开放窗口数" class="candidate-form-item">
                 <el-input-number v-model="config.num_windows" :min="1" :max="30" controls-position="right" />
+                <div class="param-candidates" aria-label="窗口候选">
+                  <el-button
+                    v-for="item in windowCandidateButtons"
+                    :key="item.value"
+                    size="small"
+                    :type="config.num_windows === item.value ? 'primary' : 'default'"
+                    :plain="config.num_windows !== item.value"
+                    @click="applyCandidate('num_windows', item.value)"
+                  >
+                    {{ item.label }}
+                  </el-button>
+                </div>
               </el-form-item>
-              <el-form-item label="座位数">
+              <el-form-item label="座位数" class="candidate-form-item">
                 <el-input-number v-model="config.num_seats" :min="1" :max="2000" controls-position="right" />
+                <div class="param-candidates" aria-label="座位候选">
+                  <el-button
+                    v-for="item in seatCandidateButtons"
+                    :key="item.value"
+                    size="small"
+                    :type="config.num_seats === item.value ? 'primary' : 'default'"
+                    :plain="config.num_seats !== item.value"
+                    @click="applyCandidate('num_seats', item.value)"
+                  >
+                    {{ item.label }}
+                  </el-button>
+                </div>
               </el-form-item>
             </div>
             <div class="form-pair">
@@ -56,8 +80,20 @@
               <el-form-item label="随机种子">
                 <el-input-number v-model="config.seed" :min="1" controls-position="right" />
               </el-form-item>
-              <el-form-item label="错峰分钟">
+              <el-form-item label="错峰分钟" class="candidate-form-item">
                 <el-input-number v-model="config.stagger_minutes" :min="0" :max="120" controls-position="right" />
+                <div class="param-candidates" aria-label="错峰候选">
+                  <el-button
+                    v-for="item in staggerCandidateButtons"
+                    :key="item.value"
+                    size="small"
+                    :type="config.stagger_minutes === item.value ? 'primary' : 'default'"
+                    :plain="config.stagger_minutes !== item.value"
+                    @click="applyCandidate('stagger_minutes', item.value)"
+                  >
+                    {{ item.label }}
+                  </el-button>
+                </div>
               </el-form-item>
             </div>
             <div class="form-pair">
@@ -70,39 +106,10 @@
             </div>
           </el-form>
 
-          <div class="button-row">
-            <el-button :icon="CircleCheck" @click="validateConfig">参数校验</el-button>
-            <el-button :icon="Refresh" @click="loadDefault">加载默认场景</el-button>
-            <el-button type="primary" :icon="VideoPlay" @click="startLiveRun">开始仿真</el-button>
-          </div>
-
-          <el-alert
-            v-if="validationMessage"
-            class="validation-alert"
-            :type="validationType"
-            :title="validationMessage"
-            show-icon
-            :closable="false"
-          />
-        </el-card>
-
-        <el-card class="panel scenario-panel">
-          <template #header>
-            <div class="panel-title">
-              <el-icon><Document /></el-icon>
-              <span>场景说明</span>
-            </div>
-          </template>
-          <div class="scenario-copy">
-            <p>单食堂、单餐段、多窗口、多座位。</p>
-            <p>学生按分钟到达，依次经历排队、取餐、入座、就餐和离场。</p>
-            <p>当前候选推荐会比较窗口数、座位数和错峰分钟。</p>
-          </div>
-          <el-divider />
-          <div class="candidate-block">
+          <div class="candidate-block candidate-config-panel">
             <div class="candidate-header">
-              <p class="block-label">优化搜索范围</p>
-              <span>生成推荐时只比较你在这里设定的候选组合</span>
+              <p class="block-label">优化推荐</p>
+              <span>生成推荐时比较上方窗口、座位和错峰候选</span>
             </div>
             <div class="candidate-editor">
               <div class="candidate-editor-row">
@@ -138,14 +145,35 @@
                 <el-button type="primary" size="small" :icon="MagicStick" :loading="isRecommending" @click="generateRecommendation">生成推荐</el-button>
               </div>
             </div>
-            <div class="candidate-groups">
-              <div v-for="group in candidateGroups" :key="group.key" class="candidate-row">
-                <span class="candidate-label">{{ group.label }}</span>
-                <div class="candidate-values">
-                  <span v-for="value in group.values" :key="value" class="candidate-value">{{ value }}</span>
-                </div>
-              </div>
+          </div>
+
+          <div class="button-row">
+            <el-button :icon="CircleCheck" @click="validateConfig">参数校验</el-button>
+            <el-button :icon="Refresh" @click="loadDefault">加载默认场景</el-button>
+            <el-button type="primary" :icon="VideoPlay" @click="startLiveRun">开始仿真</el-button>
+          </div>
+
+          <el-alert
+            v-if="validationMessage"
+            class="validation-alert"
+            :type="validationType"
+            :title="validationMessage"
+            show-icon
+            :closable="false"
+          />
+        </el-card>
+
+        <el-card class="panel scenario-panel">
+          <template #header>
+            <div class="panel-title">
+              <el-icon><Document /></el-icon>
+              <span>场景说明</span>
             </div>
+          </template>
+          <div class="scenario-copy">
+            <p>单食堂、单餐段、多窗口、多座位。</p>
+            <p>学生按分钟到达，依次经历排队、取餐、入座、就餐和离场。</p>
+            <p>优化推荐会比较基础参数中设置的窗口数、座位数和错峰分钟候选。</p>
           </div>
         </el-card>
 
@@ -390,7 +418,11 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { api } from './api'
-import { buildCandidateGroups, buildCandidatesFromSettings, createDefaultCandidateSettings } from './candidates'
+import {
+  buildConfigCandidateGroups,
+  buildCandidatesFromSettings,
+  createDefaultCandidateSettings
+} from './candidates'
 import { canRenderChartElement } from './chartUtils'
 import { shouldResetStepRun } from './runControl'
 
@@ -453,7 +485,10 @@ const recommendationCandidates = computed(() => buildCandidatesFromSettings(cand
 const windowCandidates = computed(() => recommendationCandidates.value.windows)
 const seatCandidates = computed(() => recommendationCandidates.value.seats)
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
-const candidateGroups = computed(() => buildCandidateGroups(windowCandidates.value, seatCandidates.value, staggerCandidates.value))
+const configCandidateGroups = computed(() => buildConfigCandidateGroups(windowCandidates.value, seatCandidates.value, staggerCandidates.value))
+const windowCandidateButtons = computed(() => candidateValues('windows'))
+const seatCandidateButtons = computed(() => candidateValues('seats'))
+const staggerCandidateButtons = computed(() => candidateValues('stagger'))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
@@ -516,6 +551,14 @@ function loadDefault() {
 
 function resetCandidateSettings() {
   Object.assign(candidateSettings, createDefaultCandidateSettings(config))
+}
+
+function candidateValues(key) {
+  return configCandidateGroups.value.find((group) => group.key === key)?.values || []
+}
+
+function applyCandidate(field, value) {
+  config[field] = value
 }
 
 async function validateConfig() {

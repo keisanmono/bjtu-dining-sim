@@ -69,6 +69,29 @@ export function buildCandidateGroups(windowCandidates, seatCandidates, staggerCa
   ]
 }
 
+export function buildConfigCandidateGroups(windowCandidates, seatCandidates, staggerCandidates) {
+  return [
+    {
+      key: 'windows',
+      label: '窗口',
+      field: 'num_windows',
+      values: windowCandidates.map((value) => ({ value, label: `${value} 个` }))
+    },
+    {
+      key: 'seats',
+      label: '座位',
+      field: 'num_seats',
+      values: seatCandidates.map((value) => ({ value, label: `${value} 个` }))
+    },
+    {
+      key: 'stagger',
+      label: '错峰',
+      field: 'stagger_minutes',
+      values: staggerCandidates.map((value) => ({ value, label: formatStaggerCandidate(value) }))
+    }
+  ]
+}
+
 function clamp(value, lower, upper) {
   return Math.min(upper, Math.max(lower, value))
 }
