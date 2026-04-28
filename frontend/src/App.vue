@@ -134,8 +134,15 @@
             <template v-else>
               <div class="config-recommend-summary">
                 <div class="recommend-result-item wide">
-                  <p>推荐配置</p>
-                  <strong>{{ formatConfigSummary(recommendation.best.config) }}</strong>
+                  <div class="recommend-result-heading">
+                    <div>
+                      <p>推荐配置</p>
+                      <strong>{{ formatConfigSummary(recommendation.best.config) }}</strong>
+                    </div>
+                    <el-button type="success" size="small" :icon="CircleCheck" @click="applyRecommendationConfig(recommendation.best.config)">
+                      应用推荐方案
+                    </el-button>
+                  </div>
                 </div>
                 <div class="recommend-result-item">
                   <p>平均等待</p>
@@ -173,6 +180,11 @@
                 </el-table-column>
                 <el-table-column label="评分" width="74">
                   <template #default="{ row }">{{ formatNumber(row.score) }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="92" fixed="right">
+                  <template #default="{ row }">
+                    <el-button type="primary" size="small" plain @click="applyRecommendationConfig(row.config)">应用方案</el-button>
+                  </template>
                 </el-table-column>
               </el-table>
             </template>
@@ -421,7 +433,7 @@ import {
 import { api } from './api'
 import { buildCandidatesFromSettings, createDefaultCandidateSettings } from './candidates'
 import { canRenderChartElement } from './chartUtils'
-import { nextViewAfterRecommendation } from './recommendationFlow'
+import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
 import { shouldResetStepRun } from './runControl'
 
 const defaultConfig = {
@@ -660,6 +672,12 @@ async function generateRecommendation() {
   } finally {
     isRecommending.value = false
   }
+}
+
+function applyRecommendationConfig(recommendedConfig) {
+  applyRecommendedConfig(config, recommendedConfig)
+  validationMessage.value = ''
+  ElMessage.success('已应用方案到基础参数')
 }
 
 function exportRecords() {

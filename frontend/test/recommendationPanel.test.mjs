@@ -18,3 +18,11 @@ test('config recommendation panel shows effect metrics for alternatives', () => 
   assert.equal(source.includes('label="吞吐"'), true)
   assert.equal(source.includes('label="评分"'), true)
 })
+
+test('config recommendation panel can apply recommended and alternative plans', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('应用推荐方案'), true)
+  assert.equal(source.includes('应用方案'), true)
+  assert.equal(source.includes('applyRecommendationConfig'), true)
+})
