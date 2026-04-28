@@ -37,7 +37,7 @@
               </el-form-item>
             </div>
             <div class="form-pair">
-              <el-form-item label="到达率">
+              <el-form-item label="平均每分钟到达人数">
                 <el-input-number v-model="config.arrival_rate" :min="0.1" :step="0.5" controls-position="right" />
               </el-form-item>
               <el-form-item label="到达时段">

@@ -26,3 +26,10 @@ test('config recommendation panel can apply recommended and alternative plans', 
   assert.equal(source.includes('应用方案'), true)
   assert.equal(source.includes('applyRecommendationConfig'), true)
 })
+
+test('config form uses a clear arrival volume label', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('label="平均每分钟到达人数"'), true)
+  assert.equal(source.includes('label="到达率"'), false)
+})

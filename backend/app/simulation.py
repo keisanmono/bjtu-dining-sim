@@ -103,7 +103,7 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
     if config.num_seats < 1 or config.num_seats > 2000:
         errors.append("座位数应在 1 到 2000 之间。")
     if config.arrival_rate <= 0:
-        errors.append("到达率必须大于 0。")
+        errors.append("平均每分钟到达人数必须大于 0。")
     if config.service_time_mean <= 0:
         errors.append("平均打饭时长必须大于 0。")
     if config.dining_time_mean <= 0:
@@ -111,7 +111,7 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
     if config.duration_min < 5 or config.duration_min > 360:
         errors.append("到达时段应在 5 到 360 分钟之间。")
     if config.peak_start_min >= config.peak_end_min:
-        warnings.append("高峰开始时间不早于结束时间，将按普通到达率运行。")
+        warnings.append("高峰开始时间不早于结束时间，将按普通到达人数运行。")
     if config.num_seats < config.num_windows * 6:
         warnings.append("座位数相对窗口数偏少，可能出现入座瓶颈。")
     if config.arrival_rate * config.service_time_mean > config.num_windows * 1.2:
