@@ -1,0 +1,14 @@
+.DS_Store
+.codex
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+data/*.sqlite
+data/*.sqlite-*
+data/exports/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.log

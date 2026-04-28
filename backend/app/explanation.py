@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+def build_rule_based_explanation(payload: dict[str, Any]) -> dict[str, Any]:
+    baseline_metrics = payload.get("baseline_metrics") or {}
+    best_metrics = payload.get("best_metrics") or {}
+    strategy = payload.get("recommended_strategy") or "当前推荐方案"
+    root_cause = payload.get("root_cause_summary") or _infer_root_cause(baseline_metrics)
+    risk_notes = list(payload.get("risk_notes") or [])
+
+    wait_delta = _metric_delta(baseline_metrics, best_metrics, "avg_wait")
+    queue_delta = _metric_delta(baseline_metrics, best_metrics, "peak_queue")
+    if not risk_notes:
+        risk_notes = [
+            "若学生到达分布与设定参数偏差较大，推荐结果需要重新仿真校准。",
+            "窗口和座位扩容会带来人力或空间成本，课程演示中应结合资源约束解释。",
+        ]
+
+    text = (
+        f"瓶颈判断：{root_cause}。建议采用“{strategy}”。"
+        f"与基准方案相比，平均等待时间变化约 {wait_delta} 分钟，峰值排队长度变化 {queue_delta} 人。"
+        "该推荐优先降低高峰排队和入座等待，同时保留错峰策略作为低成本备选。"
+    )
+    return {"text": text, "risk_notes": risk_notes}
+
+
+def _infer_root_cause(metrics: dict[str, Any]) -> str:
+    bottleneck = metrics.get("bottleneck_type")
+    if bottleneck:
+        return str(bottleneck)
+    if metrics.get("peak_waiting_for_seat", 0) > 0:
+        return "座位容量不足"
+    if metrics.get("peak_queue", 0) > 20:
+        return "窗口服务能力不足"
+    return "整体运行较均衡"
+
+
+def _metric_delta(base: dict[str, Any], best: dict[str, Any], key: str) -> float:
+    if key not in base or key not in best:
+        return 0.0
+    return round(float(base[key]) - float(best[key]), 2)
+
