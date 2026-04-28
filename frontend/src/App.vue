@@ -100,12 +100,18 @@
           </div>
           <el-divider />
           <div class="candidate-block">
-            <p class="block-label">推荐候选</p>
-            <el-space wrap>
-              <el-tag v-for="item in windowCandidates" :key="`w-${item}`">窗口 {{ item }}</el-tag>
-              <el-tag v-for="item in seatCandidates" :key="`s-${item}`" type="success">座位 {{ item }}</el-tag>
-              <el-tag v-for="item in staggerCandidates" :key="`g-${item}`" type="warning">错峰 {{ item }}</el-tag>
-            </el-space>
+            <div class="candidate-header">
+              <p class="block-label">推荐候选范围</p>
+              <span>生成推荐时组合比较以下参数</span>
+            </div>
+            <div class="candidate-groups">
+              <div v-for="group in candidateGroups" :key="group.key" class="candidate-row">
+                <span class="candidate-label">{{ group.label }}</span>
+                <div class="candidate-values">
+                  <span v-for="value in group.values" :key="value" class="candidate-value">{{ value }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </el-card>
 
@@ -350,6 +356,7 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { api } from './api'
+import { buildCandidateGroups } from './candidates'
 import { canRenderChartElement } from './chartUtils'
 import { shouldResetStepRun } from './runControl'
 
@@ -409,6 +416,7 @@ const visibleSeatMatrix = computed(() => {
 const windowCandidates = computed(() => uniqueSorted([config.num_windows, config.num_windows + 1, config.num_windows + 2]))
 const seatCandidates = computed(() => uniqueSorted([config.num_seats, config.num_seats + 20, config.num_seats + 40]))
 const staggerCandidates = computed(() => [0, 5, 10])
+const candidateGroups = computed(() => buildCandidateGroups(windowCandidates.value, seatCandidates.value, staggerCandidates.value))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
