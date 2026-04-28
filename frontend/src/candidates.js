@@ -1,7 +1,3 @@
-export function formatStaggerCandidate(minutes) {
-  return minutes === 0 ? '不启用' : `${minutes} 分钟`
-}
-
 export function roundDownToStep(value, step) {
   return Math.max(step, Math.floor(value / step) * step)
 }
@@ -47,49 +43,6 @@ export function buildCandidatesFromSettings(settings) {
     seats: buildIntegerRange(settings.seatMin, settings.seatMax, settings.seatStep, 1, 2000),
     staggers: buildIntegerRange(settings.staggerMin, settings.staggerMax, settings.staggerStep, 0, 120)
   }
-}
-
-export function buildCandidateGroups(windowCandidates, seatCandidates, staggerCandidates) {
-  return [
-    {
-      key: 'windows',
-      label: '窗口',
-      values: windowCandidates.map((value) => `${value} 个`)
-    },
-    {
-      key: 'seats',
-      label: '座位',
-      values: seatCandidates.map((value) => `${value} 个`)
-    },
-    {
-      key: 'stagger',
-      label: '错峰',
-      values: staggerCandidates.map(formatStaggerCandidate)
-    }
-  ]
-}
-
-export function buildConfigCandidateGroups(windowCandidates, seatCandidates, staggerCandidates) {
-  return [
-    {
-      key: 'windows',
-      label: '窗口',
-      field: 'num_windows',
-      values: windowCandidates.map((value) => ({ value, label: `${value} 个` }))
-    },
-    {
-      key: 'seats',
-      label: '座位',
-      field: 'num_seats',
-      values: seatCandidates.map((value) => ({ value, label: `${value} 个` }))
-    },
-    {
-      key: 'stagger',
-      label: '错峰',
-      field: 'stagger_minutes',
-      values: staggerCandidates.map((value) => ({ value, label: formatStaggerCandidate(value) }))
-    }
-  ]
 }
 
 function clamp(value, lower, upper) {

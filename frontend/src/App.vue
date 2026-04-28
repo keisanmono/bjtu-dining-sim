@@ -129,15 +129,6 @@
               </div>
             </div>
 
-            <div class="candidate-groups">
-              <div v-for="group in configCandidateGroups" :key="group.key" class="candidate-row">
-                <span class="candidate-label">{{ group.label }}</span>
-                <div class="candidate-values">
-                  <span v-for="item in group.values" :key="item.value" class="candidate-value">{{ item.label }}</span>
-                </div>
-              </div>
-            </div>
-
             <el-divider />
             <el-empty v-if="!recommendation" description="暂无推荐结果" />
             <template v-else>
@@ -414,11 +405,7 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { api } from './api'
-import {
-  buildConfigCandidateGroups,
-  buildCandidatesFromSettings,
-  createDefaultCandidateSettings
-} from './candidates'
+import { buildCandidatesFromSettings, createDefaultCandidateSettings } from './candidates'
 import { canRenderChartElement } from './chartUtils'
 import { nextViewAfterRecommendation } from './recommendationFlow'
 import { shouldResetStepRun } from './runControl'
@@ -482,7 +469,6 @@ const recommendationCandidates = computed(() => buildCandidatesFromSettings(cand
 const windowCandidates = computed(() => recommendationCandidates.value.windows)
 const seatCandidates = computed(() => recommendationCandidates.value.seats)
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
-const configCandidateGroups = computed(() => buildConfigCandidateGroups(windowCandidates.value, seatCandidates.value, staggerCandidates.value))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
