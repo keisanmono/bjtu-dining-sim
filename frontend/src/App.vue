@@ -153,7 +153,7 @@
                   <strong>{{ recommendation.best.metrics.peak_queue }}</strong>
                 </div>
                 <div class="recommend-result-item">
-                  <p>吞吐</p>
+                  <p>完成就餐</p>
                   <strong>{{ recommendation.best.metrics.throughput }}</strong>
                 </div>
                 <div class="recommend-result-item">
@@ -175,7 +175,7 @@
                 <el-table-column label="峰值排队" width="86">
                   <template #default="{ row }">{{ row.metrics.peak_queue }}</template>
                 </el-table-column>
-                <el-table-column label="吞吐" width="70">
+                <el-table-column label="完成就餐" width="90">
                   <template #default="{ row }">{{ row.metrics.throughput }}</template>
                 </el-table-column>
                 <el-table-column label="评分" width="74">
@@ -508,10 +508,10 @@ const runCards = computed(() => {
 const analysisCards = computed(() => {
   const m = metrics.value
   return [
-    { label: '平均等待', value: formatMinutes(m?.avg_wait || 0), hint: `队列 ${formatMinutes(m?.avg_queue_wait || 0)}` },
-    { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `等座峰值 ${m?.peak_waiting_for_seat || 0}` },
-    { label: '窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: m?.bottleneck_type || '待分析' },
-    { label: '座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `吞吐 ${m?.throughput || 0} 人` }
+    { label: '平均等待', value: formatMinutes(m?.avg_wait || 0), hint: `取餐排队等待 ${formatMinutes(m?.avg_queue_wait || 0)}` },
+    { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `最多等座 ${m?.peak_waiting_for_seat || 0} 人` },
+    { label: '窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: `瓶颈判断：${m?.bottleneck_type || '待分析'}` },
+    { label: '座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` }
   ]
 })
 const recentRecords = computed(() => records.value.slice(-80).reverse())

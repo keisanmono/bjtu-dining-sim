@@ -15,7 +15,7 @@ test('config recommendation panel shows effect metrics for alternatives', () => 
   assert.equal(source.includes('class="config-effect-table"'), true)
   assert.equal(source.includes('label="平均等待"'), true)
   assert.equal(source.includes('label="峰值排队"'), true)
-  assert.equal(source.includes('label="吞吐"'), true)
+  assert.equal(source.includes('label="完成就餐"'), true)
   assert.equal(source.includes('label="评分"'), true)
 })
 
@@ -32,4 +32,16 @@ test('config form uses a clear arrival volume label', () => {
 
   assert.equal(source.includes('label="平均每分钟到达人数"'), true)
   assert.equal(source.includes('label="到达率"'), false)
+})
+
+test('analysis cards explain secondary metrics without jargon', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('取餐排队等待'), true)
+  assert.equal(source.includes('最多等座'), true)
+  assert.equal(source.includes('瓶颈判断：'), true)
+  assert.equal(source.includes('完成就餐'), true)
+  assert.equal(source.includes('`队列 ${formatMinutes'), false)
+  assert.equal(source.includes('`等座峰值 ${'), false)
+  assert.equal(source.includes('`吞吐 ${'), false)
 })
