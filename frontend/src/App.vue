@@ -29,35 +29,11 @@
           </template>
           <el-form label-position="top" :model="config" class="config-form">
             <div class="form-pair">
-              <el-form-item label="开放窗口数" class="candidate-form-item">
+              <el-form-item label="开放窗口数">
                 <el-input-number v-model="config.num_windows" :min="1" :max="30" controls-position="right" />
-                <div class="param-candidates" aria-label="窗口候选">
-                  <el-button
-                    v-for="item in windowCandidateButtons"
-                    :key="item.value"
-                    size="small"
-                    :type="config.num_windows === item.value ? 'primary' : 'default'"
-                    :plain="config.num_windows !== item.value"
-                    @click="applyCandidate('num_windows', item.value)"
-                  >
-                    {{ item.label }}
-                  </el-button>
-                </div>
               </el-form-item>
-              <el-form-item label="座位数" class="candidate-form-item">
+              <el-form-item label="座位数">
                 <el-input-number v-model="config.num_seats" :min="1" :max="2000" controls-position="right" />
-                <div class="param-candidates" aria-label="座位候选">
-                  <el-button
-                    v-for="item in seatCandidateButtons"
-                    :key="item.value"
-                    size="small"
-                    :type="config.num_seats === item.value ? 'primary' : 'default'"
-                    :plain="config.num_seats !== item.value"
-                    @click="applyCandidate('num_seats', item.value)"
-                  >
-                    {{ item.label }}
-                  </el-button>
-                </div>
               </el-form-item>
             </div>
             <div class="form-pair">
@@ -80,20 +56,8 @@
               <el-form-item label="随机种子">
                 <el-input-number v-model="config.seed" :min="1" controls-position="right" />
               </el-form-item>
-              <el-form-item label="错峰分钟" class="candidate-form-item">
+              <el-form-item label="错峰分钟">
                 <el-input-number v-model="config.stagger_minutes" :min="0" :max="120" controls-position="right" />
-                <div class="param-candidates" aria-label="错峰候选">
-                  <el-button
-                    v-for="item in staggerCandidateButtons"
-                    :key="item.value"
-                    size="small"
-                    :type="config.stagger_minutes === item.value ? 'primary' : 'default'"
-                    :plain="config.stagger_minutes !== item.value"
-                    @click="applyCandidate('stagger_minutes', item.value)"
-                  >
-                    {{ item.label }}
-                  </el-button>
-                </div>
               </el-form-item>
             </div>
             <div class="form-pair">
@@ -106,11 +70,30 @@
             </div>
           </el-form>
 
-          <div class="candidate-block candidate-config-panel">
-            <div class="candidate-header">
-              <p class="block-label">优化推荐</p>
-              <span>生成推荐时比较上方窗口、座位和错峰候选</span>
+          <div class="button-row">
+            <el-button :icon="CircleCheck" @click="validateConfig">参数校验</el-button>
+            <el-button :icon="Refresh" @click="loadDefault">加载默认场景</el-button>
+            <el-button type="primary" :icon="VideoPlay" @click="startLiveRun">开始仿真</el-button>
+          </div>
+
+          <el-alert
+            v-if="validationMessage"
+            class="validation-alert"
+            :type="validationType"
+            :title="validationMessage"
+            show-icon
+            :closable="false"
+          />
+        </el-card>
+
+        <el-card class="panel recommendation-panel">
+          <template #header>
+            <div class="panel-title">
+              <el-icon><MagicStick /></el-icon>
+              <span>优化推荐</span>
             </div>
+          </template>
+          <div class="candidate-block">
             <div class="candidate-editor">
               <div class="candidate-editor-row">
                 <span>窗口</span>
@@ -145,35 +128,49 @@
                 <el-button type="primary" size="small" :icon="MagicStick" :loading="isRecommending" @click="generateRecommendation">生成推荐</el-button>
               </div>
             </div>
-          </div>
 
-          <div class="button-row">
-            <el-button :icon="CircleCheck" @click="validateConfig">参数校验</el-button>
-            <el-button :icon="Refresh" @click="loadDefault">加载默认场景</el-button>
-            <el-button type="primary" :icon="VideoPlay" @click="startLiveRun">开始仿真</el-button>
-          </div>
-
-          <el-alert
-            v-if="validationMessage"
-            class="validation-alert"
-            :type="validationType"
-            :title="validationMessage"
-            show-icon
-            :closable="false"
-          />
-        </el-card>
-
-        <el-card class="panel scenario-panel">
-          <template #header>
-            <div class="panel-title">
-              <el-icon><Document /></el-icon>
-              <span>场景说明</span>
+            <div class="candidate-groups">
+              <div v-for="group in configCandidateGroups" :key="group.key" class="candidate-row">
+                <span class="candidate-label">{{ group.label }}</span>
+                <div class="candidate-values">
+                  <span v-for="item in group.values" :key="item.value" class="candidate-value">{{ item.label }}</span>
+                </div>
+              </div>
             </div>
-          </template>
-          <div class="scenario-copy">
-            <p>单食堂、单餐段、多窗口、多座位。</p>
-            <p>学生按分钟到达，依次经历排队、取餐、入座、就餐和离场。</p>
-            <p>优化推荐会比较基础参数中设置的窗口数、座位数和错峰分钟候选。</p>
+
+            <el-divider />
+            <el-empty v-if="!recommendation" description="暂无推荐结果" />
+            <template v-else>
+              <div class="config-recommend-summary">
+                <div class="recommend-result-item">
+                  <p>推荐窗口数</p>
+                  <strong>{{ recommendation.best.config.num_windows }} 个</strong>
+                </div>
+                <div class="recommend-result-item">
+                  <p>推荐座位数</p>
+                  <strong>{{ recommendation.best.config.num_seats }} 个</strong>
+                </div>
+                <div class="recommend-result-item">
+                  <p>错峰</p>
+                  <strong>{{ recommendation.best.config.stagger_minutes }} 分钟</strong>
+                </div>
+              </div>
+              <p class="explain-text compact">{{ explanation?.text || recommendation.explanation_summary }}</p>
+              <el-table :data="recommendation.ranking" size="small" height="220">
+                <el-table-column label="方案" min-width="130">
+                  <template #default="{ row }">{{ row.strategy }}</template>
+                </el-table-column>
+                <el-table-column label="窗口" width="58">
+                  <template #default="{ row }">{{ row.config.num_windows }}</template>
+                </el-table-column>
+                <el-table-column label="座位" width="66">
+                  <template #default="{ row }">{{ row.config.num_seats }}</template>
+                </el-table-column>
+                <el-table-column label="错峰" width="66">
+                  <template #default="{ row }">{{ row.config.stagger_minutes }}</template>
+                </el-table-column>
+              </el-table>
+            </template>
           </div>
         </el-card>
 
@@ -403,7 +400,6 @@ import {
   ChatLineRound,
   CircleCheck,
   DataAnalysis,
-  Document,
   Download,
   Finished,
   Grid,
@@ -424,6 +420,7 @@ import {
   createDefaultCandidateSettings
 } from './candidates'
 import { canRenderChartElement } from './chartUtils'
+import { nextViewAfterRecommendation } from './recommendationFlow'
 import { shouldResetStepRun } from './runControl'
 
 const defaultConfig = {
@@ -486,9 +483,6 @@ const windowCandidates = computed(() => recommendationCandidates.value.windows)
 const seatCandidates = computed(() => recommendationCandidates.value.seats)
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
 const configCandidateGroups = computed(() => buildConfigCandidateGroups(windowCandidates.value, seatCandidates.value, staggerCandidates.value))
-const windowCandidateButtons = computed(() => candidateValues('windows'))
-const seatCandidateButtons = computed(() => candidateValues('seats'))
-const staggerCandidateButtons = computed(() => candidateValues('stagger'))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
@@ -551,14 +545,6 @@ function loadDefault() {
 
 function resetCandidateSettings() {
   Object.assign(candidateSettings, createDefaultCandidateSettings(config))
-}
-
-function candidateValues(key) {
-  return configCandidateGroups.value.find((group) => group.key === key)?.values || []
-}
-
-function applyCandidate(field, value) {
-  config[field] = value
 }
 
 async function validateConfig() {
@@ -668,7 +654,7 @@ async function generateRecommendation() {
       root_cause_summary: metrics.value?.bottleneck_type || recommendation.value.baseline_metrics.bottleneck_type,
       recommended_strategy: recommendation.value.best.strategy
     })
-    activeView.value = 'recommend'
+    activeView.value = nextViewAfterRecommendation(activeView.value)
   } catch (error) {
     ElMessage.error(error?.response?.data?.detail || '生成推荐失败')
   } finally {

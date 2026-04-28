@@ -110,23 +110,6 @@ input {
   width: 100%;
 }
 
-.config-form .candidate-form-item .el-form-item__content {
-  display: grid;
-  gap: 8px;
-}
-
-.param-candidates {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
-}
-
-.param-candidates .el-button {
-  min-width: 58px;
-}
-
-.param-candidates .el-button + .el-button,
 .candidate-actions .el-button + .el-button {
   margin-left: 0;
 }
@@ -152,14 +135,6 @@ input {
   margin-top: 14px;
 }
 
-.scenario-copy {
-  display: grid;
-  gap: 12px;
-  color: #405167;
-  line-height: 1.7;
-}
-
-.scenario-copy p,
 .block-label {
   margin: 0;
 }
@@ -178,24 +153,6 @@ input {
 .candidate-block {
   display: grid;
   gap: 12px;
-}
-
-.candidate-config-panel {
-  margin: 2px 0 14px;
-  padding: 12px;
-  border: 1px solid #d8e2ed;
-  border-radius: 8px;
-  background: #f8fbfe;
-}
-
-.candidate-header {
-  display: grid;
-  gap: 4px;
-}
-
-.candidate-header span {
-  color: #6b7b8f;
-  font-size: 13px;
 }
 
 .candidate-groups {
@@ -399,6 +356,33 @@ input {
   color: #2f6b44;
 }
 
+.config-recommend-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.recommend-result-item {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d8e2ed;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.recommend-result-item p {
+  margin: 0 0 6px;
+  color: #66768a;
+  font-size: 13px;
+}
+
+.recommend-result-item strong {
+  display: block;
+  color: #2f6b44;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
 .chart-box {
   width: 100%;
   min-height: 260px;
@@ -444,6 +428,11 @@ input {
   line-height: 1.8;
 }
 
+.explain-text.compact {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .risk-alert {
   margin-top: 10px;
 }
@@ -486,7 +475,8 @@ input {
   }
 
   .metric-grid,
-  .recommend-summary {
+  .recommend-summary,
+  .config-recommend-summary {
     grid-template-columns: 1fr;
   }
 
