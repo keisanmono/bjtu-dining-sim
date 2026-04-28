@@ -101,8 +101,38 @@
           <el-divider />
           <div class="candidate-block">
             <div class="candidate-header">
-              <p class="block-label">推荐候选范围</p>
-              <span>生成推荐时组合比较以下参数</span>
+              <p class="block-label">优化搜索范围</p>
+              <span>生成推荐时只比较你在这里设定的候选组合</span>
+            </div>
+            <div class="candidate-editor">
+              <div class="candidate-editor-row">
+                <span>窗口</span>
+                <el-input-number v-model="candidateSettings.windowMin" :min="1" :max="30" size="small" controls-position="right" />
+                <span class="range-separator">至</span>
+                <el-input-number v-model="candidateSettings.windowMax" :min="1" :max="30" size="small" controls-position="right" />
+              </div>
+              <div class="candidate-editor-row">
+                <span>座位</span>
+                <el-input-number v-model="candidateSettings.seatMin" :min="1" :max="2000" :step="10" size="small" controls-position="right" />
+                <span class="range-separator">至</span>
+                <el-input-number v-model="candidateSettings.seatMax" :min="1" :max="2000" :step="10" size="small" controls-position="right" />
+              </div>
+              <div class="candidate-editor-row">
+                <span>步长</span>
+                <el-input-number v-model="candidateSettings.seatStep" :min="1" :max="200" :step="5" size="small" controls-position="right" />
+                <span class="range-hint">座位候选间隔</span>
+              </div>
+              <div class="candidate-editor-row stagger-row">
+                <span>错峰</span>
+                <el-checkbox-group v-model="candidateSettings.staggers" class="stagger-checkboxes">
+                  <el-checkbox :value="0">不启用</el-checkbox>
+                  <el-checkbox :value="5">5 分钟</el-checkbox>
+                  <el-checkbox :value="10">10 分钟</el-checkbox>
+                  <el-checkbox :value="15">15 分钟</el-checkbox>
+                  <el-checkbox :value="20">20 分钟</el-checkbox>
+                </el-checkbox-group>
+              </div>
+              <el-button size="small" :icon="Refresh" @click="resetCandidateSettings">按当前参数重置范围</el-button>
             </div>
             <div class="candidate-groups">
               <div v-for="group in candidateGroups" :key="group.key" class="candidate-row">
@@ -356,7 +386,7 @@ import {
   VideoPlay
 } from '@element-plus/icons-vue'
 import { api } from './api'
-import { buildCandidateGroups } from './candidates'
+import { buildCandidateGroups, buildCandidatesFromSettings, createDefaultCandidateSettings } from './candidates'
 import { canRenderChartElement } from './chartUtils'
 import { shouldResetStepRun } from './runControl'
 
@@ -377,6 +407,7 @@ const defaultConfig = {
 
 const activeView = ref('config')
 const config = reactive({ ...defaultConfig })
+const candidateSettings = reactive(createDefaultCandidateSettings(defaultConfig))
 const healthOk = ref(false)
 const healthText = ref('后端未连接')
 const validationMessage = ref('')
@@ -413,9 +444,10 @@ const visibleSeatMatrix = computed(() => {
   }
   return matrix.slice(0, previewSeatLimit)
 })
-const windowCandidates = computed(() => uniqueSorted([config.num_windows, config.num_windows + 1, config.num_windows + 2]))
-const seatCandidates = computed(() => uniqueSorted([config.num_seats, config.num_seats + 20, config.num_seats + 40]))
-const staggerCandidates = computed(() => [0, 5, 10])
+const recommendationCandidates = computed(() => buildCandidatesFromSettings(candidateSettings))
+const windowCandidates = computed(() => recommendationCandidates.value.windows)
+const seatCandidates = computed(() => recommendationCandidates.value.seats)
+const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
 const candidateGroups = computed(() => buildCandidateGroups(windowCandidates.value, seatCandidates.value, staggerCandidates.value))
 const runCards = computed(() => {
   const record = currentRecord.value
@@ -473,7 +505,12 @@ async function checkHealth() {
 
 function loadDefault() {
   Object.assign(config, defaultConfig)
+  resetCandidateSettings()
   validationMessage.value = ''
+}
+
+function resetCandidateSettings() {
+  Object.assign(candidateSettings, createDefaultCandidateSettings(config))
 }
 
 async function validateConfig() {
