@@ -138,7 +138,7 @@
           <div class="control-row">
             <el-button type="success" :icon="VideoPlay" :disabled="isRunning" @click="startLiveRun">开始</el-button>
             <el-button type="warning" :icon="VideoPause" :disabled="!isRunning" @click="pauseRun">暂停</el-button>
-            <el-button :icon="Right" :disabled="isRunning || isDone" @click="singleStep">单步</el-button>
+            <el-button :icon="Right" :disabled="isRunning || isDone" @click="singleStep(false)">单步</el-button>
             <el-button type="danger" :icon="Refresh" @click="resetRun">重置</el-button>
             <el-button :icon="Finished" @click="runFullSimulation">快速完成</el-button>
             <el-button :icon="Download" :disabled="!runId || !metrics" @click="exportRecords">导出记录</el-button>
@@ -351,6 +351,7 @@ import {
 } from '@element-plus/icons-vue'
 import { api } from './api'
 import { canRenderChartElement } from './chartUtils'
+import { shouldResetStepRun } from './runControl'
 
 const defaultConfig = {
   num_windows: 4,
@@ -515,7 +516,7 @@ function resetRun(clearMessage = true) {
 
 async function singleStep(reset = false) {
   try {
-    const payload = reset || !runId.value
+    const payload = shouldResetStepRun(reset, runId.value)
       ? { config: { ...config }, reset: true }
       : { run_id: runId.value }
     const response = await api.stepSimulation(payload)
