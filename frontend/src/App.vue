@@ -40,7 +40,7 @@
               <el-form-item label="到达率">
                 <el-input-number v-model="config.arrival_rate" :min="0.1" :step="0.5" controls-position="right" />
               </el-form-item>
-              <el-form-item label="仿真时长">
+              <el-form-item label="到达时段">
                 <el-input-number v-model="config.duration_min" :min="5" :max="360" controls-position="right" />
               </el-form-item>
             </div>

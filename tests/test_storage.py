@@ -32,8 +32,9 @@ class SimulationStoreTests(unittest.TestCase):
             records = store.get_records(result.run_id)
             metrics = store.get_metrics(result.run_id)
 
-            self.assertEqual(len(records), result.config.duration_min)
+            self.assertGreaterEqual(len(records), result.config.duration_min)
             self.assertEqual(records[-1]["total_arrived"], result.metrics.total_arrived)
+            self.assertEqual(records[-1]["total_left"], result.metrics.total_arrived)
             self.assertEqual(metrics["run_id"], result.run_id)
             self.assertEqual(metrics["peak_queue"], result.metrics.peak_queue)
             self.assertIn("chart_data", metrics)

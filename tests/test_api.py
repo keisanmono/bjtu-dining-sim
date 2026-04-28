@@ -36,12 +36,13 @@ class ApiTests(unittest.TestCase):
         run = self.client.post("/api/sim/run", json=self.config)
         self.assertEqual(run.status_code, 200)
         run_body = run.json()
-        self.assertEqual(len(run_body["records"]), self.config["duration_min"])
+        self.assertGreaterEqual(len(run_body["records"]), self.config["duration_min"])
+        self.assertEqual(run_body["metrics"]["total_left"], run_body["metrics"]["total_arrived"])
         run_id = run_body["run_id"]
 
         records = self.client.get(f"/api/run/{run_id}/records")
         self.assertEqual(records.status_code, 200)
-        self.assertEqual(len(records.json()), self.config["duration_min"])
+        self.assertGreaterEqual(len(records.json()), self.config["duration_min"])
 
         metrics = self.client.get(f"/api/run/{run_id}/metrics")
         self.assertEqual(metrics.status_code, 200)

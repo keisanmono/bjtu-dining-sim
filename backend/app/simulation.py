@@ -109,7 +109,7 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
     if config.dining_time_mean <= 0:
         errors.append("平均就餐时长必须大于 0。")
     if config.duration_min < 5 or config.duration_min > 360:
-        errors.append("仿真时长应在 5 到 360 分钟之间。")
+        errors.append("到达时段应在 5 到 360 分钟之间。")
     if config.peak_start_min >= config.peak_end_min:
         warnings.append("高峰开始时间不早于结束时间，将按普通到达率运行。")
     if config.num_seats < config.num_windows * 6:
@@ -150,7 +150,7 @@ class DiningSimulationRunner:
 
     @property
     def done(self) -> bool:
-        return self.current_minute >= self.config.duration_min
+        return self.current_minute >= self.config.duration_min and not self._has_active_students()
 
     def step(self) -> StepRecord:
         if self.done:
@@ -228,6 +228,8 @@ class DiningSimulationRunner:
         return seated_count
 
     def _generate_arrivals(self, minute: int) -> list[Student]:
+        if minute >= self.config.duration_min:
+            return []
         count = self._poisson(self._arrival_rate_for_minute(minute))
         arrivals = []
         for _ in range(count):
@@ -288,6 +290,14 @@ class DiningSimulationRunner:
             return 1
         spread = max(0.35, mean * 0.22)
         return max(1, int(round(self.rng.gauss(mean, spread))))
+
+    def _has_active_students(self) -> bool:
+        return (
+            any(self.queues)
+            or any(window is not None for window in self.windows)
+            or bool(self.waiting_for_seat)
+            or bool(self.seated)
+        )
 
     def _build_record(
         self,
@@ -354,8 +364,9 @@ class DiningSimulationRunner:
         avg_seat_wait = _average(student.seat_time - student.service_end_time for student in seat_wait_students)
         peak_queue = max((sum(record.queue_lengths) for record in self.records), default=0)
         peak_waiting_for_seat = max((record.waiting_for_seat_count for record in self.records), default=0)
-        denominator_windows = max(1, self.config.duration_min * self.config.num_windows)
-        denominator_seats = max(1, self.config.duration_min * self.config.num_seats)
+        elapsed_minutes = max(1, len(self.records))
+        denominator_windows = max(1, elapsed_minutes * self.config.num_windows)
+        denominator_seats = max(1, elapsed_minutes * self.config.num_seats)
         window_utilization = self.window_busy_minutes / denominator_windows
         seat_utilization = self.seat_occupied_minutes / denominator_seats
         bottleneck = self._classify_bottleneck(
@@ -413,4 +424,3 @@ def _average(values: Any) -> float:
 
 def dataclass_to_dict(value: Any) -> Any:
     return asdict(value)
-
