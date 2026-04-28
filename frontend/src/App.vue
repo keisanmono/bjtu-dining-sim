@@ -133,32 +133,46 @@
             <el-empty v-if="!recommendation" description="暂无推荐结果" />
             <template v-else>
               <div class="config-recommend-summary">
-                <div class="recommend-result-item">
-                  <p>推荐窗口数</p>
-                  <strong>{{ recommendation.best.config.num_windows }} 个</strong>
+                <div class="recommend-result-item wide">
+                  <p>推荐配置</p>
+                  <strong>{{ formatConfigSummary(recommendation.best.config) }}</strong>
                 </div>
                 <div class="recommend-result-item">
-                  <p>推荐座位数</p>
-                  <strong>{{ recommendation.best.config.num_seats }} 个</strong>
+                  <p>平均等待</p>
+                  <strong>{{ formatMinutes(recommendation.best.metrics.avg_wait) }}</strong>
                 </div>
                 <div class="recommend-result-item">
-                  <p>错峰</p>
-                  <strong>{{ recommendation.best.config.stagger_minutes }} 分钟</strong>
+                  <p>峰值排队</p>
+                  <strong>{{ recommendation.best.metrics.peak_queue }}</strong>
+                </div>
+                <div class="recommend-result-item">
+                  <p>吞吐</p>
+                  <strong>{{ recommendation.best.metrics.throughput }}</strong>
+                </div>
+                <div class="recommend-result-item">
+                  <p>评分</p>
+                  <strong>{{ formatNumber(recommendation.best.score) }}</strong>
                 </div>
               </div>
               <p class="explain-text compact">{{ explanation?.text || recommendation.explanation_summary }}</p>
-              <el-table :data="recommendation.ranking" size="small" height="220">
+              <el-table :data="recommendation.ranking" class="config-effect-table" size="small" height="260">
                 <el-table-column label="方案" min-width="130">
                   <template #default="{ row }">{{ row.strategy }}</template>
                 </el-table-column>
-                <el-table-column label="窗口" width="58">
-                  <template #default="{ row }">{{ row.config.num_windows }}</template>
+                <el-table-column label="配置" min-width="130">
+                  <template #default="{ row }">{{ formatConfigSummary(row.config) }}</template>
                 </el-table-column>
-                <el-table-column label="座位" width="66">
-                  <template #default="{ row }">{{ row.config.num_seats }}</template>
+                <el-table-column label="平均等待" width="92">
+                  <template #default="{ row }">{{ formatMinutes(row.metrics.avg_wait) }}</template>
                 </el-table-column>
-                <el-table-column label="错峰" width="66">
-                  <template #default="{ row }">{{ row.config.stagger_minutes }}</template>
+                <el-table-column label="峰值排队" width="86">
+                  <template #default="{ row }">{{ row.metrics.peak_queue }}</template>
+                </el-table-column>
+                <el-table-column label="吞吐" width="70">
+                  <template #default="{ row }">{{ row.metrics.throughput }}</template>
+                </el-table-column>
+                <el-table-column label="评分" width="74">
+                  <template #default="{ row }">{{ formatNumber(row.score) }}</template>
                 </el-table-column>
               </el-table>
             </template>
@@ -747,6 +761,15 @@ function formatPercent(value) {
 function formatNumber(value) {
   const number = Number(value) || 0
   return number.toFixed(number % 1 === 0 ? 0 : 1)
+}
+
+function formatConfigSummary(item) {
+  return `${item.num_windows} 窗 / ${item.num_seats} 座 / ${formatStagger(item.stagger_minutes)}`
+}
+
+function formatStagger(value) {
+  const minutes = Number(value) || 0
+  return minutes === 0 ? '不启用错峰' : `错峰 ${minutes} 分钟`
 }
 
 function uniqueSorted(values) {
