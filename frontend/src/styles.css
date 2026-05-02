@@ -206,12 +206,77 @@ input {
   aspect-ratio: 360 / 640;
   border-radius: 8px;
   background: #f8faf7;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.layout-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.layout-editor.is-dragging {
+  cursor: grabbing;
+}
+
+.layout-editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border: 1px solid #d8e2ed;
+  border-radius: 8px;
+  background: #f5f9fc;
+}
+
+.layout-editor-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.layout-editor-summary {
+  color: #66768a;
+  font-size: 12px;
+}
+
+.layout-editor-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.layout-capacity-select {
+  width: 110px;
+}
+
+.layout-editor-hint {
+  margin: 0;
+  color: #6b7b8f;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .floor-fill {
   fill: #f8faf7;
   stroke: #aebdcc;
   stroke-width: 2;
+}
+
+.floor-grid {
+  pointer-events: none;
+}
+
+.layout-grid-line {
+  fill: none;
+  stroke: #d6dee7;
+  stroke-width: 0.5;
 }
 
 .wall-line {
@@ -224,7 +289,7 @@ input {
 
 .svg-label {
   fill: #1f4f85;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -233,66 +298,103 @@ input {
   font-size: 11px;
 }
 
-.svg-entrance-door {
-  fill: #edf5ed;
-  stroke: #48745a;
-  stroke-width: 4;
-}
-
-.svg-door-text {
-  fill: #2f6b44;
-  font-size: 16px;
-  font-weight: 800;
-}
-
-.entry-arrow,
 .queue-lane {
   fill: none;
-  stroke: #48745a;
+  stroke: #8aa6c4;
+  stroke-dasharray: 4 4;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 6;
+  stroke-width: 2;
+  pointer-events: none;
 }
 
 .counter-belt {
   fill: #b98345;
+  pointer-events: none;
 }
 
-.svg-counter-window rect {
+.layout-item {
+  cursor: grab;
+}
+
+.layout-item:active {
+  cursor: grabbing;
+}
+
+.layout-item.is-selected {
+  filter: drop-shadow(0 0 3px rgba(31, 79, 133, 0.6));
+}
+
+.layout-door rect {
+  fill: #edf5ed;
+  stroke: #2f6b44;
+  stroke-width: 2;
+}
+
+.layout-door text {
+  fill: #2f6b44;
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.layout-window rect {
   fill: #edf4fb;
-  stroke: #b9c7d5;
+  stroke: #1f4f85;
+  stroke-width: 1.5;
 }
 
-.svg-counter-window text {
+.layout-window.is-selected rect {
+  stroke: #d97706;
+  stroke-width: 2.4;
+}
+
+.layout-window text {
   fill: #1f4f85;
   font-size: 10px;
   font-weight: 800;
+  pointer-events: none;
 }
 
-.queue-dot {
-  fill: #48745a;
-}
-
-.dining-table-group {
-  color: #1f4f85;
-}
-
-.table-top {
+.layout-table .table-top {
   fill: #d1a164;
   stroke: #9b6a37;
   stroke-width: 1.2;
 }
 
-.dining-chair {
+.layout-table.capacity-2 .table-top {
+  fill: #e6c594;
+}
+
+.layout-table.capacity-6 .table-top {
+  fill: #b98345;
+}
+
+.layout-table.is-selected .table-top {
+  stroke: #d97706;
+  stroke-width: 2.4;
+}
+
+.layout-table .dining-chair {
   fill: #e3ebf2;
   stroke: #8aa1b8;
   stroke-width: 1;
 }
 
-.table-number {
+.layout-table.is-selected .dining-chair {
+  stroke: #d97706;
+}
+
+.layout-table .table-number {
   fill: #4c351c;
-  font-size: 13px;
+  font-size: 9px;
   font-weight: 800;
+  pointer-events: none;
+}
+
+.layout-door.is-selected rect {
+  stroke: #d97706;
+  stroke-width: 2.4;
 }
 
 .seat-grid {

@@ -120,7 +120,7 @@ class DiningSimulationTests(unittest.TestCase):
         )
         self.assertIn(recommendation.best.config.num_windows, [3, 4])
 
-    def test_recommendation_rebuilds_layout_for_candidate_resource_counts(self):
+    def test_recommendation_resizes_layout_for_candidate_resource_counts(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
             windows=[LayoutWindowData(id="W1", x=10, y=0)],
@@ -147,7 +147,83 @@ class DiningSimulationTests(unittest.TestCase):
 
         self.assertEqual(recommendation.best.config.num_windows, 2)
         self.assertEqual(recommendation.best.config.num_seats, 8)
-        self.assertIsNone(recommendation.best.config.layout)
+        self.assertIsNotNone(recommendation.best.config.layout)
+        self.assertEqual(len(recommendation.best.config.layout.windows), 2)
+        self.assertEqual(sum(table.capacity for table in recommendation.best.config.layout.tables), 8)
+
+    def test_recommendation_preserves_custom_layout_coordinates_for_candidates(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=35, y=155)],
+            windows=[
+                LayoutWindowData(id="W1", x=145, y=75),
+                LayoutWindowData(id="W2", x=230, y=75),
+            ],
+            tables=[
+                LayoutTableData(id="T1", x=90, y=280, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T2", x=170, y=280, table_type="four_seat", capacity=4),
+            ],
+        )
+        request = RecommendationRequestData(
+            base_config=SimulationConfigData(
+                num_windows=2,
+                num_seats=6,
+                arrival_rate=3.0,
+                service_time_mean=2.0,
+                dining_time_mean=8.0,
+                duration_min=12,
+                seed=31,
+                layout=layout,
+            ),
+            window_options=[3],
+            seat_options=[8],
+            stagger_options=[0],
+            top_k=1,
+        )
+
+        recommendation = recommend_config(request)
+
+        candidate_layout = recommendation.best.config.layout
+        self.assertIsNotNone(candidate_layout)
+        self.assertEqual(len(candidate_layout.windows), 3)
+        self.assertEqual(sum(table.capacity for table in candidate_layout.tables), 8)
+        self.assertEqual(candidate_layout.doors[0].x, 35)
+        self.assertEqual(candidate_layout.windows[0].x, 145)
+        self.assertEqual(candidate_layout.tables[0].x, 90)
+
+    def test_recommendation_keeps_custom_table_types_when_seat_count_is_unchanged(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=35, y=155)],
+            windows=[
+                LayoutWindowData(id="W1", x=145, y=75),
+                LayoutWindowData(id="W2", x=230, y=75),
+            ],
+            tables=[
+                LayoutTableData(id="T1", x=90, y=280, table_type="six_seat", capacity=6),
+                LayoutTableData(id="T2", x=170, y=280, table_type="two_seat", capacity=2),
+            ],
+        )
+        request = RecommendationRequestData(
+            base_config=SimulationConfigData(
+                num_windows=2,
+                num_seats=8,
+                arrival_rate=3.0,
+                service_time_mean=2.0,
+                dining_time_mean=8.0,
+                duration_min=12,
+                seed=32,
+                layout=layout,
+            ),
+            window_options=[2],
+            seat_options=[8],
+            stagger_options=[10],
+            top_k=1,
+        )
+
+        recommendation = recommend_config(request)
+
+        candidate_layout = recommendation.best.config.layout
+        self.assertEqual([table.capacity for table in candidate_layout.tables], [6, 2])
+        self.assertEqual([table.table_type for table in candidate_layout.tables], ["six_seat", "two_seat"])
 
     def test_party_members_choose_windows_independently(self):
         layout = DiningLayoutData(

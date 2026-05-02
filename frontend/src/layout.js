@@ -1,3 +1,10 @@
+import {
+  buildTableCapacities,
+  createDefaultLayout,
+  tableTypeForCapacity,
+  totalLayoutSeats
+} from './layoutEditor.js'
+
 export const defaultPartySizeDistribution = {
   1: 0.55,
   2: 0.30,
@@ -7,56 +14,56 @@ export const defaultPartySizeDistribution = {
   6: 0.01
 }
 
-export function buildSimulationConfigPayload(config) {
-  const layout = buildLayoutFromConfig(config)
-  return {
-    ...config,
-    layout,
-    party_size_distribution: partyDistributionForLayout(layout)
-  }
-}
+export { buildTableCapacities, tableTypeForCapacity }
 
 export function buildLayoutFromConfig(config) {
-  const numWindows = clampInteger(config.num_windows, 1, 30)
-  const numSeats = clampInteger(config.num_seats, 1, 2000)
+  return createDefaultLayout(config)
+}
+
+export function buildSimulationConfigPayload(config, layout = null) {
+  const effectiveLayout = isUsableLayout(layout)
+    ? normalizeLayout(layout)
+    : buildLayoutFromConfig(config)
   return {
-    doors: [{ id: 'D1', x: 18, y: 145, arrival_share: 1 }],
-    windows: Array.from({ length: numWindows }, (_item, index) => ({
-      id: `W${index + 1}`,
-      x: 126 + (index % 4) * 54,
-      y: 82 + Math.floor(index / 4) * 42,
-      service_rate_factor: 1
-    })),
-    tables: buildTableCapacities(numSeats).map((capacity, index) => ({
-      id: `T${index + 1}`,
-      x: 126 + (index % 4) * 62,
-      y: 232 + Math.floor(index / 4) * 54,
-      table_type: tableTypeForCapacity(capacity),
-      capacity
-    }))
+    ...config,
+    layout: effectiveLayout,
+    party_size_distribution: partyDistributionForLayout(effectiveLayout)
   }
 }
 
-export function buildTableCapacities(numSeats) {
-  let remaining = clampInteger(numSeats, 1, 2000)
-  const pattern = [2, 4, 4, 6]
-  const capacities = []
-  let index = 0
-
-  while (remaining > 0) {
-    const capacity = Math.min(pattern[index % pattern.length], remaining)
-    capacities.push(capacity)
-    remaining -= capacity
-    index += 1
-  }
-  return capacities
+function isUsableLayout(layout) {
+  return Boolean(
+    layout &&
+    Array.isArray(layout.doors) && layout.doors.length &&
+    Array.isArray(layout.windows) && layout.windows.length &&
+    Array.isArray(layout.tables) && layout.tables.length
+  )
 }
 
-export function tableTypeForCapacity(capacity) {
-  if (capacity <= 1) return 'single_seat'
-  if (capacity <= 2) return 'two_seat'
-  if (capacity <= 4) return 'four_seat'
-  return 'six_seat'
+function normalizeLayout(layout) {
+  const doors = layout.doors.map((door) => ({
+    id: door.id,
+    x: round1(door.x),
+    y: round1(door.y),
+    arrival_share: Number(door.arrival_share ?? 1)
+  }))
+  const windows = layout.windows.map((window) => ({
+    id: window.id,
+    x: round1(window.x),
+    y: round1(window.y),
+    service_rate_factor: Number(window.service_rate_factor ?? 1)
+  }))
+  const tables = layout.tables.map((table, index) => {
+    const capacity = Math.max(1, Math.round(Number(table.capacity) || 1))
+    return {
+      id: table.id || `T${index + 1}`,
+      x: round1(table.x),
+      y: round1(table.y),
+      capacity,
+      table_type: table.table_type || tableTypeForCapacity(capacity)
+    }
+  })
+  return { doors, windows, tables }
 }
 
 function partyDistributionForLayout(layout) {
@@ -68,6 +75,12 @@ function partyDistributionForLayout(layout) {
   )
 }
 
-function clampInteger(value, lower, upper) {
-  return Math.min(upper, Math.max(lower, Math.round(Number(value) || lower)))
+function round1(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  return Math.round(number * 10) / 10
+}
+
+export function totalSeatsFromLayout(layout) {
+  return totalLayoutSeats(layout)
 }

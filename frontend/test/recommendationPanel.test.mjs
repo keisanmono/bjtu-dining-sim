@@ -25,42 +25,63 @@ test('recommendations stay inside config page without a separate tab or page', (
   assert.equal(styleSource.includes('.recommend-grid'), false)
 })
 
-test('simulation preview renders a realistic cafeteria floor plan', () => {
+test('simulation preview renders a realistic cafeteria floor plan via LayoutEditor', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const editorSource = readFileSync(new URL('../src/LayoutEditor.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
-  assert.equal(appSource.includes('<svg'), true)
-  assert.equal(appSource.includes('class="dining-floor-plan"'), true)
-  assert.equal(appSource.includes('viewBox="0 0 360 640"'), true)
-  assert.equal(appSource.includes('svgWindowCounters'), true)
-  assert.equal(appSource.includes('svgTableGroups'), true)
-  assert.equal(appSource.includes('svg-counter-window'), true)
-  assert.equal(appSource.includes('svg-entrance-door'), true)
-  assert.equal(appSource.includes('queue-lane'), true)
-  assert.equal(appSource.includes('dining-table-group'), true)
+  // App.vue delegates the floor plan to a LayoutEditor component.
+  assert.equal(appSource.includes("import LayoutEditor from './LayoutEditor.vue'"), true)
+  assert.equal(appSource.includes('<LayoutEditor'), true)
+  assert.equal(appSource.includes(':layout="layout"'), true)
+  assert.equal(appSource.includes('@update:layout="onLayoutUpdate"'), true)
+  assert.equal(appSource.includes('@reset="resetLayout"'), true)
+
+  // The LayoutEditor itself renders the SVG floor plan with the agreed viewBox.
+  assert.equal(editorSource.includes('class="dining-floor-plan"'), true)
+  assert.equal(editorSource.includes('LAYOUT_VIEWBOX.width'), true)
+  assert.equal(editorSource.includes('LAYOUT_VIEWBOX.height'), true)
+  assert.equal(editorSource.includes('layout-window'), true)
+  assert.equal(editorSource.includes('layout-table'), true)
+  assert.equal(editorSource.includes('layout-door'), true)
+  assert.equal(editorSource.includes('table-top'), true)
+  assert.equal(editorSource.includes('dining-chair'), true)
+  assert.equal(editorSource.includes('queue-lane'), true)
+
+  // The old card-style preview is gone.
   assert.equal(appSource.includes('<section class="entrance-zone"'), false)
   assert.equal(appSource.includes('service-counter-bank'), false)
   assert.equal(appSource.includes('entrance-zone'), false)
   assert.equal(appSource.includes('previewTableGroups'), false)
+  assert.equal(appSource.includes('svgWindowCounters'), false)
+  assert.equal(appSource.includes('svgTableGroups'), false)
   assert.equal(appSource.includes('座位网格预览'), false)
+
+  // Stylesheet keeps the floor-plan look-and-feel and adds editor primitives.
   assert.equal(styleSource.includes('.dining-floor-plan'), true)
   assert.equal(styleSource.includes('aspect-ratio: 360 / 640'), true)
-  assert.equal(styleSource.includes('position: absolute'), false)
-  assert.equal(styleSource.includes('.floor-zone'), false)
-  assert.equal(styleSource.includes('.service-counter-bank'), false)
-  assert.equal(styleSource.includes('.dining-table-group'), true)
+  assert.equal(styleSource.includes('.layout-editor'), true)
+  assert.equal(styleSource.includes('.layout-window'), true)
+  assert.equal(styleSource.includes('.layout-table'), true)
+  assert.equal(styleSource.includes('.layout-door'), true)
   assert.equal(styleSource.includes('.table-top'), true)
   assert.equal(styleSource.includes('.dining-chair'), true)
+  assert.equal(styleSource.includes('.floor-zone'), false)
+  assert.equal(styleSource.includes('.service-counter-bank'), false)
   assert.equal(styleSource.includes('.preview-grid'), false)
 })
 
-test('frontend sends the same dining layout used by the preview to simulation APIs', () => {
+test('frontend sends the editable dining layout to simulation APIs', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
   assert.equal(source.includes("from './layout'"), true)
-  assert.equal(source.includes('buildSimulationConfigPayload(config)'), true)
-  assert.equal(source.includes('base_config: buildSimulationConfigPayload(config)'), true)
-  assert.equal(source.includes('api.runSimulation(buildSimulationConfigPayload(config))'), true)
+  assert.equal(source.includes('buildSimulationConfigPayload(config, layout.value)'), true)
+  assert.equal(source.includes('base_config: buildSimulationConfigPayload(config, layout.value)'), true)
+  assert.equal(source.includes('api.runSimulation(buildSimulationConfigPayload(config, layout.value))'), true)
+  // The validation, step, and explanation calls also pass through the live layout.
+  assert.equal(source.includes('api.validateConfig(buildSimulationConfigPayload(config, layout.value))'), true)
+  assert.equal(source.includes('config: buildSimulationConfigPayload(config, layout.value)'), true)
+  assert.equal(source.includes('baseline_config: buildSimulationConfigPayload(config, layout.value)'), true)
 })
 
 test('config recommendation panel shows effect metrics for alternatives', () => {

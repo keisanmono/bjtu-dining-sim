@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from .simulation import MetricsSummary, SimulationConfigData, run_simulation
+from .simulation import (
+    DiningLayoutData,
+    LayoutTableData,
+    MetricsSummary,
+    SimulationConfigData,
+    _default_layout,
+    run_simulation,
+)
 
 
 @dataclass(frozen=True)
@@ -47,7 +54,7 @@ def recommend_config(request: RecommendationRequestData) -> RecommendationResult
                     num_windows=windows,
                     num_seats=seats,
                     stagger_minutes=stagger,
-                    layout=None,
+                    layout=_candidate_layout(request.base_config, windows, seats),
                 )
                 result = run_simulation(config)
                 candidates.append(
@@ -118,3 +125,39 @@ def _build_summary(best: CandidateResultData, baseline: MetricsSummary) -> str:
             f"峰值排队长度减少 {queue_delta} 人，主要改善瓶颈为 {best.metrics.bottleneck_type}。"
         )
     return f"推荐采用“{best.strategy}”。该方案在资源成本和等待指标之间综合评分最低。"
+
+
+def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> DiningLayoutData | None:
+    if base.layout is None:
+        return None
+
+    default = _default_layout(replace(base, num_windows=windows, num_seats=seats, layout=None))
+    base_windows = list(base.layout.windows)
+    candidate_windows = base_windows[:windows]
+    if len(candidate_windows) < windows:
+        candidate_windows.extend(default.windows[len(candidate_windows):windows])
+
+    if sum(table.capacity for table in base.layout.tables) == seats:
+        candidate_tables = list(base.layout.tables)
+    else:
+        candidate_tables = []
+        for index, default_table in enumerate(default.tables):
+            if index < len(base.layout.tables):
+                existing = base.layout.tables[index]
+                candidate_tables.append(
+                    LayoutTableData(
+                        id=existing.id,
+                        x=existing.x,
+                        y=existing.y,
+                        table_type=default_table.table_type,
+                        capacity=default_table.capacity,
+                    )
+                )
+            else:
+                candidate_tables.append(default_table)
+
+    return DiningLayoutData(
+        doors=list(base.layout.doors) or list(default.doors),
+        windows=candidate_windows,
+        tables=candidate_tables,
+    )
