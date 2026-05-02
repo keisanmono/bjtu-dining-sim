@@ -498,9 +498,10 @@ const staggerCandidates = computed(() => recommendationCandidates.value.staggers
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
+  const peakQueue = metrics.value?.peak_queue ?? Math.max(queue, ...records.value.map((item) => totalQueue(item)))
   return [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
-    { label: '峰值排队长度', value: metrics.value?.peak_queue ?? queue, hint: `当前 ${queue} 人` },
+    { label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` },
     { label: '空座位数', value: record?.empty_seats ?? config.num_seats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
   ]

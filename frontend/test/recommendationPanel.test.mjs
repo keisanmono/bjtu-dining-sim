@@ -53,3 +53,12 @@ test('seat utilization label states it is an average over the run', () => {
   assert.equal(source.includes("label: '座位利用率'"), false)
   assert.equal(source.includes('`当前等座 ${record?.waiting_for_seat_count || 0} 人`'), true)
 })
+
+test('live run queue card shows current queue first and peak queue as context', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('const peakQueue = metrics.value?.peak_queue ?? Math.max(queue, ...records.value.map((item) => totalQueue(item)))'), true)
+  assert.equal(source.includes("{ label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` }"), true)
+  assert.equal(source.includes("label: '峰值排队长度'"), false)
+  assert.equal(source.includes('hint: `当前 ${queue} 人`'), false)
+})
