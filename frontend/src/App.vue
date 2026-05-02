@@ -197,20 +197,60 @@
               <span>仿真场景预览</span>
             </div>
           </template>
-          <div class="window-preview">
-            <div v-for="window in config.num_windows" :key="window" class="preview-window">
-              <span>窗口 {{ window }}</span>
-              <i />
-              <i />
-              <i />
-              <i />
-            </div>
+          <div class="dining-floor-plan">
+            <section class="floor-zone entrance-zone">
+              <span class="zone-title">入口</span>
+              <div class="doorway">
+                <span>门</span>
+              </div>
+              <div class="flow-arrow">入场</div>
+            </section>
+
+            <section class="floor-zone service-zone">
+              <div class="zone-title-row">
+                <span class="zone-title">取餐窗口</span>
+                <span class="zone-note">{{ config.num_windows }} 个开放</span>
+              </div>
+              <div class="service-counter-row">
+                <div v-for="window in previewWindowItems" :key="window" class="service-counter">
+                  <span>窗口 {{ window }}</span>
+                  <i />
+                </div>
+              </div>
+              <p v-if="hiddenWindowCount" class="muted compact">另有 {{ hiddenWindowCount }} 个窗口未在平面图中展开。</p>
+            </section>
+
+            <section class="floor-zone queue-zone">
+              <span class="zone-title">排队动线</span>
+              <div class="queue-lane">
+                <i />
+                <i />
+                <i />
+                <span>入口 -> 窗口 -> 就餐区</span>
+              </div>
+            </section>
+
+            <section class="floor-zone seating-zone">
+              <div class="zone-title-row">
+                <span class="zone-title">就餐区桌椅</span>
+                <span class="zone-note">每桌 4 座</span>
+              </div>
+              <div class="table-layout">
+                <div v-for="table in previewTableGroups" :key="table.id" class="dining-table-group">
+                  <span
+                    v-for="chair in table.chairs"
+                    :key="chair"
+                    class="dining-chair"
+                    :class="`chair-${chair}`"
+                  />
+                  <strong class="table-top">{{ table.id }}</strong>
+                </div>
+              </div>
+              <p v-if="hiddenTableCount" class="muted compact">
+                共 {{ totalTableCount }} 组桌椅，预览前 {{ previewTableGroups.length }} 组。
+              </p>
+            </section>
           </div>
-          <p class="block-label">座位网格预览</p>
-          <div class="seat-grid preview-grid" :style="seatGridStyle">
-            <span v-for="seat in previewSeats" :key="seat" class="seat-cell is-empty" />
-          </div>
-          <p v-if="config.num_seats > previewSeatLimit" class="muted">共 {{ config.num_seats }} 个座位，预览前 {{ previewSeatLimit }} 个。</p>
         </el-card>
       </section>
 
@@ -395,12 +435,31 @@ let analysisChart
 let chartRenderFrame = 0
 
 const previewSeatLimit = 240
+const previewWindowLimit = 12
+const tableSeatCount = 4
+const previewTableLimit = 36
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
 const currentRecord = computed(() => records.value.at(-1) || null)
-const previewSeats = computed(() => Math.min(config.num_seats, previewSeatLimit))
 const seatGridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${Math.min(config.seat_columns, 20)}, minmax(10px, 1fr))`
 }))
+const previewWindowItems = computed(() => {
+  const count = Math.min(config.num_windows, previewWindowLimit)
+  return Array.from({ length: count }, (_, index) => index + 1)
+})
+const hiddenWindowCount = computed(() => Math.max(0, config.num_windows - previewWindowItems.value.length))
+const totalTableCount = computed(() => Math.ceil(config.num_seats / tableSeatCount))
+const previewTableGroups = computed(() => {
+  const count = Math.min(totalTableCount.value, previewTableLimit)
+  return Array.from({ length: count }, (_, index) => {
+    const seats = Math.min(tableSeatCount, Math.max(0, config.num_seats - index * tableSeatCount))
+    return {
+      id: index + 1,
+      chairs: Array.from({ length: seats }, (_item, seatIndex) => seatIndex + 1)
+    }
+  })
+})
+const hiddenTableCount = computed(() => Math.max(0, totalTableCount.value - previewTableGroups.value.length))
 const visibleSeatMatrix = computed(() => {
   const matrix = currentState.value?.seat_matrix || []
   if (!matrix.length) {

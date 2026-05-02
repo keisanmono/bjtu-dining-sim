@@ -25,6 +25,25 @@ test('recommendations stay inside config page without a separate tab or page', (
   assert.equal(styleSource.includes('.recommend-grid'), false)
 })
 
+test('simulation preview renders a realistic cafeteria floor plan', () => {
+  const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(appSource.includes('class="dining-floor-plan"'), true)
+  assert.equal(appSource.includes('entrance-zone'), true)
+  assert.equal(appSource.includes('service-counter-row'), true)
+  assert.equal(appSource.includes('queue-lane'), true)
+  assert.equal(appSource.includes('dining-table-group'), true)
+  assert.equal(appSource.includes('previewTableGroups'), true)
+  assert.equal(appSource.includes('previewWindowItems'), true)
+  assert.equal(appSource.includes('座位网格预览'), false)
+  assert.equal(styleSource.includes('.dining-floor-plan'), true)
+  assert.equal(styleSource.includes('.dining-table-group'), true)
+  assert.equal(styleSource.includes('.table-top'), true)
+  assert.equal(styleSource.includes('.dining-chair'), true)
+  assert.equal(styleSource.includes('.preview-grid'), false)
+})
+
 test('config recommendation panel shows effect metrics for alternatives', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
