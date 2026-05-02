@@ -7,12 +7,14 @@ import {
   LAYOUT_VIEWBOX,
   TABLE_CAPACITY_OPTIONS,
   LAYOUT_MAX_EDITABLE_SEATS,
+  adjustLayoutDoorCount,
   adjustLayoutWindowCount,
   buildTableCapacities,
   clampToBounds,
   createDefaultLayout,
   findItem,
   getItemFootprint,
+  itemOverlapsLayout,
   rebuildLayoutTablesForSeats,
   setItemPosition,
   setTableCapacity,
@@ -95,6 +97,19 @@ test('setItemPosition forces extreme drags back into the floor bounds', () => {
   assert.ok(moved.y >= LAYOUT_BOUNDS.y + fp.height / 2)
 })
 
+test('setItemPosition rejects moves that overlap existing layout items', () => {
+  const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
+  const table = layout.tables[0]
+  const blockingWindow = layout.windows[0]
+
+  const next = setItemPosition(layout, 'table', table.id, blockingWindow.x, blockingWindow.y)
+
+  const moved = findItem(next, 'table', table.id)
+  assert.equal(moved.x, table.x)
+  assert.equal(moved.y, table.y)
+  assert.equal(itemOverlapsLayout(layout, 'table', table.id, blockingWindow.x, blockingWindow.y), true)
+})
+
 test('setTableCapacity rounds to a supported size and updates table_type', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 16 })
   const tableId = layout.tables[0].id
@@ -120,6 +135,32 @@ test('setTableCapacity keeps a larger table inside the editable bounds', () => {
   assert.ok(found.y <= LAYOUT_BOUNDS.bottom - fp.height / 2)
   assert.equal(found.x % LAYOUT_GRID_STEP, 0)
   assert.equal(found.y % LAYOUT_GRID_STEP, 0)
+})
+
+test('adjustLayoutDoorCount appends and trims entrances while preserving existing positions', () => {
+  const initial = createDefaultLayout({ num_windows: 2, num_seats: 8 })
+  const moved = setItemPosition(initial, 'door', initial.doors[0].id, 70, 180)
+
+  const grown = adjustLayoutDoorCount(moved, 3)
+
+  assert.equal(grown.doors.length, 3)
+  assert.equal(grown.doors[0].x, 70)
+  assert.equal(grown.doors[1].id, 'D2')
+  assert.equal(grown.doors[2].id, 'D3')
+
+  const trimmed = adjustLayoutDoorCount(grown, 1)
+  assert.equal(trimmed.doors.length, 1)
+  assert.equal(trimmed.doors[0].x, 70)
+})
+
+test('adjustLayoutDoorCount places new entrances without overlapping existing items', () => {
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
+
+  const grown = adjustLayoutDoorCount(layout, 4)
+
+  for (const door of grown.doors) {
+    assert.equal(itemOverlapsLayout(grown, 'door', door.id, door.x, door.y), false, `${door.id} overlaps another item`)
+  }
 })
 
 test('adjustLayoutWindowCount appends or trims windows while preserving custom positions', () => {
@@ -157,9 +198,9 @@ test('default layout avoids table overlap at the editable seat limit', () => {
 
 test('drag-edited layout flows into the simulation payload coordinates', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
-  const draggedDoor = setItemPosition(layout, 'door', layout.doors[0].id, 137, 248)
+  const draggedDoor = setItemPosition(layout, 'door', layout.doors[0].id, 307, 548)
   const draggedWindow = setItemPosition(draggedDoor, 'window', layout.windows[0].id, 192, 88)
-  const draggedTable = setItemPosition(draggedWindow, 'table', layout.tables[0].id, 134, 304)
+  const draggedTable = setItemPosition(draggedWindow, 'table', layout.tables[0].id, 264, 304)
   const finalLayout = setTableCapacity(draggedTable, draggedTable.tables[1].id, 6)
 
   const payload = buildSimulationConfigPayload(
@@ -181,12 +222,12 @@ test('drag-edited layout flows into the simulation payload coordinates', () => {
   )
 
   // Door coordinates survive snapping AND are sent to the backend.
-  assert.equal(payload.layout.doors[0].x, 140)
-  assert.equal(payload.layout.doors[0].y, 250)
+  assert.equal(payload.layout.doors[0].x, 310)
+  assert.equal(payload.layout.doors[0].y, 550)
   // Windows and table positions reach the backend exactly as edited.
   assert.equal(payload.layout.windows[0].x, 190)
   assert.equal(payload.layout.windows[0].y, 90)
-  assert.equal(payload.layout.tables[0].x, 130)
+  assert.equal(payload.layout.tables[0].x, 260)
   assert.equal(payload.layout.tables[0].y, 300)
   // Capacity edits are propagated into the payload too.
   const reconfiguredTable = payload.layout.tables[1]

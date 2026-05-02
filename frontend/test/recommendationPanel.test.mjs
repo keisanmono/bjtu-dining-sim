@@ -46,7 +46,10 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(editorSource.includes('layout-door'), true)
   assert.equal(editorSource.includes('table-top'), true)
   assert.equal(editorSource.includes('dining-chair'), true)
-  assert.equal(editorSource.includes('queue-lane'), true)
+  assert.equal(editorSource.includes('queue-lane'), false)
+  assert.equal(editorSource.includes('counter-belt'), false)
+  assert.equal(editorSource.includes('adjustLayoutDoorCount'), true)
+  assert.equal(editorSource.includes('入口 +'), true)
 
   // The old card-style preview is gone.
   assert.equal(appSource.includes('<section class="entrance-zone"'), false)
@@ -66,6 +69,8 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(styleSource.includes('.layout-door'), true)
   assert.equal(styleSource.includes('.table-top'), true)
   assert.equal(styleSource.includes('.dining-chair'), true)
+  assert.equal(styleSource.includes('.queue-lane'), false)
+  assert.equal(styleSource.includes('.counter-belt'), false)
   assert.equal(styleSource.includes('.floor-zone'), false)
   assert.equal(styleSource.includes('.service-counter-bank'), false)
   assert.equal(styleSource.includes('.preview-grid'), false)

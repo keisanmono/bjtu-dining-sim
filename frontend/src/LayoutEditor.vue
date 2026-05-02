@@ -10,6 +10,10 @@
         </span>
       </div>
       <div class="layout-editor-actions">
+        <div class="layout-count-controls" aria-label="入口数量">
+          <el-button size="small" :disabled="layout.doors.length <= 1" @click="changeDoorCount(-1)">入口 -</el-button>
+          <el-button size="small" :disabled="layout.doors.length >= LAYOUT_MAX_DOORS" @click="changeDoorCount(1)">入口 +</el-button>
+        </div>
         <el-select
           v-if="selectedTable"
           :model-value="selectedTable.capacity"
@@ -65,14 +69,8 @@
         d="M24 24 H336 V616 H24 V204 M24 96 V24"
       />
 
-      <!-- Service counter belt across the top -->
-      <rect class="counter-belt" x="48" y="58" width="264" height="6" rx="3" />
       <text class="svg-label" x="48" y="50">取餐窗口</text>
       <text class="svg-note" x="312" y="50" text-anchor="end">{{ layout.windows.length }} 个开放</text>
-
-      <!-- Queue lane indicator (decorative reference) -->
-      <path class="queue-lane" :d="queueLanePath" />
-      <text class="svg-note" x="48" y="218">排队动线：入口 → 窗口 → 就餐区</text>
 
       <!-- Dining zone label -->
       <text class="svg-label" x="48" y="234">就餐区桌椅</text>
@@ -161,8 +159,10 @@ import { Refresh } from '@element-plus/icons-vue'
 import {
   LAYOUT_BOUNDS,
   LAYOUT_GRID_STEP,
+  LAYOUT_MAX_DOORS,
   LAYOUT_VIEWBOX,
   TABLE_CAPACITY_OPTIONS,
+  adjustLayoutDoorCount,
   getItemFootprint,
   setItemPosition,
   setTableCapacity,
@@ -216,19 +216,6 @@ const tableTypeSummary = computed(() => {
   const capacities = [...new Set(props.layout.tables.map((table) => table.capacity))].sort((a, b) => a - b)
   if (!capacities.length) return '无桌椅'
   return `${capacities.join('/')} 座桌混排`
-})
-
-const queueLanePath = computed(() => {
-  const door = props.layout.doors[0]
-  if (!door || !props.layout.windows.length) {
-    return 'M48 196 H312'
-  }
-  const firstWindow = props.layout.windows[0]
-  const lastWindow = props.layout.windows[props.layout.windows.length - 1]
-  const startX = door.x + FOOTPRINTS.door.width / 2 + 4
-  const startY = door.y
-  const midY = Math.min(firstWindow.y, lastWindow.y) + 18
-  return `M${startX} ${startY} C ${startX + 30} ${startY}, ${startX + 30} ${midY}, ${firstWindow.x} ${midY} H ${lastWindow.x}`
 })
 
 function isSelected(kind, id) {
@@ -345,6 +332,11 @@ function onPointerLeave() {
 function onSelectedCapacityChange(value) {
   if (!selectedTable.value) return
   const next = setTableCapacity(props.layout, selectedTable.value.id, Number(value))
+  emit('update:layout', next)
+}
+
+function changeDoorCount(delta) {
+  const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
 }
 </script>

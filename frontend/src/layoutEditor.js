@@ -9,6 +9,8 @@ export const LAYOUT_VIEWBOX = Object.freeze({ width: 360, height: 640 })
 export const LAYOUT_GRID_STEP = 10
 export const LAYOUT_BOUNDS = Object.freeze({ x: 24, y: 24, right: 336, bottom: 616 })
 export const LAYOUT_MAX_EDITABLE_SEATS = 180
+export const LAYOUT_MAX_DOORS = 4
+export const LAYOUT_ITEM_GAP = 4
 
 export const TABLE_CAPACITY_OPTIONS = [2, 4, 6]
 
@@ -110,7 +112,14 @@ function clampInteger(value, lower, upper) {
 }
 
 function defaultDoorPosition(index) {
-  return snapAndClampPoint(40, 120 + index * 110, 'door', null)
+  const positions = [
+    { x: 40, y: 120 },
+    { x: 320, y: 40 },
+    { x: 40, y: 40 },
+    { x: 320, y: 180 }
+  ]
+  const position = positions[index] || positions[positions.length - 1]
+  return snapAndClampPoint(position.x, position.y, 'door', null)
 }
 
 function defaultWindowPosition(index) {
@@ -171,6 +180,26 @@ export function adjustLayoutWindowCount(layout, desiredCount) {
   return { ...layout, windows: [...current, ...additional] }
 }
 
+export function adjustLayoutDoorCount(layout, desiredCount) {
+  const target = clampInteger(desiredCount, 1, LAYOUT_MAX_DOORS)
+  const current = layout?.doors || []
+  if (current.length === target) {
+    return layout
+  }
+  if (current.length > target) {
+    return { ...layout, doors: current.slice(0, target) }
+  }
+  const additional = []
+  for (let index = current.length; index < target; index += 1) {
+    additional.push({
+      id: nextDoorId(current.concat(additional)),
+      arrival_share: 1,
+      ...defaultDoorPosition(index)
+    })
+  }
+  return { ...layout, doors: [...current, ...additional] }
+}
+
 export function rebuildLayoutTablesForSeats(layout, numSeats) {
   const capacities = buildTableCapacities(numSeats)
   const tables = capacities.map((capacity, index) => ({
@@ -188,6 +217,9 @@ export function setItemPosition(layout, kind, id, x, y) {
   const items = layout[collection].map((item) => {
     if (item.id !== id) return item
     const point = snapAndClampPoint(x, y, kind, item)
+    if (itemOverlapsLayout(layout, kind, id, point.x, point.y, item)) {
+      return item
+    }
     return { ...item, x: point.x, y: point.y }
   })
   return { ...layout, [collection]: items }
@@ -198,6 +230,9 @@ export function setTableCapacity(layout, id, capacity) {
   const tables = (layout?.tables || []).map((table) => {
     if (table.id !== id) return table
     const point = snapAndClampPoint(table.x, table.y, 'table', { ...table, capacity: sanitized })
+    if (itemOverlapsLayout(layout, 'table', id, point.x, point.y, { ...table, capacity: sanitized })) {
+      return table
+    }
     return {
       ...table,
       capacity: sanitized,
@@ -207,6 +242,27 @@ export function setTableCapacity(layout, id, capacity) {
     }
   })
   return { ...layout, tables }
+}
+
+export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) {
+  const movingItem = itemOverride || findItem(layout, kind, id)
+  if (!movingItem) return false
+  const movingBox = itemBounds(kind, { ...movingItem, x, y })
+  return allLayoutItems(layout).some((candidate) => {
+    if (candidate.kind === kind && candidate.item.id === id) return false
+    return boxesOverlap(movingBox, itemBounds(candidate.kind, candidate.item))
+  })
+}
+
+export function itemBounds(kind, item) {
+  const footprint = getItemFootprint(kind, item)
+  const gap = LAYOUT_ITEM_GAP / 2
+  return {
+    left: item.x - footprint.width / 2 - gap,
+    right: item.x + footprint.width / 2 + gap,
+    top: item.y - footprint.height / 2 - gap,
+    bottom: item.y + footprint.height / 2 + gap
+  }
 }
 
 export function findItem(layout, kind, id) {
@@ -236,6 +292,29 @@ function collectionKeyForKind(kind) {
   if (kind === 'window') return 'windows'
   if (kind === 'table') return 'tables'
   return null
+}
+
+function allLayoutItems(layout) {
+  return [
+    ...(layout?.doors || []).map((item) => ({ kind: 'door', item })),
+    ...(layout?.windows || []).map((item) => ({ kind: 'window', item })),
+    ...(layout?.tables || []).map((item) => ({ kind: 'table', item }))
+  ]
+}
+
+function boxesOverlap(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+function nextDoorId(existing) {
+  const usedIndices = new Set(
+    existing
+      .map((item) => Number(String(item.id || '').replace(/^D/, '')))
+      .filter((value) => Number.isFinite(value))
+  )
+  let candidate = 1
+  while (usedIndices.has(candidate)) candidate += 1
+  return `D${candidate}`
 }
 
 function nextWindowId(existing) {

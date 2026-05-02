@@ -252,6 +252,11 @@ input {
   flex-wrap: wrap;
 }
 
+.layout-count-controls {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .layout-capacity-select {
   width: 110px;
 }
@@ -296,21 +301,6 @@ input {
 .svg-note {
   fill: #6b7b8f;
   font-size: 11px;
-}
-
-.queue-lane {
-  fill: none;
-  stroke: #8aa6c4;
-  stroke-dasharray: 4 4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-  pointer-events: none;
-}
-
-.counter-belt {
-  fill: #b98345;
-  pointer-events: none;
 }
 
 .layout-item {
