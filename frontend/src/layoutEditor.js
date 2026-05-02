@@ -280,16 +280,18 @@ export function rebuildLayoutTablesForSeats(layout, numSeats) {
   return { ...layout, tables }
 }
 
-export function setItemPosition(layout, kind, id, x, y) {
+export function setItemPosition(layout, kind, id, x, y, options = {}) {
   const collection = collectionKeyForKind(kind)
   if (!collection) return layout
+  const allowOverlap = Boolean(options.allowOverlap)
   const items = layout[collection].map((item) => {
     if (item.id !== id) return item
     const point = snapAndClampPoint(x, y, kind, item)
-    if (itemOverlapsLayout(layout, kind, id, point.x, point.y, { ...item, ...wallSidePatch(kind, point) })) {
+    const movedItem = { ...item, x: point.x, y: point.y, ...wallSidePatch(kind, point) }
+    if (!allowOverlap && itemOverlapsLayout(layout, kind, id, point.x, point.y, movedItem)) {
       return item
     }
-    return { ...item, x: point.x, y: point.y, ...wallSidePatch(kind, point) }
+    return movedItem
   })
   return { ...layout, [collection]: items }
 }

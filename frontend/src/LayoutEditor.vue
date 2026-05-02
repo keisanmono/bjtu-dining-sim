@@ -158,7 +158,9 @@ import {
   LAYOUT_VIEWBOX,
   TABLE_CAPACITY_OPTIONS,
   adjustLayoutDoorCount,
+  findItem,
   getItemFootprint,
+  itemOverlapsLayout,
   setItemPosition,
   setTableCapacity,
   totalLayoutSeats
@@ -314,6 +316,8 @@ function onItemPointerDown(event, kind, id) {
   dragState.value = {
     kind,
     id,
+    originalItem: { ...item },
+    latestLayout: props.layout,
     offsetX: point.x - item.x,
     offsetY: point.y - item.y,
     pointerId: event.pointerId
@@ -337,16 +341,19 @@ function onPointerMove(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const targetX = point.x - state.offsetX
   const targetY = point.y - state.offsetY
-  const next = setItemPosition(props.layout, state.kind, state.id, targetX, targetY)
+  const next = setItemPosition(props.layout, state.kind, state.id, targetX, targetY, { allowOverlap: true })
+  state.latestLayout = next
   emit('update:layout', next)
   event.preventDefault()
 }
 
 function onPointerUp(event) {
-  if (!dragState.value) return
+  const state = dragState.value
+  if (!state) return
   if (event.target?.releasePointerCapture && event.pointerId) {
     try { event.target.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
   }
+  revertInvalidDrag(state)
   dragState.value = null
 }
 
@@ -368,5 +375,23 @@ function onSelectedCapacityChange(value) {
 function changeDoorCount(delta) {
   const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
+}
+
+function revertInvalidDrag(state) {
+  const candidateLayout = state.latestLayout || props.layout
+  const current = findItem(candidateLayout, state.kind, state.id)
+  if (!current) return
+  if (!itemOverlapsLayout(candidateLayout, state.kind, state.id, current.x, current.y, current)) return
+  emit('update:layout', replaceLayoutItem(candidateLayout, state.kind, state.originalItem))
+}
+
+function replaceLayoutItem(layout, kind, replacement) {
+  const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
+  return {
+    ...layout,
+    [collectionKey]: (layout[collectionKey] || []).map((item) => (
+      item.id === replacement.id ? { ...replacement } : item
+    ))
+  }
 }
 </script>

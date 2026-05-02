@@ -136,6 +136,19 @@ test('setItemPosition rejects moves that overlap existing layout items', () => {
   assert.equal(itemOverlapsLayout(layout, 'table', table.id, blockingWindow.x, blockingWindow.y), true)
 })
 
+test('setItemPosition can allow temporary overlaps during drag', () => {
+  const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
+  const table = layout.tables[0]
+  const blockingWindow = layout.windows[0]
+
+  const next = setItemPosition(layout, 'table', table.id, blockingWindow.x, blockingWindow.y, { allowOverlap: true })
+
+  const moved = findItem(next, 'table', table.id)
+  assert.equal(moved.x, blockingWindow.x)
+  assert.equal(moved.y, blockingWindow.y)
+  assert.equal(itemOverlapsLayout(next, 'table', table.id, moved.x, moved.y), true)
+})
+
 test('setTableCapacity rounds to a supported size and updates table_type', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 16 })
   const tableId = layout.tables[0].id
