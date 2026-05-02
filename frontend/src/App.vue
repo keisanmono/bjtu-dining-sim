@@ -15,7 +15,6 @@
       <el-tab-pane label="参数配置" name="config" />
       <el-tab-pane label="实时运行" name="run" />
       <el-tab-pane label="结果分析" name="analysis" />
-      <el-tab-pane label="优化推荐" name="recommend" />
     </el-tabs>
 
     <main>
@@ -325,86 +324,6 @@
         </div>
       </section>
 
-      <section v-show="activeView === 'recommend'" class="recommend-layout">
-        <el-empty v-if="!recommendation" description="暂无推荐结果" />
-        <template v-else>
-          <div class="recommend-summary">
-            <el-card class="metric-card highlight">
-              <p>推荐窗口数</p>
-              <strong>{{ recommendation.best.config.num_windows }} 个</strong>
-              <span>{{ recommendation.best.strategy }}</span>
-            </el-card>
-            <el-card class="metric-card highlight">
-              <p>推荐座位数</p>
-              <strong>{{ recommendation.best.config.num_seats }} 个</strong>
-              <span>错峰 {{ recommendation.best.config.stagger_minutes }} 分钟</span>
-            </el-card>
-            <el-card class="metric-card highlight">
-              <p>综合评分</p>
-              <strong>{{ formatNumber(recommendation.best.score) }}</strong>
-              <span>越低越优</span>
-            </el-card>
-          </div>
-
-          <div class="recommend-grid">
-            <el-card class="panel">
-              <template #header>
-                <div class="panel-title">
-                  <el-icon><DataAnalysis /></el-icon>
-                  <span>多方案对比</span>
-                </div>
-              </template>
-              <el-table :data="recommendation.ranking" size="small" height="360">
-                <el-table-column label="方案" min-width="150">
-                  <template #default="{ row }">{{ row.strategy }}</template>
-                </el-table-column>
-                <el-table-column label="窗口" width="70">
-                  <template #default="{ row }">{{ row.config.num_windows }}</template>
-                </el-table-column>
-                <el-table-column label="座位" width="70">
-                  <template #default="{ row }">{{ row.config.num_seats }}</template>
-                </el-table-column>
-                <el-table-column label="错峰" width="70">
-                  <template #default="{ row }">{{ row.config.stagger_minutes }}</template>
-                </el-table-column>
-                <el-table-column label="平均等待" width="90">
-                  <template #default="{ row }">{{ formatMinutes(row.metrics.avg_wait) }}</template>
-                </el-table-column>
-                <el-table-column label="峰值排队" width="90">
-                  <template #default="{ row }">{{ row.metrics.peak_queue }}</template>
-                </el-table-column>
-              </el-table>
-            </el-card>
-
-            <el-card class="panel">
-              <template #header>
-                <div class="panel-title">
-                  <el-icon><ChatLineRound /></el-icon>
-                  <span>解释与策略建议</span>
-                </div>
-              </template>
-              <p class="explain-text">{{ explanation?.text || recommendation.explanation_summary }}</p>
-              <el-divider />
-              <p class="block-label">备选策略</p>
-              <el-timeline>
-                <el-timeline-item v-for="item in alternativeStrategies" :key="item">
-                  {{ item }}
-                </el-timeline-item>
-              </el-timeline>
-              <p class="block-label">风险提示</p>
-              <el-alert
-                v-for="note in riskNotes"
-                :key="note"
-                class="risk-alert"
-                type="warning"
-                :title="note"
-                :closable="false"
-                show-icon
-              />
-            </el-card>
-          </div>
-        </template>
-      </section>
     </main>
   </div>
 </template>
@@ -414,9 +333,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import {
-  ChatLineRound,
   CircleCheck,
-  DataAnalysis,
   Download,
   Finished,
   Grid,
@@ -516,8 +433,6 @@ const analysisCards = computed(() => {
   ]
 })
 const recentRecords = computed(() => records.value.slice(-80).reverse())
-const alternativeStrategies = computed(() => recommendation.value?.alternatives?.length ? recommendation.value.alternatives : ['保持当前基准方案'])
-const riskNotes = computed(() => explanation.value?.risk_notes || ['请先生成推荐解释。'])
 
 onMounted(() => {
   checkHealth()

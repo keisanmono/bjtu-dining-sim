@@ -9,6 +9,22 @@ test('config recommendation panel does not render redundant candidate preview li
   assert.equal(source.includes('configCandidateGroups'), false)
 })
 
+test('recommendations stay inside config page without a separate tab or page', () => {
+  const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(appSource.includes('name="recommend"'), false)
+  assert.equal(appSource.includes("activeView === 'recommend'"), false)
+  assert.equal(appSource.includes('class="recommend-layout"'), false)
+  assert.equal(appSource.includes('class="recommend-summary"'), false)
+  assert.equal(appSource.includes('class="recommend-grid"'), false)
+  assert.equal(appSource.includes('alternativeStrategies'), false)
+  assert.equal(appSource.includes('riskNotes'), false)
+  assert.equal(styleSource.includes('.recommend-layout'), false)
+  assert.equal(styleSource.includes('.recommend-summary'), false)
+  assert.equal(styleSource.includes('.recommend-grid'), false)
+})
+
 test('config recommendation panel shows effect metrics for alternatives', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
