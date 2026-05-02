@@ -198,20 +198,20 @@
             </div>
           </template>
           <div class="dining-floor-plan">
-            <section class="floor-zone entrance-zone">
+            <section class="entrance-zone">
               <span class="zone-title">入口</span>
-              <div class="doorway">
+              <div class="entrance-door">
                 <span>门</span>
               </div>
               <div class="flow-arrow">入场</div>
             </section>
 
-            <section class="floor-zone service-zone">
+            <section class="service-zone">
               <div class="zone-title-row">
                 <span class="zone-title">取餐窗口</span>
                 <span class="zone-note">{{ config.num_windows }} 个开放</span>
               </div>
-              <div class="service-counter-row">
+              <div class="service-counter-bank">
                 <div v-for="window in previewWindowItems" :key="window" class="service-counter">
                   <span>窗口 {{ window }}</span>
                   <i />
@@ -220,7 +220,7 @@
               <p v-if="hiddenWindowCount" class="muted compact">另有 {{ hiddenWindowCount }} 个窗口未在平面图中展开。</p>
             </section>
 
-            <section class="floor-zone queue-zone">
+            <section class="queue-zone">
               <span class="zone-title">排队动线</span>
               <div class="queue-lane">
                 <i />
@@ -230,7 +230,7 @@
               </div>
             </section>
 
-            <section class="floor-zone seating-zone">
+            <section class="seating-zone">
               <div class="zone-title-row">
                 <span class="zone-title">就餐区桌椅</span>
                 <span class="zone-note">每桌 4 座</span>

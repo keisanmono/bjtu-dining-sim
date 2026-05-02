@@ -201,43 +201,65 @@ input {
 }
 
 .dining-floor-plan {
-  display: grid;
-  grid-template-columns: minmax(118px, 0.7fr) minmax(220px, 1.35fr);
-  grid-template-areas:
-    "entrance service"
-    "queue seating";
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #d8e2ed;
+  position: relative;
+  min-height: 760px;
+  padding: 24px;
+  overflow: hidden;
+  border: 2px solid #aebdcc;
   border-radius: 8px;
-  background: #f7f9f7;
+  background:
+    linear-gradient(90deg, rgba(104, 126, 148, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(104, 126, 148, 0.08) 1px, transparent 1px),
+    #f8faf7;
+  background-size: 28px 28px;
 }
 
-.floor-zone {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid #d8e2ed;
+.dining-floor-plan::before {
+  position: absolute;
+  inset: 14px;
+  pointer-events: none;
+  content: "";
+  border: 3px solid #8ea2b6;
+  border-left: 0;
   border-radius: 8px;
-  background: #fff;
 }
 
 .entrance-zone {
-  grid-area: entrance;
+  position: absolute;
+  top: 74px;
+  left: 0;
+  z-index: 2;
   display: grid;
-  align-content: center;
-  gap: 10px;
+  width: 112px;
+  gap: 8px;
+  justify-items: center;
 }
 
 .service-zone {
-  grid-area: service;
+  position: absolute;
+  top: 28px;
+  right: 28px;
+  left: 132px;
+  z-index: 2;
 }
 
 .queue-zone {
-  grid-area: queue;
+  position: absolute;
+  top: 162px;
+  left: 78px;
+  z-index: 1;
+  width: 220px;
+  height: 260px;
 }
 
 .seating-zone {
-  grid-area: seating;
+  position: absolute;
+  top: 178px;
+  right: 30px;
+  bottom: 28px;
+  left: 160px;
+  z-index: 2;
+  min-width: 0;
 }
 
 .zone-title-row {
@@ -259,13 +281,14 @@ input {
   font-size: 12px;
 }
 
-.doorway {
+.entrance-door {
   display: grid;
-  min-height: 70px;
+  width: 88px;
+  min-height: 116px;
   place-items: center;
-  border: 2px solid #48745a;
-  border-left-width: 8px;
-  border-radius: 8px;
+  border: 3px solid #48745a;
+  border-left-width: 12px;
+  border-radius: 0 14px 14px 0;
   background: #edf5ed;
   color: #2f6b44;
   font-weight: 800;
@@ -281,10 +304,13 @@ input {
   text-align: center;
 }
 
-.service-counter-row {
+.service-counter-bank {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
   gap: 8px;
+  padding: 0 0 12px;
+  border-bottom: 10px solid #b98345;
+  border-radius: 0 0 10px 10px;
 }
 
 .service-counter {
@@ -308,20 +334,42 @@ input {
 }
 
 .queue-lane {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(24px, 1fr));
-  align-items: center;
-  gap: 8px;
+  position: relative;
+  height: 210px;
+  margin-top: 12px;
+  border-top: 7px solid #48745a;
+  border-left: 7px solid #48745a;
+  border-radius: 28px 0 0;
 }
 
 .queue-lane i {
+  position: absolute;
   height: 8px;
+  width: 8px;
   border-radius: 999px;
   background: #48745a;
 }
 
+.queue-lane i:nth-child(1) {
+  top: -8px;
+  left: 36px;
+}
+
+.queue-lane i:nth-child(2) {
+  top: -8px;
+  left: 88px;
+}
+
+.queue-lane i:nth-child(3) {
+  top: 52px;
+  left: -8px;
+}
+
 .queue-lane span {
-  grid-column: 1 / -1;
+  position: absolute;
+  bottom: 0;
+  left: 18px;
+  width: 140px;
   color: #6b7b8f;
   font-size: 12px;
 }
@@ -330,6 +378,8 @@ input {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 12px;
+  max-height: calc(100% - 44px);
+  overflow: hidden;
 }
 
 .dining-table-group {
@@ -604,12 +654,31 @@ input {
   }
 
   .dining-floor-plan {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "entrance"
-      "service"
-      "queue"
-      "seating";
+    display: grid;
+    min-height: 0;
+    gap: 14px;
+  }
+
+  .dining-floor-plan::before {
+    inset: 8px;
+  }
+
+  .entrance-zone,
+  .service-zone,
+  .queue-zone,
+  .seating-zone {
+    position: relative;
+    inset: auto;
+    width: auto;
+    height: auto;
+  }
+
+  .queue-lane {
+    height: 88px;
+  }
+
+  .table-layout {
+    max-height: none;
   }
 
   .time-chip {
