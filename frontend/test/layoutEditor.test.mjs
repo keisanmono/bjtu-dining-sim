@@ -246,6 +246,20 @@ test('default layout avoids table overlap at the editable seat limit', () => {
   }
 })
 
+test('default layout avoids collisions between doors windows and tables', () => {
+  const layout = createDefaultLayout({ num_windows: 30, num_seats: LAYOUT_MAX_EDITABLE_SEATS })
+
+  assertNoLayoutOverlaps(layout)
+})
+
+test('rebuilt tables avoid existing doors and windows', () => {
+  const layout = createDefaultLayout({ num_windows: 30, num_seats: 16 })
+
+  const rebuilt = rebuildLayoutTablesForSeats(layout, LAYOUT_MAX_EDITABLE_SEATS)
+
+  assertNoLayoutOverlaps(rebuilt)
+})
+
 test('drag-edited layout flows into the simulation payload coordinates', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const draggedDoor = setItemPosition(layout, 'door', layout.doors[0].id, 307, 548)
@@ -303,4 +317,19 @@ function tableBox(table) {
 
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+function assertNoLayoutOverlaps(layout) {
+  const items = [
+    ...layout.doors.map((item) => ({ kind: 'door', item })),
+    ...layout.windows.map((item) => ({ kind: 'window', item })),
+    ...layout.tables.map((item) => ({ kind: 'table', item }))
+  ]
+  for (const { kind, item } of items) {
+    assert.equal(
+      itemOverlapsLayout(layout, kind, item.id, item.x, item.y, item),
+      false,
+      `${kind} ${item.id} overlaps another layout item`
+    )
+  }
 }

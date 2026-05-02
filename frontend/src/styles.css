@@ -304,6 +304,10 @@ input {
   filter: drop-shadow(0 0 3px rgba(31, 79, 133, 0.6));
 }
 
+.layout-item.is-overlapping {
+  filter: drop-shadow(0 0 5px rgba(220, 38, 38, 0.8));
+}
+
 .layout-door rect {
   fill: #edf5ed;
   stroke: #2f6b44;
@@ -365,6 +369,14 @@ input {
 .layout-door.is-selected rect {
   stroke: #d97706;
   stroke-width: 2.4;
+}
+
+.layout-door.is-overlapping > rect:first-child,
+.layout-window.is-overlapping > rect:first-child,
+.layout-table.is-overlapping .table-top,
+.layout-table.is-overlapping .dining-chair {
+  stroke: #dc2626;
+  stroke-width: 2.8;
 }
 
 .seat-grid {

@@ -53,6 +53,8 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(editorSource.includes('V204 M24 96'), false)
   assert.equal(editorSource.includes('allowOverlap: true'), true)
   assert.equal(editorSource.includes('revertInvalidDrag'), true)
+  assert.equal(editorSource.includes('is-overlapping'), true)
+  assert.equal(editorSource.includes('isCollisionHighlighted'), true)
   assert.equal(editorSource.includes('adjustLayoutDoorCount'), true)
   assert.equal(editorSource.includes('入口 +'), true)
 
@@ -72,6 +74,7 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(styleSource.includes('.layout-window'), true)
   assert.equal(styleSource.includes('.layout-table'), true)
   assert.equal(styleSource.includes('.layout-door'), true)
+  assert.equal(styleSource.includes('.layout-item.is-overlapping'), true)
   assert.equal(styleSource.includes('.table-top'), true)
   assert.equal(styleSource.includes('.dining-chair'), true)
   assert.equal(styleSource.includes('.queue-lane'), false)

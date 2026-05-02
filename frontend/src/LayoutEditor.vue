@@ -77,7 +77,10 @@
         v-for="door in layout.doors"
         :key="door.id"
         class="layout-item layout-door"
-        :class="{ 'is-selected': isSelected('door', door.id) }"
+        :class="{
+          'is-selected': isSelected('door', door.id),
+          'is-overlapping': isCollisionHighlighted('door', door.id)
+        }"
         :transform="`translate(${door.x}, ${door.y})`"
         @pointerdown.stop="onItemPointerDown($event, 'door', door.id)"
       >
@@ -97,7 +100,10 @@
         v-for="window in layout.windows"
         :key="window.id"
         class="layout-item layout-window"
-        :class="{ 'is-selected': isSelected('window', window.id) }"
+        :class="{
+          'is-selected': isSelected('window', window.id),
+          'is-overlapping': isCollisionHighlighted('window', window.id)
+        }"
         :transform="`translate(${window.x}, ${window.y})`"
         @pointerdown.stop="onItemPointerDown($event, 'window', window.id)"
       >
@@ -117,7 +123,13 @@
         v-for="(table, index) in layout.tables"
         :key="table.id"
         class="layout-item layout-table"
-        :class="[`capacity-${table.capacity}`, { 'is-selected': isSelected('table', table.id) }]"
+        :class="[
+          `capacity-${table.capacity}`,
+          {
+            'is-selected': isSelected('table', table.id),
+            'is-overlapping': isCollisionHighlighted('table', table.id)
+          }
+        ]"
         :transform="`translate(${table.x}, ${table.y})`"
         @pointerdown.stop="onItemPointerDown($event, 'table', table.id)"
       >
@@ -206,6 +218,15 @@ const selectionLabel = computed(() => {
 
 function isSelected(kind, id) {
   return selection.value?.kind === kind && selection.value?.id === id
+}
+
+function isCollisionHighlighted(kind, id) {
+  const state = dragState.value
+  if (!state) return false
+  const candidateLayout = state.latestLayout || props.layout
+  const current = findItem(candidateLayout, kind, id)
+  if (!current) return false
+  return itemOverlapsLayout(candidateLayout, kind, id, current.x, current.y, current)
 }
 
 function itemRectFor(kind, item) {

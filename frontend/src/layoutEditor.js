@@ -10,7 +10,7 @@ export const LAYOUT_GRID_STEP = 10
 export const LAYOUT_BOUNDS = Object.freeze({ x: 24, y: 24, right: 336, bottom: 616 })
 export const LAYOUT_MAX_EDITABLE_SEATS = 180
 export const LAYOUT_MAX_DOORS = 4
-export const LAYOUT_ITEM_GAP = 4
+export const LAYOUT_ITEM_GAP = 2
 
 export const TABLE_CAPACITY_OPTIONS = [2, 4, 6]
 
@@ -23,8 +23,8 @@ const FOOTPRINTS = Object.freeze({
     vertical: Object.freeze({ width: 32, height: 52 })
   }),
   window: Object.freeze({
-    horizontal: Object.freeze({ width: 44, height: 32 }),
-    vertical: Object.freeze({ width: 32, height: 44 })
+    horizontal: Object.freeze({ width: 36, height: 32 }),
+    vertical: Object.freeze({ width: 32, height: 36 })
   }),
   table: Object.freeze({
     2: Object.freeze({ width: 52, height: 26 }),
@@ -157,11 +157,12 @@ function defaultWindowPosition(index, layout = null, id = `W${index + 1}`) {
 }
 
 function defaultTablePosition(index, capacity) {
-  // Four columns fit the largest table footprint without horizontal overlap.
-  const cols = 4
+  // Keep tables away from wall-mounted doors/windows so default generation
+  // starts from a collision-free editable layout.
+  const cols = 3
   const col = index % cols
   const row = Math.floor(index / cols)
-  return snapAndClampPoint(70 + col * 70, 240 + row * 50, 'table', { capacity })
+  return snapAndClampPoint(100 + col * 80, 100 + row * 50, 'table', { capacity })
 }
 
 function firstAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
@@ -183,16 +184,16 @@ function firstAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
 
 function wallCandidatePoints() {
   const points = []
-  for (let x = 50; x <= 310; x += 60) {
+  for (let x = 50; x <= 310; x += 40) {
     points.push({ wall_side: 'top', x, y: LAYOUT_BOUNDS.y })
   }
-  for (let y = 50; y <= 590; y += 60) {
+  for (let y = 70; y <= 570; y += 40) {
     points.push({ wall_side: 'right', x: LAYOUT_BOUNDS.right, y })
   }
-  for (let x = 310; x >= 50; x -= 60) {
+  for (let x = 310; x >= 50; x -= 40) {
     points.push({ wall_side: 'bottom', x, y: LAYOUT_BOUNDS.bottom })
   }
-  for (let y = 590; y >= 50; y -= 60) {
+  for (let y = 570; y >= 70; y -= 40) {
     points.push({ wall_side: 'left', x: LAYOUT_BOUNDS.x, y })
   }
   return points
