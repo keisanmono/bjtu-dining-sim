@@ -45,12 +45,14 @@ function normalizeLayout(layout) {
     id: door.id,
     x: round1(door.x),
     y: round1(door.y),
+    ...(door.wall_side ? { wall_side: door.wall_side } : {}),
     arrival_share: Number(door.arrival_share ?? 1)
   }))
   const windows = layout.windows.map((window) => ({
     id: window.id,
     x: round1(window.x),
     y: round1(window.y),
+    ...(window.wall_side ? { wall_side: window.wall_side } : {}),
     service_rate_factor: Number(window.service_rate_factor ?? 1)
   }))
   const tables = layout.tables.map((table, index) => {

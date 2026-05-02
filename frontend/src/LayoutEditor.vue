@@ -64,17 +64,13 @@
         :height="LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y"
         fill="url(#layout-editor-grid)"
       />
-      <path
+      <rect
         class="wall-line"
-        d="M24 24 H336 V616 H24 V204 M24 96 V24"
+        :x="LAYOUT_BOUNDS.x"
+        :y="LAYOUT_BOUNDS.y"
+        :width="LAYOUT_BOUNDS.right - LAYOUT_BOUNDS.x"
+        :height="LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y"
       />
-
-      <text class="svg-label" x="48" y="50">取餐窗口</text>
-      <text class="svg-note" x="312" y="50" text-anchor="end">{{ layout.windows.length }} 个开放</text>
-
-      <!-- Dining zone label -->
-      <text class="svg-label" x="48" y="234">就餐区桌椅</text>
-      <text class="svg-note" x="312" y="234" text-anchor="end">{{ tableTypeSummary }}</text>
 
       <!-- Doors -->
       <g
@@ -86,18 +82,19 @@
         @pointerdown.stop="onItemPointerDown($event, 'door', door.id)"
       >
         <rect
-          :x="-FOOTPRINTS.door.width / 2"
-          :y="-FOOTPRINTS.door.height / 2"
-          :width="FOOTPRINTS.door.width"
-          :height="FOOTPRINTS.door.height"
+          v-bind="itemRectFor('door', door)"
           rx="6"
         />
-        <text x="0" y="4" text-anchor="middle">入口</text>
+        <rect
+          class="layout-door-marker"
+          v-bind="doorMarkerFor(door)"
+          rx="2"
+        />
       </g>
 
       <!-- Windows -->
       <g
-        v-for="(window, index) in layout.windows"
+        v-for="window in layout.windows"
         :key="window.id"
         class="layout-item layout-window"
         :class="{ 'is-selected': isSelected('window', window.id) }"
@@ -105,13 +102,14 @@
         @pointerdown.stop="onItemPointerDown($event, 'window', window.id)"
       >
         <rect
-          :x="-FOOTPRINTS.window.width / 2"
-          :y="-FOOTPRINTS.window.height / 2"
-          :width="FOOTPRINTS.window.width"
-          :height="FOOTPRINTS.window.height"
+          v-bind="itemRectFor('window', window)"
           rx="6"
         />
-        <text x="0" y="4" text-anchor="middle">窗口 {{ index + 1 }}</text>
+        <rect
+          class="layout-window-marker"
+          v-bind="windowMarkerFor(window)"
+          rx="2"
+        />
       </g>
 
       <!-- Tables -->
@@ -141,9 +139,6 @@
           :height="tableTopFor(table).height"
           rx="4"
         />
-        <text class="table-number" x="0" y="3" text-anchor="middle">
-          T{{ index + 1 }}·{{ table.capacity }}
-        </text>
       </g>
     </svg>
 
@@ -168,11 +163,6 @@ import {
   setTableCapacity,
   totalLayoutSeats
 } from './layoutEditor.js'
-
-const FOOTPRINTS = {
-  door: getItemFootprint('door', null),
-  window: getItemFootprint('window', null)
-}
 
 const props = defineProps({
   layout: {
@@ -212,14 +202,54 @@ const selectionLabel = computed(() => {
   return '未选中对象'
 })
 
-const tableTypeSummary = computed(() => {
-  const capacities = [...new Set(props.layout.tables.map((table) => table.capacity))].sort((a, b) => a - b)
-  if (!capacities.length) return '无桌椅'
-  return `${capacities.join('/')} 座桌混排`
-})
-
 function isSelected(kind, id) {
   return selection.value?.kind === kind && selection.value?.id === id
+}
+
+function itemRectFor(kind, item) {
+  const footprint = getItemFootprint(kind, item)
+  return {
+    x: -footprint.width / 2,
+    y: -footprint.height / 2,
+    width: footprint.width,
+    height: footprint.height
+  }
+}
+
+function doorMarkerFor(door) {
+  const footprint = getItemFootprint('door', door)
+  if (door.wall_side === 'top' || door.wall_side === 'bottom') {
+    return {
+      x: -footprint.width / 2 + 8,
+      y: -3,
+      width: footprint.width - 16,
+      height: 6
+    }
+  }
+  return {
+    x: -3,
+    y: -footprint.height / 2 + 8,
+    width: 6,
+    height: footprint.height - 16
+  }
+}
+
+function windowMarkerFor(window) {
+  const footprint = getItemFootprint('window', window)
+  if (window.wall_side === 'left' || window.wall_side === 'right') {
+    return {
+      x: -3,
+      y: -footprint.height / 2 + 6,
+      width: 6,
+      height: footprint.height - 12
+    }
+  }
+  return {
+    x: -footprint.width / 2 + 6,
+    y: -3,
+    width: footprint.width - 12,
+    height: 6
+  }
 }
 
 function tableTopFor(table) {

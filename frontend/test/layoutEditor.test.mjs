@@ -49,7 +49,32 @@ test('snapAndClampPoint snaps and clamps in one shot', () => {
 
   assert.equal(result.x % LAYOUT_GRID_STEP, 0)
   assert.equal(result.y % LAYOUT_GRID_STEP, 0)
-  assert.ok(result.x >= LAYOUT_BOUNDS.x + getItemFootprint('window', null).width / 2)
+  assert.ok(result.x >= LAYOUT_BOUNDS.x + getItemFootprint('window', result).width / 2)
+})
+
+test('doors and windows snap to the nearest wall instead of floating inside the floor', () => {
+  const topDoor = snapAndClampPoint(180, 25, 'door', { id: 'D1', wall_side: 'left' })
+  const rightWindow = snapAndClampPoint(330, 315, 'window', { id: 'W1', wall_side: 'top' })
+
+  assert.equal(topDoor.wall_side, 'top')
+  assert.equal(topDoor.y, LAYOUT_BOUNDS.y + getItemFootprint('door', topDoor).height / 2)
+  assert.equal(topDoor.x % LAYOUT_GRID_STEP, 0)
+
+  assert.equal(rightWindow.wall_side, 'right')
+  assert.equal(rightWindow.x, LAYOUT_BOUNDS.right - getItemFootprint('window', rightWindow).width / 2)
+  assert.equal(rightWindow.y % LAYOUT_GRID_STEP, 0)
+})
+
+test('door and window footprints rotate based on the wall side', () => {
+  const topDoor = getItemFootprint('door', { wall_side: 'top' })
+  const leftDoor = getItemFootprint('door', { wall_side: 'left' })
+  const topWindow = getItemFootprint('window', { wall_side: 'top' })
+  const rightWindow = getItemFootprint('window', { wall_side: 'right' })
+
+  assert.ok(topDoor.width > topDoor.height)
+  assert.ok(leftDoor.height > leftDoor.width)
+  assert.ok(topWindow.width > topWindow.height)
+  assert.ok(rightWindow.height > rightWindow.width)
 })
 
 test('createDefaultLayout produces in-bounds, on-grid items for the given config', () => {
@@ -78,8 +103,9 @@ test('setItemPosition snaps and clamps the target item without touching others',
   const next = setItemPosition(layout, 'window', targetId, 207, 158)
 
   const moved = findItem(next, 'window', targetId)
-  assert.equal(moved.x, 210)
+  assert.equal(moved.x, 320)
   assert.equal(moved.y, 160)
+  assert.equal(moved.wall_side, 'right')
   // Original layout reference is untouched (immutable update style).
   assert.equal(findItem(layout, 'window', targetId).x, before.x)
   assert.equal(next.windows.length, layout.windows.length)
@@ -144,13 +170,14 @@ test('adjustLayoutDoorCount appends and trims entrances while preserving existin
   const grown = adjustLayoutDoorCount(moved, 3)
 
   assert.equal(grown.doors.length, 3)
-  assert.equal(grown.doors[0].x, 70)
+  assert.equal(grown.doors[0].x, 40)
+  assert.equal(grown.doors[0].wall_side, 'left')
   assert.equal(grown.doors[1].id, 'D2')
   assert.equal(grown.doors[2].id, 'D3')
 
   const trimmed = adjustLayoutDoorCount(grown, 1)
   assert.equal(trimmed.doors.length, 1)
-  assert.equal(trimmed.doors[0].x, 70)
+  assert.equal(trimmed.doors[0].x, 40)
 })
 
 test('adjustLayoutDoorCount places new entrances without overlapping existing items', () => {
@@ -163,17 +190,27 @@ test('adjustLayoutDoorCount places new entrances without overlapping existing it
   }
 })
 
+test('adjustLayoutDoorCount skips wall slots already occupied by windows', () => {
+  const layout = createDefaultLayout({ num_windows: 5, num_seats: 120 })
+
+  const grown = adjustLayoutDoorCount(layout, 3)
+
+  for (const door of grown.doors) {
+    assert.equal(itemOverlapsLayout(grown, 'door', door.id, door.x, door.y), false, `${door.id} overlaps another item`)
+  }
+})
+
 test('adjustLayoutWindowCount appends or trims windows while preserving custom positions', () => {
   const initial = createDefaultLayout({ num_windows: 3, num_seats: 8 })
   const dragged = setItemPosition(initial, 'window', initial.windows[0].id, 200, 200)
 
   const grown = adjustLayoutWindowCount(dragged, 5)
   assert.equal(grown.windows.length, 5)
-  assert.equal(findItem(grown, 'window', initial.windows[0].id).x, 200)
+  assert.equal(findItem(grown, 'window', initial.windows[0].id).x, 320)
 
   const shrunk = adjustLayoutWindowCount(grown, 2)
   assert.equal(shrunk.windows.length, 2)
-  assert.equal(findItem(shrunk, 'window', initial.windows[0].id).x, 200)
+  assert.equal(findItem(shrunk, 'window', initial.windows[0].id).x, 320)
 })
 
 test('rebuildLayoutTablesForSeats produces capacities that match the requested seat count', () => {
@@ -222,11 +259,12 @@ test('drag-edited layout flows into the simulation payload coordinates', () => {
   )
 
   // Door coordinates survive snapping AND are sent to the backend.
-  assert.equal(payload.layout.doors[0].x, 310)
+  assert.equal(payload.layout.doors[0].x, 320)
   assert.equal(payload.layout.doors[0].y, 550)
   // Windows and table positions reach the backend exactly as edited.
   assert.equal(payload.layout.windows[0].x, 190)
-  assert.equal(payload.layout.windows[0].y, 90)
+  assert.equal(payload.layout.windows[0].y, 40)
+  assert.equal(payload.layout.windows[0].wall_side, 'top')
   assert.equal(payload.layout.tables[0].x, 260)
   assert.equal(payload.layout.tables[0].y, 300)
   // Capacity edits are propagated into the payload too.

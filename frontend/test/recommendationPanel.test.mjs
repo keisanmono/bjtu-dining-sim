@@ -48,6 +48,9 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(editorSource.includes('dining-chair'), true)
   assert.equal(editorSource.includes('queue-lane'), false)
   assert.equal(editorSource.includes('counter-belt'), false)
+  assert.equal(editorSource.includes('<text'), false)
+  assert.equal(editorSource.includes('wall-line"'), true)
+  assert.equal(editorSource.includes('V204 M24 96'), false)
   assert.equal(editorSource.includes('adjustLayoutDoorCount'), true)
   assert.equal(editorSource.includes('入口 +'), true)
 

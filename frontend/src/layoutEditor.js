@@ -18,8 +18,14 @@ const TABLE_PATTERN = [2, 4, 4, 6]
 const DENSE_TABLE_THRESHOLD_SEATS = 120
 
 const FOOTPRINTS = Object.freeze({
-  door: Object.freeze({ width: 28, height: 52 }),
-  window: Object.freeze({ width: 40, height: 28 }),
+  door: Object.freeze({
+    horizontal: Object.freeze({ width: 52, height: 32 }),
+    vertical: Object.freeze({ width: 32, height: 52 })
+  }),
+  window: Object.freeze({
+    horizontal: Object.freeze({ width: 44, height: 32 }),
+    vertical: Object.freeze({ width: 32, height: 44 })
+  }),
   table: Object.freeze({
     2: Object.freeze({ width: 52, height: 26 }),
     4: Object.freeze({ width: 60, height: 48 }),
@@ -57,8 +63,8 @@ export function buildTableCapacities(numSeats) {
 }
 
 export function getItemFootprint(kind, item) {
-  if (kind === 'window') return FOOTPRINTS.window
-  if (kind === 'door') return FOOTPRINTS.door
+  if (kind === 'window') return wallFootprintFor('window', item)
+  if (kind === 'door') return wallFootprintFor('door', item)
   if (kind === 'table') {
     const capacity = Math.max(1, Number(item?.capacity) || 1)
     if (capacity <= 2) return FOOTPRINTS.table[2]
@@ -94,6 +100,9 @@ function snapInsideRange(value, lower, upper, step = LAYOUT_GRID_STEP) {
 }
 
 export function snapAndClampPoint(x, y, kind, item) {
+  if (kind === 'door' || kind === 'window') {
+    return snapWallItemPoint(x, y, kind, item)
+  }
   const footprint = getItemFootprint(kind, item)
   const halfW = footprint.width / 2
   const halfH = footprint.height / 2
@@ -111,23 +120,40 @@ function clampInteger(value, lower, upper) {
   return Math.min(upper, Math.max(lower, Math.round(Number(value) || lower)))
 }
 
-function defaultDoorPosition(index) {
+function defaultDoorPosition(index, layout = null, id = `D${index + 1}`) {
   const positions = [
-    { x: 40, y: 120 },
-    { x: 320, y: 40 },
-    { x: 40, y: 40 },
-    { x: 320, y: 180 }
+    { wall_side: 'left', x: LAYOUT_BOUNDS.x, y: 100 },
+    { wall_side: 'right', x: LAYOUT_BOUNDS.right, y: 100 },
+    { wall_side: 'top', x: 310, y: LAYOUT_BOUNDS.y },
+    { wall_side: 'left', x: LAYOUT_BOUNDS.x, y: 170 }
   ]
   const position = positions[index] || positions[positions.length - 1]
-  return snapAndClampPoint(position.x, position.y, 'door', null)
+  const preferred = snapAndClampPoint(position.x, position.y, 'door', position)
+  return firstAvailableWallPosition(layout, 'door', id, index, preferred)
 }
 
-function defaultWindowPosition(index) {
-  // Lay windows out as a counter row (or two) along the upper portion.
-  const cols = 4
-  const col = index % cols
-  const row = Math.floor(index / cols)
-  return snapAndClampPoint(80 + col * 60, 80 + row * 50, 'window', null)
+function defaultWindowPosition(index, layout = null, id = `W${index + 1}`) {
+  // Windows are service openings on walls, so defaults occupy wall slots.
+  const topSlots = [70, 130, 190, 250, 310]
+  if (index < topSlots.length) {
+    const preferred = snapAndClampPoint(topSlots[index], LAYOUT_BOUNDS.y, 'window', { wall_side: 'top' })
+    return firstAvailableWallPosition(layout, 'window', id, index, preferred)
+  }
+  const rightSlots = [100, 170]
+  const rightIndex = index - topSlots.length
+  if (rightIndex < rightSlots.length) {
+    const preferred = snapAndClampPoint(LAYOUT_BOUNDS.right, rightSlots[rightIndex], 'window', { wall_side: 'right' })
+    return firstAvailableWallPosition(layout, 'window', id, index, preferred)
+  }
+  const leftSlots = [170, 100]
+  const leftIndex = rightIndex - rightSlots.length
+  if (leftIndex < leftSlots.length) {
+    const preferred = snapAndClampPoint(LAYOUT_BOUNDS.x, leftSlots[leftIndex], 'window', { wall_side: 'left' })
+    return firstAvailableWallPosition(layout, 'window', id, index, preferred)
+  }
+  const bottomIndex = leftIndex - leftSlots.length
+  const preferred = snapAndClampPoint(70 + (bottomIndex % 5) * 60, LAYOUT_BOUNDS.bottom, 'window', { wall_side: 'bottom' })
+  return firstAvailableWallPosition(layout, 'window', id, index, preferred)
 }
 
 function defaultTablePosition(index, capacity) {
@@ -138,25 +164,66 @@ function defaultTablePosition(index, capacity) {
   return snapAndClampPoint(70 + col * 70, 240 + row * 50, 'table', { capacity })
 }
 
+function firstAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
+  if (!layout) return preferred
+  if (!itemOverlapsLayout(layout, kind, id, preferred.x, preferred.y, { id, ...preferred })) {
+    return preferred
+  }
+  const candidates = wallCandidatePoints()
+  const start = candidates.length ? seedIndex % candidates.length : 0
+  for (let offset = 0; offset < candidates.length; offset += 1) {
+    const candidate = candidates[(start + offset) % candidates.length]
+    const point = snapAndClampPoint(candidate.x, candidate.y, kind, candidate)
+    if (!itemOverlapsLayout(layout, kind, id, point.x, point.y, { id, ...point })) {
+      return point
+    }
+  }
+  return preferred
+}
+
+function wallCandidatePoints() {
+  const points = []
+  for (let x = 50; x <= 310; x += 60) {
+    points.push({ wall_side: 'top', x, y: LAYOUT_BOUNDS.y })
+  }
+  for (let y = 50; y <= 590; y += 60) {
+    points.push({ wall_side: 'right', x: LAYOUT_BOUNDS.right, y })
+  }
+  for (let x = 310; x >= 50; x -= 60) {
+    points.push({ wall_side: 'bottom', x, y: LAYOUT_BOUNDS.bottom })
+  }
+  for (let y = 590; y >= 50; y -= 60) {
+    points.push({ wall_side: 'left', x: LAYOUT_BOUNDS.x, y })
+  }
+  return points
+}
+
 export function createDefaultLayout(config) {
   const numWindows = clampInteger(config?.num_windows, 1, 30)
   const numSeats = clampInteger(config?.num_seats, 1, LAYOUT_MAX_EDITABLE_SEATS)
-  const doors = [{
-    id: 'D1',
-    arrival_share: 1,
-    ...defaultDoorPosition(0)
-  }]
-  const windows = Array.from({ length: numWindows }, (_unused, index) => ({
-    id: `W${index + 1}`,
-    service_rate_factor: 1,
-    ...defaultWindowPosition(index)
-  }))
   const tables = buildTableCapacities(numSeats).map((capacity, index) => ({
     id: `T${index + 1}`,
     capacity,
     table_type: tableTypeForCapacity(capacity),
     ...defaultTablePosition(index, capacity)
   }))
+  const doors = []
+  let draft = { doors, windows: [], tables }
+  doors.push({
+    id: 'D1',
+    arrival_share: 1,
+    ...defaultDoorPosition(0, draft, 'D1')
+  })
+  draft = { ...draft, doors }
+  const windows = []
+  for (let index = 0; index < numWindows; index += 1) {
+    const id = `W${index + 1}`
+    windows.push({
+      id,
+      service_rate_factor: 1,
+      ...defaultWindowPosition(index, { ...draft, windows }, id)
+    })
+  }
   return { doors, windows, tables }
 }
 
@@ -171,10 +238,11 @@ export function adjustLayoutWindowCount(layout, desiredCount) {
   }
   const additional = []
   for (let index = current.length; index < target; index += 1) {
+    const id = nextWindowId(current.concat(additional))
     additional.push({
-      id: nextWindowId(current.concat(additional)),
+      id,
       service_rate_factor: 1,
-      ...defaultWindowPosition(index)
+      ...defaultWindowPosition(index, { ...layout, windows: [...current, ...additional] }, id)
     })
   }
   return { ...layout, windows: [...current, ...additional] }
@@ -191,10 +259,11 @@ export function adjustLayoutDoorCount(layout, desiredCount) {
   }
   const additional = []
   for (let index = current.length; index < target; index += 1) {
+    const id = nextDoorId(current.concat(additional))
     additional.push({
-      id: nextDoorId(current.concat(additional)),
+      id,
       arrival_share: 1,
-      ...defaultDoorPosition(index)
+      ...defaultDoorPosition(index, { ...layout, doors: [...current, ...additional] }, id)
     })
   }
   return { ...layout, doors: [...current, ...additional] }
@@ -217,10 +286,10 @@ export function setItemPosition(layout, kind, id, x, y) {
   const items = layout[collection].map((item) => {
     if (item.id !== id) return item
     const point = snapAndClampPoint(x, y, kind, item)
-    if (itemOverlapsLayout(layout, kind, id, point.x, point.y, item)) {
+    if (itemOverlapsLayout(layout, kind, id, point.x, point.y, { ...item, ...wallSidePatch(kind, point) })) {
       return item
     }
-    return { ...item, x: point.x, y: point.y }
+    return { ...item, x: point.x, y: point.y, ...wallSidePatch(kind, point) }
   })
   return { ...layout, [collection]: items }
 }
@@ -304,6 +373,67 @@ function allLayoutItems(layout) {
 
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+function snapWallItemPoint(x, y, kind, item) {
+  const wallSide = nearestWallSide(x, y)
+  const footprint = getItemFootprint(kind, { ...item, wall_side: wallSide })
+  const halfW = footprint.width / 2
+  const halfH = footprint.height / 2
+  if (wallSide === 'top') {
+    return {
+      x: snapInsideRange(x, LAYOUT_BOUNDS.x + halfW, LAYOUT_BOUNDS.right - halfW),
+      y: LAYOUT_BOUNDS.y + halfH,
+      wall_side: wallSide
+    }
+  }
+  if (wallSide === 'right') {
+    return {
+      x: LAYOUT_BOUNDS.right - halfW,
+      y: snapInsideRange(y, LAYOUT_BOUNDS.y + halfH, LAYOUT_BOUNDS.bottom - halfH),
+      wall_side: wallSide
+    }
+  }
+  if (wallSide === 'bottom') {
+    return {
+      x: snapInsideRange(x, LAYOUT_BOUNDS.x + halfW, LAYOUT_BOUNDS.right - halfW),
+      y: LAYOUT_BOUNDS.bottom - halfH,
+      wall_side: wallSide
+    }
+  }
+  return {
+    x: LAYOUT_BOUNDS.x + halfW,
+    y: snapInsideRange(y, LAYOUT_BOUNDS.y + halfH, LAYOUT_BOUNDS.bottom - halfH),
+    wall_side: wallSide
+  }
+}
+
+function nearestWallSide(x, y) {
+  const distances = [
+    { wall_side: 'top', value: Math.abs(y - LAYOUT_BOUNDS.y) },
+    { wall_side: 'right', value: Math.abs(x - LAYOUT_BOUNDS.right) },
+    { wall_side: 'bottom', value: Math.abs(y - LAYOUT_BOUNDS.bottom) },
+    { wall_side: 'left', value: Math.abs(x - LAYOUT_BOUNDS.x) }
+  ]
+  return distances.reduce((nearest, candidate) => (
+    candidate.value < nearest.value ? candidate : nearest
+  )).wall_side
+}
+
+function wallFootprintFor(kind, item) {
+  const side = normalizeWallSide(item?.wall_side, kind === 'door' ? 'left' : 'top')
+  return side === 'top' || side === 'bottom'
+    ? FOOTPRINTS[kind].horizontal
+    : FOOTPRINTS[kind].vertical
+}
+
+function normalizeWallSide(side, fallback) {
+  return ['top', 'right', 'bottom', 'left'].includes(side) ? side : fallback
+}
+
+function wallSidePatch(kind, point) {
+  if (kind !== 'door' && kind !== 'window') return {}
+  return { wall_side: point.wall_side }
 }
 
 function nextDoorId(existing) {

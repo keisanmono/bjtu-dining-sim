@@ -292,17 +292,6 @@ input {
   stroke-width: 4;
 }
 
-.svg-label {
-  fill: #1f4f85;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.svg-note {
-  fill: #6b7b8f;
-  font-size: 11px;
-}
-
 .layout-item {
   cursor: grab;
 }
@@ -321,10 +310,9 @@ input {
   stroke-width: 2;
 }
 
-.layout-door text {
+.layout-door .layout-door-marker {
   fill: #2f6b44;
-  font-size: 11px;
-  font-weight: 800;
+  stroke: none;
   pointer-events: none;
 }
 
@@ -339,10 +327,9 @@ input {
   stroke-width: 2.4;
 }
 
-.layout-window text {
+.layout-window .layout-window-marker {
   fill: #1f4f85;
-  font-size: 10px;
-  font-weight: 800;
+  stroke: none;
   pointer-events: none;
 }
 
@@ -373,13 +360,6 @@ input {
 
 .layout-table.is-selected .dining-chair {
   stroke: #d97706;
-}
-
-.layout-table .table-number {
-  fill: #4c351c;
-  font-size: 9px;
-  font-weight: 800;
-  pointer-events: none;
 }
 
 .layout-door.is-selected rect {
