@@ -3,6 +3,10 @@ export function nextViewAfterRecommendation(currentView) {
 }
 
 export function applyRecommendedConfig(targetConfig, recommendedConfig) {
-  Object.assign(targetConfig, recommendedConfig)
+  for (const key of Object.keys(targetConfig)) {
+    if (Object.hasOwn(recommendedConfig, key)) {
+      targetConfig[key] = recommendedConfig[key]
+    }
+  }
   return targetConfig
 }

@@ -5,14 +5,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from fastapi.testclient import TestClient
-
-from app.main import app
+from app.main import (
+    explain,
+    get_run_metrics,
+    get_run_records,
+    recommend,
+    run_full_simulation,
+    validate_simulation_config,
+)
+from app.schemas import ExplanationRequest, RecommendationRequest, SimulationConfig
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
         self.config = {
             "num_windows": 3,
             "num_seats": 80,
@@ -29,51 +34,69 @@ class ApiTests(unittest.TestCase):
         }
 
     def test_run_records_metrics_recommendation_and_explanation(self):
-        validation = self.client.post("/api/config/validate", json=self.config)
-        self.assertEqual(validation.status_code, 200)
-        self.assertTrue(validation.json()["valid"])
+        validation = validate_simulation_config(SimulationConfig(**self.config))
+        self.assertTrue(validation.valid)
 
-        run = self.client.post("/api/sim/run", json=self.config)
-        self.assertEqual(run.status_code, 200)
-        run_body = run.json()
+        run_body = run_full_simulation(SimulationConfig(**self.config)).model_dump()
         self.assertGreaterEqual(len(run_body["records"]), self.config["duration_min"])
         self.assertEqual(run_body["metrics"]["total_left"], run_body["metrics"]["total_arrived"])
         run_id = run_body["run_id"]
 
-        records = self.client.get(f"/api/run/{run_id}/records")
-        self.assertEqual(records.status_code, 200)
-        self.assertGreaterEqual(len(records.json()), self.config["duration_min"])
+        records = get_run_records(run_id)
+        self.assertGreaterEqual(len(records), self.config["duration_min"])
 
-        metrics = self.client.get(f"/api/run/{run_id}/metrics")
-        self.assertEqual(metrics.status_code, 200)
-        self.assertIn("bottleneck_type", metrics.json())
+        metrics = get_run_metrics(run_id)
+        self.assertIn("bottleneck_type", metrics)
 
-        recommendation = self.client.post(
-            "/api/optimize/recommend",
-            json={
-                "base_config": self.config,
-                "window_options": [3, 4],
-                "seat_options": [80, 100],
-                "stagger_options": [0, 10],
-                "top_k": 3,
-            },
+        rec_body = recommend(
+            RecommendationRequest(
+                base_config=self.config,
+                window_options=[3, 4],
+                seat_options=[80, 100],
+                stagger_options=[0, 10],
+                top_k=3,
+            )
         )
-        self.assertEqual(recommendation.status_code, 200)
-        rec_body = recommendation.json()
         self.assertEqual(len(rec_body["ranking"]), 3)
         self.assertIn("best", rec_body)
 
-        explanation = self.client.post(
-            "/api/explain",
-            json={
-                "run_id": run_id,
-                "baseline_metrics": run_body["metrics"],
-                "best_metrics": rec_body["best"]["metrics"],
-                "recommended_strategy": rec_body["best"]["strategy"],
-            },
+        explanation = explain(
+            ExplanationRequest(
+                run_id=run_id,
+                baseline_metrics=run_body["metrics"],
+                best_metrics=rec_body["best"]["metrics"],
+                recommended_strategy=rec_body["best"]["strategy"],
+            )
         )
-        self.assertEqual(explanation.status_code, 200)
-        self.assertIn("建议采用", explanation.json()["text"])
+        self.assertIn("建议采用", explanation.text)
+
+    def test_layout_payload_drives_table_state_and_metrics(self):
+        config = {
+            **self.config,
+            "num_windows": 2,
+            "num_seats": 6,
+            "arrival_rate": 3,
+            "duration_min": 8,
+            "layout": {
+                "doors": [{"id": "west-door", "x": 18, "y": 145, "arrival_share": 1.0}],
+                "windows": [
+                    {"id": "noodle", "x": 140, "y": 88, "service_rate_factor": 1.0},
+                    {"id": "rice", "x": 220, "y": 88, "service_rate_factor": 1.2},
+                ],
+                "tables": [
+                    {"id": "solo-1", "x": 148, "y": 238, "table_type": "two_seat", "capacity": 2},
+                    {"id": "group-1", "x": 226, "y": 238, "table_type": "four_seat", "capacity": 4},
+                ],
+            },
+            "party_size_distribution": {"1": 0.5, "2": 0.5},
+        }
+
+        body = run_full_simulation(SimulationConfig(**config)).model_dump()
+
+        self.assertEqual(body["final_state"]["table_occupancy"][0]["id"], "solo-1")
+        self.assertEqual(body["final_state"]["table_occupancy"][1]["type"], "four_seat")
+        self.assertIn("two_seat", body["metrics"]["table_utilization_by_type"])
+        self.assertIn("avg_party_gather_wait", body["metrics"])
 
 
 if __name__ == "__main__":

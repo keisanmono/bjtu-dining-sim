@@ -47,6 +47,7 @@ def recommend_config(request: RecommendationRequestData) -> RecommendationResult
                     num_windows=windows,
                     num_seats=seats,
                     stagger_minutes=stagger,
+                    layout=None,
                 )
                 result = run_simulation(config)
                 candidates.append(

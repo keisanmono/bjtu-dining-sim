@@ -197,60 +197,63 @@
               <span>仿真场景预览</span>
             </div>
           </template>
-          <div class="dining-floor-plan">
-            <section class="entrance-zone">
-              <span class="zone-title">入口</span>
-              <div class="entrance-door">
-                <span>门</span>
-              </div>
-              <div class="flow-arrow">入场</div>
-            </section>
+          <svg class="dining-floor-plan" viewBox="0 0 360 640" role="img" aria-label="食堂俯视平面图">
+            <rect class="floor-fill" x="10" y="10" width="340" height="620" rx="10" />
+            <path class="wall-line" d="M72 24 H336 V616 H24 V226 M24 104 V24 H54" />
 
-            <section class="service-zone">
-              <div class="zone-title-row">
-                <span class="zone-title">取餐窗口</span>
-                <span class="zone-note">{{ config.num_windows }} 个开放</span>
-              </div>
-              <div class="service-counter-bank">
-                <div v-for="window in previewWindowItems" :key="window" class="service-counter">
-                  <span>窗口 {{ window }}</span>
-                  <i />
-                </div>
-              </div>
-              <p v-if="hiddenWindowCount" class="muted compact">另有 {{ hiddenWindowCount }} 个窗口未在平面图中展开。</p>
-            </section>
+            <text class="svg-label" x="35" y="92">入口</text>
+            <rect class="svg-entrance-door" x="18" y="112" width="58" height="94" rx="14" />
+            <text class="svg-door-text" x="47" y="164" text-anchor="middle">门</text>
+            <path class="entry-arrow" d="M78 160 H112" />
+            <text class="svg-note" x="32" y="226">入场</text>
 
-            <section class="queue-zone">
-              <span class="zone-title">排队动线</span>
-              <div class="queue-lane">
-                <i />
-                <i />
-                <i />
-                <span>入口 -> 窗口 -> 就餐区</span>
-              </div>
-            </section>
+            <text class="svg-label" x="132" y="52">取餐窗口</text>
+            <text class="svg-note" x="310" y="52" text-anchor="end">{{ layoutPreview.windows.length }} 个开放</text>
+            <rect class="counter-belt" x="118" y="64" width="218" height="12" rx="6" />
+            <g
+              v-for="counter in svgWindowCounters"
+              :key="counter.id"
+              class="svg-counter-window"
+              :transform="`translate(${counter.x} ${counter.y})`"
+            >
+              <rect width="48" height="34" rx="8" />
+              <text x="24" y="21" text-anchor="middle">窗口 {{ counter.label }}</text>
+            </g>
+            <text v-if="hiddenWindowCount" class="svg-note" x="124" y="194">
+              另有 {{ hiddenWindowCount }} 个窗口未展开
+            </text>
 
-            <section class="seating-zone">
-              <div class="zone-title-row">
-                <span class="zone-title">就餐区桌椅</span>
-                <span class="zone-note">每桌 4 座</span>
-              </div>
-              <div class="table-layout">
-                <div v-for="table in previewTableGroups" :key="table.id" class="dining-table-group">
-                  <span
-                    v-for="chair in table.chairs"
-                    :key="chair"
-                    class="dining-chair"
-                    :class="`chair-${chair}`"
-                  />
-                  <strong class="table-top">{{ table.id }}</strong>
-                </div>
-              </div>
-              <p v-if="hiddenTableCount" class="muted compact">
-                共 {{ totalTableCount }} 组桌椅，预览前 {{ previewTableGroups.length }} 组。
-              </p>
-            </section>
-          </div>
+            <path class="queue-lane" d="M76 170 C106 170 100 132 132 132 H314" />
+            <circle class="queue-dot" cx="102" cy="154" r="4" />
+            <circle class="queue-dot" cx="144" cy="132" r="4" />
+            <circle class="queue-dot" cx="186" cy="132" r="4" />
+            <text class="svg-note" x="88" y="214">排队动线：入口 -> 窗口 -> 就餐区</text>
+
+            <text class="svg-label" x="126" y="190">就餐区桌椅</text>
+            <text class="svg-note" x="324" y="190" text-anchor="end">{{ tableTypeSummary }}</text>
+            <g
+              v-for="table in svgTableGroups"
+              :key="table.id"
+              class="dining-table-group"
+              :transform="`translate(${table.x} ${table.y})`"
+            >
+              <rect
+                v-for="chair in table.chairs"
+                :key="chair.key"
+                class="dining-chair"
+                :x="chair.x"
+                :y="chair.y"
+                :width="chair.width"
+                :height="chair.height"
+                rx="4"
+              />
+              <rect class="table-top" :x="-table.width / 2" y="-14" :width="table.width" height="28" rx="8" />
+              <text class="table-number" x="0" y="5" text-anchor="middle">{{ table.label }}</text>
+            </g>
+            <text v-if="hiddenTableCount" class="svg-note" x="180" y="612" text-anchor="middle">
+              共 {{ totalTableCount }} 组桌椅，预览前 {{ svgTableGroups.length }} 组
+            </text>
+          </svg>
         </el-card>
       </section>
 
@@ -390,6 +393,7 @@ import {
 import { api } from './api'
 import { buildCandidatesFromSettings, createDefaultCandidateSettings } from './candidates'
 import { canRenderChartElement } from './chartUtils'
+import { buildLayoutFromConfig, buildSimulationConfigPayload } from './layout'
 import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
 import { shouldResetStepRun } from './runControl'
 
@@ -436,30 +440,38 @@ let chartRenderFrame = 0
 
 const previewSeatLimit = 240
 const previewWindowLimit = 12
-const tableSeatCount = 4
-const previewTableLimit = 36
+const previewTableLimit = 24
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
 const currentRecord = computed(() => records.value.at(-1) || null)
 const seatGridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${Math.min(config.seat_columns, 20)}, minmax(10px, 1fr))`
 }))
+const layoutPreview = computed(() => buildLayoutFromConfig(config))
 const previewWindowItems = computed(() => {
-  const count = Math.min(config.num_windows, previewWindowLimit)
-  return Array.from({ length: count }, (_, index) => index + 1)
+  return layoutPreview.value.windows.slice(0, previewWindowLimit)
 })
-const hiddenWindowCount = computed(() => Math.max(0, config.num_windows - previewWindowItems.value.length))
-const totalTableCount = computed(() => Math.ceil(config.num_seats / tableSeatCount))
-const previewTableGroups = computed(() => {
+const svgWindowCounters = computed(() => previewWindowItems.value.map((id, index) => ({
+  ...id,
+  label: index + 1
+})))
+const hiddenWindowCount = computed(() => Math.max(0, layoutPreview.value.windows.length - previewWindowItems.value.length))
+const totalTableCount = computed(() => layoutPreview.value.tables.length)
+const svgTableGroups = computed(() => {
   const count = Math.min(totalTableCount.value, previewTableLimit)
-  return Array.from({ length: count }, (_, index) => {
-    const seats = Math.min(tableSeatCount, Math.max(0, config.num_seats - index * tableSeatCount))
+  return layoutPreview.value.tables.slice(0, count).map((table, index) => {
     return {
-      id: index + 1,
-      chairs: Array.from({ length: seats }, (_item, seatIndex) => seatIndex + 1)
+      ...table,
+      label: index + 1,
+      width: tableWidthForCapacity(table.capacity),
+      chairs: buildChairSlots(table.capacity)
     }
   })
 })
-const hiddenTableCount = computed(() => Math.max(0, totalTableCount.value - previewTableGroups.value.length))
+const hiddenTableCount = computed(() => Math.max(0, totalTableCount.value - svgTableGroups.value.length))
+const tableTypeSummary = computed(() => {
+  const capacities = [...new Set(layoutPreview.value.tables.map((table) => table.capacity))].sort((a, b) => a - b)
+  return `${capacities.join('/')} 座桌混排`
+})
 const visibleSeatMatrix = computed(() => {
   const matrix = currentState.value?.seat_matrix || []
   if (!matrix.length) {
@@ -535,7 +547,7 @@ function resetCandidateSettings() {
 }
 
 async function validateConfig() {
-  const result = await api.validateConfig({ ...config })
+  const result = await api.validateConfig(buildSimulationConfigPayload(config))
   validationType.value = result.valid ? (result.warnings.length ? 'warning' : 'success') : 'error'
   validationMessage.value = result.valid
     ? result.warnings[0] || '参数校验通过。'
@@ -583,7 +595,7 @@ function resetRun(clearMessage = true) {
 async function singleStep(reset = false) {
   try {
     const payload = shouldResetStepRun(reset, runId.value)
-      ? { config: { ...config }, reset: true }
+      ? { config: buildSimulationConfigPayload(config), reset: true }
       : { run_id: runId.value }
     const response = await api.stepSimulation(payload)
     runId.value = response.run_id
@@ -604,7 +616,7 @@ async function singleStep(reset = false) {
 async function runFullSimulation() {
   try {
     pauseRun()
-    const response = await api.runSimulation({ ...config })
+    const response = await api.runSimulation(buildSimulationConfigPayload(config))
     applyRunResponse(response)
     activeView.value = 'analysis'
     ElMessage.success('仿真运行完成')
@@ -625,7 +637,7 @@ async function generateRecommendation() {
   try {
     isRecommending.value = true
     const payload = {
-      base_config: { ...config },
+      base_config: buildSimulationConfigPayload(config),
       window_options: windowCandidates.value,
       seat_options: seatCandidates.value,
       stagger_options: staggerCandidates.value,
@@ -634,7 +646,7 @@ async function generateRecommendation() {
     recommendation.value = await api.recommend(payload)
     explanation.value = await api.explain({
       run_id: runId.value || null,
-      baseline_config: { ...config },
+      baseline_config: buildSimulationConfigPayload(config),
       best_config: recommendation.value.best.config,
       baseline_metrics: recommendation.value.baseline_metrics,
       best_metrics: recommendation.value.best.metrics,
@@ -737,6 +749,24 @@ function resizeCharts() {
   queueChart?.resize()
   trendChart?.resize()
   analysisChart?.resize()
+}
+
+function buildChairSlots(capacity) {
+  const slots = [
+    { key: 1, x: -7, y: -29, width: 14, height: 14 },
+    { key: 2, x: 24, y: -7, width: 14, height: 14 },
+    { key: 3, x: -7, y: 15, width: 14, height: 14 },
+    { key: 4, x: -38, y: -7, width: 14, height: 14 },
+    { key: 5, x: 24, y: -29, width: 14, height: 14 },
+    { key: 6, x: -38, y: 15, width: 14, height: 14 }
+  ]
+  return slots.slice(0, Math.max(1, Number(capacity) || 1))
+}
+
+function tableWidthForCapacity(capacity) {
+  if (capacity <= 2) return 34
+  if (capacity >= 6) return 48
+  return 40
 }
 
 function totalQueue(record) {

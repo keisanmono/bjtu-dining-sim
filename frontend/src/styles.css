@@ -201,240 +201,98 @@ input {
 }
 
 .dining-floor-plan {
-  position: relative;
-  min-height: 760px;
-  padding: 24px;
-  overflow: hidden;
-  border: 2px solid #aebdcc;
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(104, 126, 148, 0.08) 1px, transparent 1px),
-    linear-gradient(rgba(104, 126, 148, 0.08) 1px, transparent 1px),
-    #f8faf7;
-  background-size: 28px 28px;
-}
-
-.dining-floor-plan::before {
-  position: absolute;
-  inset: 14px;
-  pointer-events: none;
-  content: "";
-  border: 3px solid #8ea2b6;
-  border-left: 0;
-  border-radius: 8px;
-}
-
-.entrance-zone {
-  position: absolute;
-  top: 74px;
-  left: 0;
-  z-index: 2;
-  display: grid;
-  width: 112px;
-  gap: 8px;
-  justify-items: center;
-}
-
-.service-zone {
-  position: absolute;
-  top: 28px;
-  right: 28px;
-  left: 132px;
-  z-index: 2;
-}
-
-.queue-zone {
-  position: absolute;
-  top: 162px;
-  left: 78px;
-  z-index: 1;
-  width: 220px;
-  height: 260px;
-}
-
-.seating-zone {
-  position: absolute;
-  top: 178px;
-  right: 30px;
-  bottom: 28px;
-  left: 160px;
-  z-index: 2;
-  min-width: 0;
-}
-
-.zone-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.zone-title {
-  color: #1f4f85;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.zone-note {
-  color: #6b7b8f;
-  font-size: 12px;
-}
-
-.entrance-door {
-  display: grid;
-  width: 88px;
-  min-height: 116px;
-  place-items: center;
-  border: 3px solid #48745a;
-  border-left-width: 12px;
-  border-radius: 0 14px 14px 0;
-  background: #edf5ed;
-  color: #2f6b44;
-  font-weight: 800;
-}
-
-.flow-arrow {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #f4efe7;
-  color: #7a5429;
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.service-counter-bank {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
-  gap: 8px;
-  padding: 0 0 12px;
-  border-bottom: 10px solid #b98345;
-  border-radius: 0 0 10px 10px;
-}
-
-.service-counter {
-  display: grid;
-  gap: 8px;
-  min-height: 58px;
-  padding: 8px;
-  border: 1px solid #b9c7d5;
-  border-radius: 8px;
-  background: #edf4fb;
-  color: #1f4f85;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.service-counter i {
   display: block;
-  height: 10px;
-  border-radius: 999px;
-  background: #c58d45;
+  width: 100%;
+  aspect-ratio: 360 / 640;
+  border-radius: 8px;
+  background: #f8faf7;
 }
 
+.floor-fill {
+  fill: #f8faf7;
+  stroke: #aebdcc;
+  stroke-width: 2;
+}
+
+.wall-line {
+  fill: none;
+  stroke: #8ea2b6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
+}
+
+.svg-label {
+  fill: #1f4f85;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.svg-note {
+  fill: #6b7b8f;
+  font-size: 11px;
+}
+
+.svg-entrance-door {
+  fill: #edf5ed;
+  stroke: #48745a;
+  stroke-width: 4;
+}
+
+.svg-door-text {
+  fill: #2f6b44;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.entry-arrow,
 .queue-lane {
-  position: relative;
-  height: 210px;
-  margin-top: 12px;
-  border-top: 7px solid #48745a;
-  border-left: 7px solid #48745a;
-  border-radius: 28px 0 0;
+  fill: none;
+  stroke: #48745a;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 6;
 }
 
-.queue-lane i {
-  position: absolute;
-  height: 8px;
-  width: 8px;
-  border-radius: 999px;
-  background: #48745a;
+.counter-belt {
+  fill: #b98345;
 }
 
-.queue-lane i:nth-child(1) {
-  top: -8px;
-  left: 36px;
+.svg-counter-window rect {
+  fill: #edf4fb;
+  stroke: #b9c7d5;
 }
 
-.queue-lane i:nth-child(2) {
-  top: -8px;
-  left: 88px;
+.svg-counter-window text {
+  fill: #1f4f85;
+  font-size: 10px;
+  font-weight: 800;
 }
 
-.queue-lane i:nth-child(3) {
-  top: 52px;
-  left: -8px;
-}
-
-.queue-lane span {
-  position: absolute;
-  bottom: 0;
-  left: 18px;
-  width: 140px;
-  color: #6b7b8f;
-  font-size: 12px;
-}
-
-.table-layout {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
-  gap: 12px;
-  max-height: calc(100% - 44px);
-  overflow: hidden;
+.queue-dot {
+  fill: #48745a;
 }
 
 .dining-table-group {
-  position: relative;
-  min-height: 66px;
+  color: #1f4f85;
 }
 
 .table-top {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: 38px;
-  height: 28px;
-  place-items: center;
-  transform: translate(-50%, -50%);
-  border: 1px solid #9b6a37;
-  border-radius: 8px;
-  background: #d1a164;
-  color: #4c351c;
-  font-size: 12px;
-  line-height: 1;
+  fill: #d1a164;
+  stroke: #9b6a37;
+  stroke-width: 1.2;
 }
 
 .dining-chair {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border: 1px solid #8aa1b8;
-  border-radius: 4px;
-  background: #e3ebf2;
+  fill: #e3ebf2;
+  stroke: #8aa1b8;
+  stroke-width: 1;
 }
 
-.dining-chair.chair-1 {
-  top: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.dining-chair.chair-2 {
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-}
-
-.dining-chair.chair-3 {
-  bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.dining-chair.chair-4 {
-  top: 50%;
-  left: 4px;
-  transform: translateY(-50%);
+.table-number {
+  fill: #4c351c;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .seat-grid {
@@ -654,31 +512,7 @@ input {
   }
 
   .dining-floor-plan {
-    display: grid;
     min-height: 0;
-    gap: 14px;
-  }
-
-  .dining-floor-plan::before {
-    inset: 8px;
-  }
-
-  .entrance-zone,
-  .service-zone,
-  .queue-zone,
-  .seating-zone {
-    position: relative;
-    inset: auto;
-    width: auto;
-    height: auto;
-  }
-
-  .queue-lane {
-    height: 88px;
-  }
-
-  .table-layout {
-    max-height: none;
   }
 
   .time-chip {

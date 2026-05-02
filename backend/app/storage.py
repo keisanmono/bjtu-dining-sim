@@ -46,9 +46,10 @@ class SimulationStore:
                 INSERT OR REPLACE INTO metrics_summary (
                     run_id, avg_wait, avg_queue_wait, avg_seat_wait, peak_queue,
                     peak_waiting_for_seat, throughput, total_arrived, total_left,
-                    seat_utilization, window_utilization, bottleneck_type, chart_data_json
+                    seat_utilization, window_utilization, bottleneck_type, chart_data_json,
+                    extra_metrics_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     result.run_id,
@@ -64,6 +65,16 @@ class SimulationStore:
                     result.metrics.window_utilization,
                     result.metrics.bottleneck_type,
                     _json(result.metrics.chart_data),
+                    _json(
+                        {
+                            "avg_party_gather_wait": result.metrics.avg_party_gather_wait,
+                            "party_split_count": result.metrics.party_split_count,
+                            "shared_table_count": result.metrics.shared_table_count,
+                            "blocked_party_count": result.metrics.blocked_party_count,
+                            "fragmented_seats": result.metrics.fragmented_seats,
+                            "table_utilization_by_type": result.metrics.table_utilization_by_type,
+                        }
+                    ),
                 ),
             )
 
@@ -127,6 +138,7 @@ class SimulationStore:
             return None
         data = dict(row)
         data["chart_data"] = json.loads(data.pop("chart_data_json"))
+        data.update(json.loads(data.pop("extra_metrics_json", "{}") or "{}"))
         return data
 
     def export_records_csv(self, run_id: str, output_path: str | Path) -> Path:
@@ -200,7 +212,8 @@ class SimulationStore:
                     seat_utilization REAL NOT NULL,
                     window_utilization REAL NOT NULL,
                     bottleneck_type TEXT NOT NULL,
-                    chart_data_json TEXT NOT NULL
+                    chart_data_json TEXT NOT NULL,
+                    extra_metrics_json TEXT NOT NULL DEFAULT '{}'
                 );
 
                 CREATE TABLE IF NOT EXISTS optimization_result (
@@ -222,6 +235,7 @@ class SimulationStore:
                 );
                 """
             )
+            _ensure_column(conn, "metrics_summary", "extra_metrics_json", "TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -263,6 +277,12 @@ def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def _now_iso() -> str:

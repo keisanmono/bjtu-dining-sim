@@ -6,7 +6,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.optimization import RecommendationRequestData, recommend_config
-from app.simulation import SimulationConfigData, run_simulation
+from app.simulation import (
+    DiningLayoutData,
+    DiningSimulationRunner,
+    LayoutDoorData,
+    LayoutTableData,
+    LayoutWindowData,
+    SimulationConfigData,
+    run_simulation,
+)
 
 
 class DiningSimulationTests(unittest.TestCase):
@@ -111,6 +119,126 @@ class DiningSimulationTests(unittest.TestCase):
             run_simulation(base).metrics.avg_wait,
         )
         self.assertIn(recommendation.best.config.num_windows, [3, 4])
+
+    def test_recommendation_rebuilds_layout_for_candidate_resource_counts(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[LayoutTableData(id="T1", x=20, y=20, table_type="four_seat", capacity=4)],
+        )
+        request = RecommendationRequestData(
+            base_config=SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                arrival_rate=3.0,
+                service_time_mean=2.0,
+                dining_time_mean=8.0,
+                duration_min=12,
+                seed=30,
+                layout=layout,
+            ),
+            window_options=[2],
+            seat_options=[8],
+            stagger_options=[0],
+            top_k=1,
+        )
+
+        recommendation = recommend_config(request)
+
+        self.assertEqual(recommendation.best.config.num_windows, 2)
+        self.assertEqual(recommendation.best.config.num_seats, 8)
+        self.assertIsNone(recommendation.best.config.layout)
+
+    def test_party_members_choose_windows_independently(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[
+                LayoutWindowData(id="W1", x=10, y=0),
+                LayoutWindowData(id="W2", x=80, y=0),
+            ],
+            tables=[LayoutTableData(id="T1", x=30, y=30, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=2,
+                num_seats=4,
+                layout=layout,
+                party_size_distribution={2: 1.0},
+                seed=22,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+
+        runner._enqueue_arrivals(students)
+
+        self.assertEqual(students[0].party_id, students[1].party_id)
+        self.assertEqual([len(queue) for queue in runner.queues], [1, 1])
+        self.assertEqual({student.window_index for student in students}, {0, 1})
+
+    def test_party_seating_keeps_companions_at_one_table(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[
+                LayoutTableData(id="T1", x=20, y=20, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T2", x=80, y=20, table_type="two_seat", capacity=2),
+            ],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                layout=layout,
+                party_size_distribution={2: 1.0},
+                seed=23,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+        party = runner.parties[students[0].party_id]
+        for student in students:
+            student.service_end_time = 3
+        party.ready_time = 3
+        runner.waiting_for_seat.append(party)
+
+        seated = runner._seat_waiting_students(minute=4)
+
+        self.assertEqual(seated, 2)
+        self.assertEqual(runner.table_occupied_seats, [2, 0])
+        self.assertEqual({student.seat_time for student in students}, {4})
+        self.assertEqual(runner.metrics_counters["party_split_count"], 0)
+
+    def test_solo_student_prefers_empty_table_before_sharing(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[
+                LayoutTableData(id="T1", x=15, y=20, table_type="four_seat", capacity=4),
+                LayoutTableData(id="T2", x=120, y=20, table_type="four_seat", capacity=4),
+            ],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=8,
+                layout=layout,
+                party_size_distribution={1: 1.0},
+                seed=24,
+            )
+        )
+        occupied_student = runner._create_party_students(minute=0, person_count=1)[0]
+        occupied_student.window_index = 0
+        runner.table_occupied_seats[0] = 1
+        runner.table_party_ids[0].add(occupied_student.party_id)
+        solo = runner._create_party_students(minute=1, person_count=1)[0]
+        solo.window_index = 0
+        solo.service_end_time = 2
+        party = runner.parties[solo.party_id]
+        party.ready_time = 2
+        runner.waiting_for_seat.append(party)
+
+        runner._seat_waiting_students(minute=3)
+
+        self.assertEqual(party.table_index, 1)
 
 
 if __name__ == "__main__":

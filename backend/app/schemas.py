@@ -4,7 +4,41 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .simulation import SimulationConfigData
+from .simulation import (
+    DiningLayoutData,
+    LayoutDoorData,
+    LayoutTableData,
+    LayoutWindowData,
+    SimulationConfigData,
+)
+
+
+class LayoutDoor(BaseModel):
+    id: str
+    x: float
+    y: float
+    arrival_share: float = Field(default=1.0, ge=0)
+
+
+class LayoutWindow(BaseModel):
+    id: str
+    x: float
+    y: float
+    service_rate_factor: float = Field(default=1.0, gt=0)
+
+
+class LayoutTable(BaseModel):
+    id: str
+    x: float
+    y: float
+    table_type: str = "four_seat"
+    capacity: int = Field(default=4, ge=1)
+
+
+class DiningLayout(BaseModel):
+    doors: list[LayoutDoor]
+    windows: list[LayoutWindow]
+    tables: list[LayoutTable]
 
 
 class SimulationConfig(BaseModel):
@@ -20,9 +54,19 @@ class SimulationConfig(BaseModel):
     peak_multiplier: float = Field(default=1.4, ge=0.5, le=5.0)
     stagger_minutes: int = Field(default=0, ge=0, le=120)
     seat_columns: int = Field(default=12, ge=4, le=40)
+    layout: DiningLayout | None = None
+    party_size_distribution: dict[int, float] = Field(default_factory=lambda: {1: 1.0})
 
     def to_data(self) -> SimulationConfigData:
-        return SimulationConfigData(**self.model_dump())
+        payload = self.model_dump()
+        layout = payload.pop("layout")
+        if layout is not None:
+            payload["layout"] = DiningLayoutData(
+                doors=[LayoutDoorData(**door) for door in layout["doors"]],
+                windows=[LayoutWindowData(**window) for window in layout["windows"]],
+                tables=[LayoutTableData(**table) for table in layout["tables"]],
+            )
+        return SimulationConfigData(**payload)
 
 
 class ValidationResponse(BaseModel):
@@ -76,4 +120,3 @@ class ExplanationResponse(BaseModel):
     exp_id: str
     text: str
     risk_notes: list[str]
-
