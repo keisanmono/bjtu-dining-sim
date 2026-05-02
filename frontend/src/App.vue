@@ -501,7 +501,7 @@ const runCards = computed(() => {
   return [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
     { label: '峰值排队长度', value: metrics.value?.peak_queue ?? queue, hint: `当前 ${queue} 人` },
-    { label: '空座位数', value: record?.empty_seats ?? config.num_seats, hint: `等座 ${record?.waiting_for_seat_count || 0} 人` },
+    { label: '空座位数', value: record?.empty_seats ?? config.num_seats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
   ]
 })
@@ -509,9 +509,9 @@ const analysisCards = computed(() => {
   const m = metrics.value
   return [
     { label: '平均等待', value: formatMinutes(m?.avg_wait || 0), hint: `取餐排队等待 ${formatMinutes(m?.avg_queue_wait || 0)}` },
-    { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `最多等座 ${m?.peak_waiting_for_seat || 0} 人` },
+    { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `高峰最多等座 ${m?.peak_waiting_for_seat || 0} 人` },
     { label: '窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: `瓶颈判断：${m?.bottleneck_type || '待分析'}` },
-    { label: '座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` }
+    { label: '平均座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` }
   ]
 })
 const recentRecords = computed(() => records.value.slice(-80).reverse())

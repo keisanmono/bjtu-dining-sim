@@ -38,10 +38,18 @@ test('analysis cards explain secondary metrics without jargon', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
   assert.equal(source.includes('取餐排队等待'), true)
-  assert.equal(source.includes('最多等座'), true)
+  assert.equal(source.includes('高峰最多等座'), true)
   assert.equal(source.includes('瓶颈判断：'), true)
   assert.equal(source.includes('完成就餐'), true)
   assert.equal(source.includes('`队列 ${formatMinutes'), false)
   assert.equal(source.includes('`等座峰值 ${'), false)
   assert.equal(source.includes('`吞吐 ${'), false)
+})
+
+test('seat utilization label states it is an average over the run', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes("label: '平均座位利用率'"), true)
+  assert.equal(source.includes("label: '座位利用率'"), false)
+  assert.equal(source.includes('`当前等座 ${record?.waiting_for_seat_count || 0} 人`'), true)
 })
