@@ -14,6 +14,8 @@ import {
   createDefaultLayout,
   findItem,
   getItemFootprint,
+  getItemCollisionBoxes,
+  itemBounds,
   itemOverlapsLayout,
   rebuildLayoutTablesForSeats,
   setItemPosition,
@@ -147,6 +149,24 @@ test('setItemPosition can allow temporary overlaps during drag', () => {
   assert.equal(moved.x, blockingWindow.x)
   assert.equal(moved.y, blockingWindow.y)
   assert.equal(itemOverlapsLayout(next, 'table', table.id, moved.x, moved.y), true)
+})
+
+test('table collisions use the visible table and chair shapes instead of one footprint rectangle', () => {
+  const first = { id: 'T1', capacity: 4, table_type: 'four_seat', x: 100, y: 100 }
+  const second = { id: 'T2', capacity: 4, table_type: 'four_seat', x: 140, y: 130 }
+  const layout = { doors: [], windows: [], tables: [first, second] }
+
+  assert.equal(getItemCollisionBoxes('table', first).length, 5)
+  assert.equal(boxesOverlap(itemBounds('table', first), itemBounds('table', second)), true)
+  assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, first), false)
+})
+
+test('table collisions still trigger when visible table parts intersect', () => {
+  const first = { id: 'T1', capacity: 4, table_type: 'four_seat', x: 100, y: 100 }
+  const second = { id: 'T2', capacity: 4, table_type: 'four_seat', x: 120, y: 100 }
+  const layout = { doors: [], windows: [], tables: [first, second] }
+
+  assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, first), true)
 })
 
 test('setTableCapacity rounds to a supported size and updates table_type', () => {

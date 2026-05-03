@@ -175,6 +175,8 @@ import {
   itemOverlapsLayout,
   setItemPosition,
   setTableCapacity,
+  tableChairRectsForCapacity,
+  tableTopForCapacity,
   totalLayoutSeats
 } from './layoutEditor.js'
 
@@ -276,45 +278,11 @@ function windowMarkerFor(window) {
 }
 
 function tableTopFor(table) {
-  const capacity = Math.max(1, Number(table.capacity) || 1)
-  if (capacity <= 2) return { width: 28, height: 18 }
-  if (capacity <= 4) return { width: 40, height: 26 }
-  return { width: 52, height: 26 }
+  return tableTopForCapacity(table.capacity)
 }
 
 function chairLayoutFor(table) {
-  const capacity = Math.max(1, Number(table.capacity) || 1)
-  const top = tableTopFor(table)
-  const halfW = top.width / 2
-  const halfH = top.height / 2
-  const chairSize = 10
-  const gap = 2
-
-  if (capacity <= 2) {
-    // 2-seat: chair on each short side
-    return [
-      { key: 'L', x: -halfW - gap - chairSize, y: -chairSize / 2, width: chairSize, height: chairSize },
-      { key: 'R', x: halfW + gap, y: -chairSize / 2, width: chairSize, height: chairSize }
-    ]
-  }
-  if (capacity <= 4) {
-    // 4-seat: one on each side
-    return [
-      { key: 'T', x: -chairSize / 2, y: -halfH - gap - chairSize, width: chairSize, height: chairSize },
-      { key: 'B', x: -chairSize / 2, y: halfH + gap, width: chairSize, height: chairSize },
-      { key: 'L', x: -halfW - gap - chairSize, y: -chairSize / 2, width: chairSize, height: chairSize },
-      { key: 'R', x: halfW + gap, y: -chairSize / 2, width: chairSize, height: chairSize }
-    ]
-  }
-  // 6-seat: 2 top, 2 bottom, 1 each side
-  return [
-    { key: 'T1', x: -halfW / 2 - chairSize / 2, y: -halfH - gap - chairSize, width: chairSize, height: chairSize },
-    { key: 'T2', x: halfW / 2 - chairSize / 2, y: -halfH - gap - chairSize, width: chairSize, height: chairSize },
-    { key: 'B1', x: -halfW / 2 - chairSize / 2, y: halfH + gap, width: chairSize, height: chairSize },
-    { key: 'B2', x: halfW / 2 - chairSize / 2, y: halfH + gap, width: chairSize, height: chairSize },
-    { key: 'L', x: -halfW - gap - chairSize, y: -chairSize / 2, width: chairSize, height: chairSize },
-    { key: 'R', x: halfW + gap, y: -chairSize / 2, width: chairSize, height: chairSize }
-  ]
+  return tableChairRectsForCapacity(table.capacity)
 }
 
 function clientToSvgPoint(clientX, clientY) {

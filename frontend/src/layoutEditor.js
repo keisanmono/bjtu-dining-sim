@@ -28,8 +28,8 @@ const FOOTPRINTS = Object.freeze({
   }),
   table: Object.freeze({
     2: Object.freeze({ width: 52, height: 26 }),
-    4: Object.freeze({ width: 60, height: 48 }),
-    6: Object.freeze({ width: 70, height: 48 })
+    4: Object.freeze({ width: 64, height: 50 }),
+    6: Object.freeze({ width: 76, height: 50 })
   })
 })
 
@@ -72,6 +72,45 @@ export function getItemFootprint(kind, item) {
     return FOOTPRINTS.table[6]
   }
   return { width: 20, height: 20 }
+}
+
+export function tableTopForCapacity(capacity) {
+  const value = Math.max(1, Number(capacity) || 1)
+  if (value <= 2) return { width: 28, height: 18 }
+  if (value <= 4) return { width: 40, height: 26 }
+  return { width: 52, height: 26 }
+}
+
+export function tableChairRectsForCapacity(capacity) {
+  const value = Math.max(1, Number(capacity) || 1)
+  const top = tableTopForCapacity(value)
+  const halfW = top.width / 2
+  const halfH = top.height / 2
+  const chairSize = 10
+  const gap = 2
+
+  if (value <= 2) {
+    return [
+      { key: 'L', x: -halfW - gap - chairSize, y: -chairSize / 2, width: chairSize, height: chairSize },
+      { key: 'R', x: halfW + gap, y: -chairSize / 2, width: chairSize, height: chairSize }
+    ]
+  }
+  if (value <= 4) {
+    return [
+      { key: 'T', x: -chairSize / 2, y: -halfH - gap - chairSize, width: chairSize, height: chairSize },
+      { key: 'B', x: -chairSize / 2, y: halfH + gap, width: chairSize, height: chairSize },
+      { key: 'L', x: -halfW - gap - chairSize, y: -chairSize / 2, width: chairSize, height: chairSize },
+      { key: 'R', x: halfW + gap, y: -chairSize / 2, width: chairSize, height: chairSize }
+    ]
+  }
+  return [
+    { key: 'T1', x: -halfW / 2 - chairSize / 2, y: -halfH - gap - chairSize, width: chairSize, height: chairSize },
+    { key: 'T2', x: halfW / 2 - chairSize / 2, y: -halfH - gap - chairSize, width: chairSize, height: chairSize },
+    { key: 'B1', x: -halfW / 2 - chairSize / 2, y: halfH + gap, width: chairSize, height: chairSize },
+    { key: 'B2', x: halfW / 2 - chairSize / 2, y: halfH + gap, width: chairSize, height: chairSize },
+    { key: 'L', x: -halfW - gap - chairSize, y: -chairSize / 2, width: chairSize, height: chairSize },
+    { key: 'R', x: halfW + gap, y: -chairSize / 2, width: chairSize, height: chairSize }
+  ]
 }
 
 export function snapToGrid(value, step = LAYOUT_GRID_STEP) {
@@ -319,11 +358,18 @@ export function setTableCapacity(layout, id, capacity) {
 export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) {
   const movingItem = itemOverride || findItem(layout, kind, id)
   if (!movingItem) return false
-  const movingBox = itemBounds(kind, { ...movingItem, x, y })
+  const movingBoxes = getItemCollisionBoxes(kind, { ...movingItem, x, y })
   return allLayoutItems(layout).some((candidate) => {
     if (candidate.kind === kind && candidate.item.id === id) return false
-    return boxesOverlap(movingBox, itemBounds(candidate.kind, candidate.item))
+    return boxesOverlapAny(movingBoxes, getItemCollisionBoxes(candidate.kind, candidate.item))
   })
+}
+
+export function getItemCollisionBoxes(kind, item) {
+  if (kind === 'table') {
+    return tableShapeRects(item).map((rect) => localRectToBox(item, rect))
+  }
+  return [itemBounds(kind, item)]
 }
 
 export function itemBounds(kind, item) {
@@ -376,6 +422,33 @@ function allLayoutItems(layout) {
 
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+function boxesOverlapAny(leftBoxes, rightBoxes) {
+  return leftBoxes.some((left) => rightBoxes.some((right) => boxesOverlap(left, right)))
+}
+
+function tableShapeRects(table) {
+  const top = tableTopForCapacity(table?.capacity)
+  return [
+    {
+      key: 'top',
+      x: -top.width / 2,
+      y: -top.height / 2,
+      width: top.width,
+      height: top.height
+    },
+    ...tableChairRectsForCapacity(table?.capacity)
+  ]
+}
+
+function localRectToBox(item, rect) {
+  return {
+    left: item.x + rect.x,
+    right: item.x + rect.x + rect.width,
+    top: item.y + rect.y,
+    bottom: item.y + rect.y + rect.height
+  }
 }
 
 function snapWallItemPoint(x, y, kind, item) {
