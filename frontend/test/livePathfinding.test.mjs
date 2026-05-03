@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   buildObstacleBoxes,
   buildWalkableRoute,
+  createPathPlanner,
   pointInsideAnyBox,
   samplePathAtProgress
 } from '../src/livePathfinding.js'
@@ -49,4 +50,28 @@ test('samplePathAtProgress walks along the routed polyline', () => {
   assert.deepEqual(finish, end)
   assert.notEqual(middle.y, 110)
   assert.notEqual(middle.x, 120)
+})
+
+test('createPathPlanner reuses cached routes for repeated endpoints', () => {
+  const planner = createPathPlanner(layoutWithBlockingTable)
+  const start = { x: 36, y: 110 }
+  const end = { x: 204, y: 110 }
+
+  const first = buildWalkableRoute({ planner, start, end })
+  const second = buildWalkableRoute({ planner, start, end })
+
+  assert.equal(first, second)
+  assert.equal(planner.stats.cacheMisses, 1)
+  assert.equal(planner.stats.cacheHits, 1)
+})
+
+test('buildWalkableRoute skips A star when the straight segment is unobstructed', () => {
+  const planner = createPathPlanner(layoutWithBlockingTable)
+  const start = { x: 36, y: 180 }
+  const end = { x: 204, y: 180 }
+
+  const route = buildWalkableRoute({ planner, start, end })
+
+  assert.deepEqual(route, [start, end])
+  assert.equal(planner.stats.astarRuns, 0)
 })

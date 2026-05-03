@@ -547,15 +547,6 @@ input {
   stroke-width: 0.6;
 }
 
-.motion-path {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.2;
-  stroke-dasharray: 3 4;
-  pointer-events: none;
-}
-
 .service-group .service-mark {
   stroke: #fff;
   stroke-width: 1;

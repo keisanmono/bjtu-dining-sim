@@ -4,6 +4,7 @@ import {
 } from './layoutEditor.js'
 import {
   buildWalkableRoute,
+  createPathPlanner,
   samplePathAtProgress
 } from './livePathfinding.js'
 
@@ -164,6 +165,7 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
   const previousByKey = keyedTargets(previous)
   const nextByKey = keyedTargets(next)
   const keys = new Set([...previousByKey.keys(), ...nextByKey.keys()])
+  const planner = createPathPlanner(layout)
 
   return Array.from(keys)
     .sort((a, b) => String(a).localeCompare(String(b)))
@@ -177,7 +179,7 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
       const leaving = Boolean(previousTarget) && !nextTarget
       const path = pointDistance(from, to) < 0.5
         ? [cleanPoint(from)]
-        : buildWalkableRoute({ layout, start: from, end: to })
+        : buildWalkableRoute({ planner, start: from, end: to })
       return {
         ...basis,
         key,

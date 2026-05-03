@@ -40,11 +40,12 @@ test('LiveDiningMap interpolates party positions between minute snapshots', () =
   assert.equal(mapSource.includes('LIVE_TRANSITION_MS'), true)
   assert.equal(mapSource.includes('interpolateLivePartyMarkers'), true)
   assert.equal(mapSource.includes('buildLivePartyTransitions'), true)
-  assert.equal(mapSource.includes('motion-path'), true)
+  assert.equal(mapSource.includes('motion-path'), false)
   assert.equal(modelSource.includes('buildLivePartyTargets'), true)
   assert.equal(modelSource.includes('interpolateLivePartyMarkers'), true)
   assert.equal(modelSource.includes('buildWalkableRoute'), true)
   assert.equal(modelSource.includes('samplePathAtProgress'), true)
+  assert.equal(modelSource.includes('createPathPlanner'), true)
 })
 
 test('LiveDiningMap is purely visual and never relies on <text> or seat matrix', () => {

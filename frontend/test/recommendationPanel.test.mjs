@@ -274,11 +274,12 @@ test('live run renders the editable layout as a live dining map with party group
   assert.equal(mapSource.includes('buildLivePartyTargets'), true)
   assert.equal(mapSource.includes('buildLivePartyTransitions'), true)
   assert.equal(mapSource.includes('animatedPartyMarkers'), true)
-  assert.equal(mapSource.includes('motion-path'), true)
+  assert.equal(mapSource.includes('motion-path'), false)
   assert.equal(modelSource.includes('window_services'), true)
   assert.equal(modelSource.includes('seated_parties'), true)
   assert.equal(modelSource.includes('interpolateLivePartyMarkers'), true)
   assert.equal(modelSource.includes('samplePathAtProgress'), true)
+  assert.equal(modelSource.includes('createPathPlanner'), true)
   assert.equal(mapSource.includes('seat_matrix'), false)
   assert.equal(mapSource.includes('<text'), false)
 

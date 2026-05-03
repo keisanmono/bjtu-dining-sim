@@ -20,6 +20,19 @@ export function buildObstacleBoxes(layout) {
   ))
 }
 
+export function createPathPlanner(layout = {}) {
+  return {
+    bounds: insetBounds(floorBoundsForLayout(layout), LIVE_PATH_FLOOR_MARGIN),
+    boxes: buildObstacleBoxes(layout),
+    routeCache: new Map(),
+    stats: {
+      cacheHits: 0,
+      cacheMisses: 0,
+      astarRuns: 0
+    }
+  }
+}
+
 export function pointInsideAnyBox(point, boxes) {
   return (boxes || []).some((box) => (
     point.x >= box.left &&
@@ -29,23 +42,50 @@ export function pointInsideAnyBox(point, boxes) {
   ))
 }
 
-export function buildWalkableRoute({ layout = {}, start, end } = {}) {
+export function buildWalkableRoute({ layout = {}, planner = null, start, end } = {}) {
   if (!isFinitePoint(start) || !isFinitePoint(end)) return []
-  const bounds = insetBounds(floorBoundsForLayout(layout), LIVE_PATH_FLOOR_MARGIN)
-  const boxes = buildObstacleBoxes(layout)
-  const startCell = nearestWalkableCell(pointToCell(start, bounds), bounds, boxes)
-  const endCell = nearestWalkableCell(pointToCell(end, bounds), bounds, boxes)
-  if (!startCell || !endCell) return [cleanPoint(start), cleanPoint(end)]
+  const activePlanner = planner || createPathPlanner(layout)
+  const from = cleanPoint(start)
+  const to = cleanPoint(end)
+  const cacheKey = routeCacheKey(from, to)
+  const cached = activePlanner.routeCache.get(cacheKey)
+  if (cached) {
+    activePlanner.stats.cacheHits += 1
+    return cached
+  }
+  activePlanner.stats.cacheMisses += 1
 
+  if (!segmentIntersectsAnyBox(from, to, activePlanner.boxes)) {
+    const direct = dedupePoints([from, to])
+    activePlanner.routeCache.set(cacheKey, direct)
+    return direct
+  }
+
+  const { bounds, boxes } = activePlanner
+  const startCell = nearestWalkableCell(pointToCell(from, bounds), bounds, boxes)
+  const endCell = nearestWalkableCell(pointToCell(to, bounds), bounds, boxes)
+  if (!startCell || !endCell) {
+    const fallback = [from, to]
+    activePlanner.routeCache.set(cacheKey, fallback)
+    return fallback
+  }
+
+  activePlanner.stats.astarRuns += 1
   const cells = findRouteCells(startCell, endCell, bounds, boxes)
-  if (!cells.length) return [cleanPoint(start), cleanPoint(end)]
+  if (!cells.length) {
+    const fallback = [from, to]
+    activePlanner.routeCache.set(cacheKey, fallback)
+    return fallback
+  }
 
   const routedPoints = simplifyPath(cells.map((cell) => cellToPoint(cell, bounds)))
-  return dedupePoints([
-    cleanPoint(start),
-    ...routedPoints.filter((point) => !samePoint(point, start) && !samePoint(point, end)),
-    cleanPoint(end)
+  const route = dedupePoints([
+    from,
+    ...routedPoints.filter((point) => !samePoint(point, from) && !samePoint(point, to)),
+    to
   ])
+  activePlanner.routeCache.set(cacheKey, route)
+  return route
 }
 
 export function samplePathAtProgress(path, progress) {
@@ -218,6 +258,42 @@ function expandBox(box, padding) {
     top: box.top - padding,
     bottom: box.bottom + padding
   }
+}
+
+function segmentIntersectsAnyBox(start, end, boxes) {
+  return (boxes || []).some((box) => segmentIntersectsBox(start, end, box))
+}
+
+function segmentIntersectsBox(start, end, box) {
+  if (pointInsideAnyBox(start, [box]) || pointInsideAnyBox(end, [box])) return true
+  const left = box.left
+  const right = box.right
+  const top = box.top
+  const bottom = box.bottom
+  if (Math.max(start.x, end.x) < left || Math.min(start.x, end.x) > right) return false
+  if (Math.max(start.y, end.y) < top || Math.min(start.y, end.y) > bottom) return false
+  return segmentsIntersect(start, end, { x: left, y: top }, { x: right, y: top }) ||
+    segmentsIntersect(start, end, { x: right, y: top }, { x: right, y: bottom }) ||
+    segmentsIntersect(start, end, { x: right, y: bottom }, { x: left, y: bottom }) ||
+    segmentsIntersect(start, end, { x: left, y: bottom }, { x: left, y: top })
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const abC = orientation(a, b, c)
+  const abD = orientation(a, b, d)
+  const cdA = orientation(c, d, a)
+  const cdB = orientation(c, d, b)
+  return abC * abD <= 0 && cdA * cdB <= 0
+}
+
+function orientation(a, b, c) {
+  const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
+  if (Math.abs(value) < 0.0001) return 0
+  return value > 0 ? 1 : -1
+}
+
+function routeCacheKey(start, end) {
+  return `${start.x},${start.y}->${end.x},${end.y}`
 }
 
 function dedupePoints(points) {

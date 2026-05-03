@@ -103,13 +103,6 @@
 
       <g class="live-party-layer">
         <g class="party-group service-group">
-          <polyline
-            v-for="path in motionPaths"
-            :key="path.key"
-            class="motion-path"
-            :points="path.points"
-            :style="{ stroke: path.color, opacity: path.opacity }"
-          />
           <circle
             v-for="dot in serviceMarkers"
             :key="dot.key"
@@ -354,18 +347,6 @@ const selectedWindowDetail = computed(() => {
 
 const serviceMarkers = computed(() => (
   animatedPartyMarkers.value.filter((marker) => marker.role === 'service' && marker.opacity > 0)
-))
-
-const motionPaths = computed(() => (
-  animatedPartyMarkers.value
-    .filter((marker) => marker.opacity > 0 && marker.progress < 1 && Array.isArray(marker.path) && marker.path.length > 2)
-    .slice(0, 12)
-    .map((marker) => ({
-      key: `path-${marker.key}`,
-      color: marker.color,
-      opacity: Math.min(0.22, marker.opacity),
-      points: marker.path.map((point) => `${point.x},${point.y}`).join(' ')
-    }))
 ))
 
 const seatedClusters = computed(() => {
