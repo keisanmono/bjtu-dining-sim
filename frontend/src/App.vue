@@ -426,7 +426,7 @@ const seatCandidates = computed(() => {
   return seats.length ? seats : [config.num_seats]
 })
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
-const layoutSeatLimit = computed(() => calculateLayoutSeatLimit(layout.value))
+const layoutSeatLimit = ref(calculateLayoutSeatLimit(layout.value))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
@@ -511,6 +511,7 @@ function loadDefault() {
   isSyncingLayout.value = true
   Object.assign(config, defaultConfig)
   layout.value = createDefaultLayout(defaultConfig)
+  layoutSeatLimit.value = calculateLayoutSeatLimit(layout.value)
   resetCandidateSettings()
   validationMessage.value = ''
   nextTick(() => { isSyncingLayout.value = false })
@@ -519,14 +520,21 @@ function loadDefault() {
 function resetLayout() {
   isSyncingLayout.value = true
   layout.value = createDefaultLayout(config)
+  layoutSeatLimit.value = calculateLayoutSeatLimit(layout.value)
   config.num_seats = totalLayoutSeats(layout.value)
   config.num_windows = layout.value.windows.length
   ElMessage.info('已根据当前参数重置布局')
   nextTick(() => { isSyncingLayout.value = false })
 }
 
-function onLayoutUpdate(nextLayout) {
-  const limit = calculateLayoutSeatLimit(nextLayout)
+function onLayoutUpdate(nextLayout, meta = {}) {
+  const shouldRefreshSeatLimit = Boolean(meta?.forceSeatLimit) || (
+    !meta?.transient && layoutCapacitySignature(layout.value) !== layoutCapacitySignature(nextLayout)
+  )
+  const limit = shouldRefreshSeatLimit ? calculateLayoutSeatLimit(nextLayout) : layoutSeatLimit.value
+  if (shouldRefreshSeatLimit) {
+    layoutSeatLimit.value = limit
+  }
   const boundedLayout = totalLayoutSeats(nextLayout) > limit
     ? rebuildLayoutTablesForSeats(nextLayout, limit)
     : nextLayout
@@ -546,6 +554,13 @@ function onLayoutUpdate(nextLayout) {
     config.floor_width = boundedLayout.floor.width
     config.floor_height = boundedLayout.floor.height
   }
+}
+
+function layoutCapacitySignature(targetLayout) {
+  const floor = targetLayout?.floor || {}
+  const doors = (targetLayout?.doors || []).map((item) => `${item.id}:${item.x}:${item.y}:${item.wall_side}`).join('|')
+  const windows = (targetLayout?.windows || []).map((item) => `${item.id}:${item.x}:${item.y}:${item.wall_side}`).join('|')
+  return `${floor.x}:${floor.y}:${floor.width}:${floor.height}::${doors}::${windows}`
 }
 
 function resetCandidateSettings() {

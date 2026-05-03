@@ -111,28 +111,28 @@
       <g class="layout-resize-handles">
         <rect
           class="layout-resize-handle is-right"
-          :x="floorBounds.right - 5"
-          :y="(floorBounds.y + floorBounds.bottom) / 2 - 28"
-          width="10"
-          height="56"
+          :x="floorBounds.right - 9"
+          :y="(floorBounds.y + floorBounds.bottom) / 2 - 42"
+          width="18"
+          height="84"
           rx="4"
           @pointerdown.stop="onResizePointerDown($event, 'right')"
         />
         <rect
           class="layout-resize-handle is-bottom"
-          :x="(floorBounds.x + floorBounds.right) / 2 - 28"
-          :y="floorBounds.bottom - 5"
-          width="56"
-          height="10"
+          :x="(floorBounds.x + floorBounds.right) / 2 - 42"
+          :y="floorBounds.bottom - 9"
+          width="84"
+          height="18"
           rx="4"
           @pointerdown.stop="onResizePointerDown($event, 'bottom')"
         />
         <rect
           class="layout-resize-handle is-corner"
-          :x="floorBounds.right - 9"
-          :y="floorBounds.bottom - 9"
-          width="18"
-          height="18"
+          :x="floorBounds.right - 14"
+          :y="floorBounds.bottom - 14"
+          width="28"
+          height="28"
           rx="4"
           @pointerdown.stop="onResizePointerDown($event, 'corner')"
         />
@@ -150,6 +150,11 @@
         :transform="`translate(${door.x}, ${door.y})`"
         @pointerdown.stop="onItemPointerDown($event, 'door', door.id)"
       >
+        <rect
+          class="layout-hit-area"
+          v-bind="itemHitRectFor('door', door)"
+          rx="8"
+        />
         <rect
           v-bind="itemRectFor('door', door)"
           rx="6"
@@ -173,6 +178,11 @@
         :transform="`translate(${window.x}, ${window.y})`"
         @pointerdown.stop="onItemPointerDown($event, 'window', window.id)"
       >
+        <rect
+          class="layout-hit-area"
+          v-bind="itemHitRectFor('window', window)"
+          rx="8"
+        />
         <rect
           v-bind="itemRectFor('window', window)"
           rx="6"
@@ -199,6 +209,11 @@
         :transform="`translate(${table.x}, ${table.y})`"
         @pointerdown.stop="onItemPointerDown($event, 'table', table.id)"
       >
+        <rect
+          class="layout-hit-area"
+          v-bind="itemHitRectFor('table', table)"
+          rx="8"
+        />
         <rect
           v-for="chair in chairLayoutFor(table)"
           :key="chair.key"
@@ -317,6 +332,7 @@ function isSelected(kind, id) {
 function isCollisionHighlighted(kind, id) {
   const state = dragState.value
   if (!state) return false
+  if (state.kind !== kind || state.id !== id) return false
   const candidateLayout = state.latestLayout || props.layout
   const current = findItem(candidateLayout, kind, id)
   if (!current) return false
@@ -330,6 +346,17 @@ function itemRectFor(kind, item) {
     y: -footprint.height / 2,
     width: footprint.width,
     height: footprint.height
+  }
+}
+
+function itemHitRectFor(kind, item) {
+  const rect = itemRectFor(kind, item)
+  const padding = kind === 'table' ? 12 : 10
+  return {
+    x: rect.x - padding,
+    y: rect.y - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2
   }
 }
 
@@ -426,6 +453,7 @@ function onResizePointerDown(event, handle) {
   const bounds = floorBounds.value
   resizeState.value = {
     handle,
+    latestLayout: props.layout,
     offsetX: point.x - bounds.right,
     offsetY: point.y - bounds.bottom,
     pointerId: event.pointerId
@@ -459,12 +487,13 @@ function onPointerMove(event) {
     const state = resizeState.value
     const point = clientToSvgPoint(event.clientX, event.clientY)
     const next = resizeLayoutFloorFromHandle(
-      props.layout,
+      state.latestLayout || props.layout,
       state.handle,
       point.x - state.offsetX,
       point.y - state.offsetY
     )
-    emit('update:layout', next)
+    state.latestLayout = next
+    emit('update:layout', next, { source: 'resize', transient: true })
     event.preventDefault()
     return
   }
@@ -484,17 +513,19 @@ function onPointerMove(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const targetX = point.x - state.offsetX
   const targetY = point.y - state.offsetY
-  const next = setItemPosition(props.layout, state.kind, state.id, targetX, targetY, { allowOverlap: true })
+  const next = setItemPosition(state.latestLayout || props.layout, state.kind, state.id, targetX, targetY, { allowOverlap: true })
   state.latestLayout = next
-  emit('update:layout', next)
+  emit('update:layout', next, { source: 'item', kind: state.kind, transient: true })
   event.preventDefault()
 }
 
 function onPointerUp(event) {
   if (resizeState.value) {
+    const state = resizeState.value
     if (event.target?.releasePointerCapture && event.pointerId) {
       try { event.target.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
     }
+    emit('update:layout', state.latestLayout || props.layout, { source: 'resize', transient: false, forceSeatLimit: true })
     resizeState.value = null
     return
   }
@@ -510,7 +541,15 @@ function onPointerUp(event) {
   if (event.target?.releasePointerCapture && event.pointerId) {
     try { event.target.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
   }
-  revertInvalidDrag(state)
+  const reverted = revertInvalidDrag(state)
+  if (!reverted) {
+    emit('update:layout', state.latestLayout || props.layout, {
+      source: 'item',
+      kind: state.kind,
+      transient: false,
+      forceSeatLimit: state.kind !== 'table'
+    })
+  }
   dragState.value = null
 }
 
@@ -560,9 +599,15 @@ function changeFloorSize(axis, value) {
 function revertInvalidDrag(state) {
   const candidateLayout = state.latestLayout || props.layout
   const current = findItem(candidateLayout, state.kind, state.id)
-  if (!current) return
-  if (!itemOverlapsLayout(candidateLayout, state.kind, state.id, current.x, current.y, current)) return
-  emit('update:layout', replaceLayoutItem(candidateLayout, state.kind, state.originalItem))
+  if (!current) return false
+  if (!itemOverlapsLayout(candidateLayout, state.kind, state.id, current.x, current.y, current)) return false
+  emit('update:layout', replaceLayoutItem(candidateLayout, state.kind, state.originalItem), {
+    source: 'item',
+    kind: state.kind,
+    transient: false,
+    forceSeatLimit: state.kind !== 'table'
+  })
+  return true
 }
 
 function replaceLayoutItem(layout, kind, replacement) {

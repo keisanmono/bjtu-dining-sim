@@ -342,6 +342,11 @@ input {
   cursor: nwse-resize;
 }
 
+.layout-hit-area {
+  fill: transparent;
+  pointer-events: all;
+}
+
 .layout-item {
   cursor: grab;
 }
