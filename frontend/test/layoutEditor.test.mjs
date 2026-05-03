@@ -12,6 +12,7 @@ import {
   LAYOUT_MAX_EDITABLE_SEATS,
   adjustLayoutDoorCount,
   adjustLayoutWindowCount,
+  arrangeLayoutTables,
   buildTableCapacities,
   calculateLayoutSeatLimit,
   clampToBounds,
@@ -311,14 +312,16 @@ test('layout floor can be resized and updates the active bounds', () => {
   assert.equal(bounds.y, (LAYOUT_VIEWBOX.height - 380) / 2)
 })
 
-test('resizing the floor into tables preserves visible table objects', () => {
+test('resize handles refuse to shrink walls into existing tables', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const bounds = floorBoundsForLayout(layout)
 
-  const resized = resizeLayoutFloorFromHandle(layout, 'corner', bounds.right - 40, bounds.bottom - 40)
+  const blocked = resizeLayoutFloorFromHandle(layout, 'corner', bounds.right - 40, bounds.bottom - 40)
 
-  assert.equal(resized.tables.length, layout.tables.length)
-  assert.equal(totalLayoutSeats(resized), totalLayoutSeats(layout))
+  assert.equal(blocked.floor.width, layout.floor.width)
+  assert.equal(blocked.floor.height, layout.floor.height)
+  assert.equal(blocked.tables.length, layout.tables.length)
+  assert.equal(totalLayoutSeats(blocked), totalLayoutSeats(layout))
 })
 
 test('floor resize handles can grow the cafeteria beyond the default viewport frame', () => {
@@ -347,6 +350,34 @@ test('clientPointToViewBoxPoint accounts for centered SVG letterboxing', () => {
   assert.equal(center.x, 200)
   assert.equal(center.y, 200)
   assert.equal(moved.x - center.x, 80)
+})
+
+test('compact table auto-arrangement packs seats toward the upper-left', () => {
+  const layout = createDefaultLayout({ num_windows: 2, num_seats: 32 })
+  const compact = arrangeLayoutTables(layout, 'compact')
+  const bounds = floorBoundsForLayout(compact)
+  const minX = Math.min(...compact.tables.map((table) => table.x))
+  const minY = Math.min(...compact.tables.map((table) => table.y))
+
+  assert.equal(totalLayoutSeats(compact), totalLayoutSeats(layout))
+  assertNoLayoutOverlaps(compact)
+  assert.ok(minX < bounds.x + 110)
+  assert.ok(minY < bounds.y + 110)
+})
+
+test('spread table auto-arrangement uses more of the existing floor than compact packing', () => {
+  const layout = createDefaultLayout({ num_windows: 2, num_seats: 32 })
+  const compact = arrangeLayoutTables(layout, 'compact')
+  const spread = arrangeLayoutTables(layout, 'spread')
+  const compactWidth = Math.max(...compact.tables.map((table) => table.x)) - Math.min(...compact.tables.map((table) => table.x))
+  const spreadWidth = Math.max(...spread.tables.map((table) => table.x)) - Math.min(...spread.tables.map((table) => table.x))
+  const compactHeight = Math.max(...compact.tables.map((table) => table.y)) - Math.min(...compact.tables.map((table) => table.y))
+  const spreadHeight = Math.max(...spread.tables.map((table) => table.y)) - Math.min(...spread.tables.map((table) => table.y))
+
+  assert.equal(totalLayoutSeats(spread), totalLayoutSeats(layout))
+  assertNoLayoutOverlaps(spread)
+  assert.ok(spreadWidth >= compactWidth)
+  assert.ok(spreadHeight > compactHeight)
 })
 
 test('fit viewBox includes an oversized cafeteria without relying on a fixed border', () => {

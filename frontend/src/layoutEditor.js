@@ -380,6 +380,103 @@ function tableCandidatePoints(layout, capacity) {
   return points
 }
 
+function arrangeTablesCompact(baseLayout, tables) {
+  const arranged = []
+  for (const table of tables) {
+    const candidateLayout = { ...baseLayout, tables: arranged }
+    const placed = firstAvailableTableCandidate(candidateLayout, table, compactTableCandidatePoints(candidateLayout, table))
+    if (!placed) return null
+    arranged.push(placed)
+  }
+  return arranged
+}
+
+function arrangeTablesSpread(baseLayout, tables) {
+  const arranged = []
+  const bounds = floorBoundsForLayout(baseLayout)
+  const floorWidth = bounds.right - bounds.x
+  const floorHeight = bounds.bottom - bounds.y
+  const count = tables.length
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count * (floorWidth / Math.max(1, floorHeight)))))
+  const rows = Math.max(1, Math.ceil(count / cols))
+  const cellW = floorWidth / cols
+  const cellH = floorHeight / rows
+  for (const [index, table] of tables.entries()) {
+    const col = index % cols
+    const row = Math.floor(index / cols)
+    const ideal = {
+      x: bounds.x + cellW * (col + 0.5),
+      y: bounds.y + cellH * (row + 0.5)
+    }
+    const candidateLayout = { ...baseLayout, tables: arranged }
+    const placed = firstAvailableTableCandidate(candidateLayout, table, spreadTableCandidatePoints(candidateLayout, table, ideal, cellW, cellH))
+    if (!placed) return null
+    arranged.push(placed)
+  }
+  return arranged
+}
+
+function firstAvailableTableCandidate(layout, table, candidates) {
+  const bounds = floorBoundsForLayout(layout)
+  for (const candidate of candidates) {
+    const point = snapAndClampPoint(candidate.x, candidate.y, 'table', table, bounds)
+    const moved = {
+      ...table,
+      x: point.x,
+      y: point.y
+    }
+    if (!itemOverlapsLayout(layout, 'table', moved.id, moved.x, moved.y, moved)) {
+      return moved
+    }
+  }
+  return null
+}
+
+function compactTableCandidatePoints(layout, table) {
+  const bounds = floorBoundsForLayout(layout)
+  const fp = getItemFootprint('table', table)
+  const startX = snapInsideRange(bounds.x + fp.width / 2 + LAYOUT_GRID_STEP, bounds.x + fp.width / 2, bounds.right - fp.width / 2)
+  const startY = snapInsideRange(bounds.y + fp.height / 2 + LAYOUT_GRID_STEP, bounds.y + fp.height / 2, bounds.bottom - fp.height / 2)
+  const endX = bounds.right - fp.width / 2
+  const endY = bounds.bottom - fp.height / 2
+  const points = []
+  for (let y = startY; y <= endY; y += LAYOUT_GRID_STEP) {
+    for (let x = startX; x <= endX; x += LAYOUT_GRID_STEP) {
+      points.push({ x, y })
+    }
+  }
+  return points
+}
+
+function spreadTableCandidatePoints(layout, table, ideal, cellW, cellH) {
+  const bounds = floorBoundsForLayout(layout)
+  const fp = getItemFootprint('table', table)
+  const maxRadius = Math.max(cellW, cellH, 120)
+  const points = []
+  for (let radius = 0; radius <= maxRadius; radius += LAYOUT_GRID_STEP) {
+    if (radius === 0) {
+      points.push(ideal)
+      continue
+    }
+    points.push(
+      { x: ideal.x - radius, y: ideal.y },
+      { x: ideal.x + radius, y: ideal.y },
+      { x: ideal.x, y: ideal.y - radius },
+      { x: ideal.x, y: ideal.y + radius },
+      { x: ideal.x - radius, y: ideal.y - radius },
+      { x: ideal.x + radius, y: ideal.y - radius },
+      { x: ideal.x - radius, y: ideal.y + radius },
+      { x: ideal.x + radius, y: ideal.y + radius }
+    )
+  }
+  return points.filter((point) => (
+    point.x >= bounds.x + fp.width / 2 &&
+    point.x <= bounds.right - fp.width / 2 &&
+    point.y >= bounds.y + fp.height / 2 &&
+    point.y <= bounds.bottom - fp.height / 2
+  ))
+}
+
 function placeTablesForSeats(layout, numSeats) {
   const tables = []
   for (const [index, capacity] of buildTableCapacities(numSeats).entries()) {
@@ -470,6 +567,28 @@ export function adjustLayoutDoorCount(layout, desiredCount) {
   return { ...layout, doors: [...current, ...additional] }
 }
 
+export function arrangeLayoutTables(layout, mode = 'spread') {
+  const tables = (layout?.tables || []).map((table, index) => ({
+    ...table,
+    id: table.id || `T${index + 1}`,
+    table_type: table.table_type || tableTypeForCapacity(table.capacity)
+  }))
+  if (!tables.length) return layout
+  const baseLayout = {
+    ...layout,
+    floor: sanitizeFloorSize(layout?.floor),
+    tables: []
+  }
+  const strategy = mode === 'compact' ? 'compact' : 'spread'
+  const arranged = strategy === 'compact'
+    ? arrangeTablesCompact(baseLayout, tables)
+    : arrangeTablesSpread(baseLayout, tables) || arrangeTablesCompact(baseLayout, tables)
+  if (!arranged || arranged.length !== tables.length) {
+    return layout
+  }
+  return { ...layout, floor: baseLayout.floor, tables: arranged }
+}
+
 export function rebuildLayoutTablesForSeats(layout, numSeats) {
   const baseLayout = { ...layout, floor: sanitizeFloorSize(layout?.floor), tables: [] }
   const target = normalizeSeatCount(numSeats, calculateLayoutSeatLimit(baseLayout))
@@ -500,8 +619,11 @@ export function calculateLayoutSeatLimit(layout) {
   return best
 }
 
-export function resizeLayoutFloor(layout, floorSize) {
+export function resizeLayoutFloor(layout, floorSize, options = {}) {
   const floor = sanitizeFloorSize(floorSize)
+  const blockTableConflicts = Boolean(options.blockTableConflicts)
+  const currentFloor = sanitizeFloorSize(layout?.floor)
+  const isShrink = floor.width < currentFloor.width || floor.height < currentFloor.height
   const doors = []
   let draft = { floor, doors, windows: [], tables: [] }
   ;(layout?.doors || []).forEach((door, index) => {
@@ -529,6 +651,13 @@ export function resizeLayoutFloor(layout, floorSize) {
     })
   })
   draft = { ...draft, windows }
+  if (blockTableConflicts && isShrink && floorResizeConflictsWithTables(
+    { ...draft, tables: layout?.tables || [] },
+    changedFloorSides(currentFloor, floor),
+    layout
+  )) {
+    return layout
+  }
   const tables = (layout?.tables || []).map((table, index) => {
     const id = table.id || `T${index + 1}`
     const point = snapAndClampPoint(table.x, table.y, 'table', table, floorBoundsForLayout(draft))
@@ -553,12 +682,16 @@ export function resizeLayoutFloorFromHandle(layout, handle, pointerX, pointerY) 
   if (handleName === 'bottom' || handleName === 'corner' || handleName === 'bottom-right') {
     height = snapFloorExtent(pointerY - bounds.y, LAYOUT_SIZE_LIMITS.height.min, LAYOUT_SIZE_LIMITS.height.max)
   }
-  return resizeLayoutFloor(layout, {
-    x: bounds.x,
-    y: bounds.y,
-    width,
-    height
-  })
+  return resizeLayoutFloor(
+    layout,
+    {
+      x: bounds.x,
+      y: bounds.y,
+      width,
+      height
+    },
+    { blockTableConflicts: true }
+  )
 }
 
 export function setItemPosition(layout, kind, id, x, y, options = {}) {
@@ -606,6 +739,52 @@ export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) 
     if (candidate.kind === kind && candidate.item.id === id) return false
     return boxesOverlapAny(movingBoxes, getItemCollisionBoxes(candidate.kind, candidate.item))
   })
+}
+
+function floorResizeConflictsWithTables(layout, changedSides = ['left', 'right', 'top', 'bottom'], previousLayout = null) {
+  const tables = layout?.tables || []
+  if (!tables.length) return false
+  const bounds = floorBoundsForLayout(layout)
+  if (tables.some((table) => tableTouchesFloorWall(table, bounds, changedSides))) {
+    return true
+  }
+  return [
+    ...(layout?.doors || []).map((item) => ({ kind: 'door', item })),
+    ...(layout?.windows || []).map((item) => ({ kind: 'window', item }))
+  ].some(({ kind, item }) => openingChanged(previousLayout, kind, item) && itemOverlapsTables(layout, kind, item))
+}
+
+function tableTouchesFloorWall(table, bounds, changedSides) {
+  const clearance = LAYOUT_ITEM_GAP
+  return getItemCollisionBoxes('table', table).some((box) => (
+    (changedSides.includes('left') && box.left < bounds.x + clearance) ||
+    (changedSides.includes('right') && box.right > bounds.right - clearance) ||
+    (changedSides.includes('top') && box.top < bounds.y + clearance) ||
+    (changedSides.includes('bottom') && box.bottom > bounds.bottom - clearance)
+  ))
+}
+
+function changedFloorSides(previousFloor, nextFloor) {
+  const sides = []
+  if (nextFloor.x > previousFloor.x) sides.push('left')
+  if (nextFloor.y > previousFloor.y) sides.push('top')
+  if (nextFloor.x + nextFloor.width < previousFloor.x + previousFloor.width) sides.push('right')
+  if (nextFloor.y + nextFloor.height < previousFloor.y + previousFloor.height) sides.push('bottom')
+  return sides
+}
+
+function openingChanged(previousLayout, kind, item) {
+  if (!previousLayout) return true
+  const previous = findItem(previousLayout, kind, item.id)
+  if (!previous) return true
+  return previous.x !== item.x || previous.y !== item.y || previous.wall_side !== item.wall_side
+}
+
+function itemOverlapsTables(layout, kind, item) {
+  const movingBoxes = getItemCollisionBoxes(kind, item)
+  return (layout?.tables || []).some((table) => (
+    boxesOverlapAny(movingBoxes, getItemCollisionBoxes('table', table))
+  ))
 }
 
 export function getItemCollisionBoxes(kind, item) {

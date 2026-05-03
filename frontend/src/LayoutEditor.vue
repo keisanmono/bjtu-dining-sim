@@ -42,6 +42,10 @@
           <el-button size="small" circle :icon="ZoomIn" @click="zoomViewport(0.82)" />
           <el-button size="small" :icon="FullScreen" @click="fitViewportToLayout">适应视野</el-button>
         </div>
+        <div class="layout-arrange-controls" aria-label="自动排布座位">
+          <el-button size="small" :icon="Operation" @click="autoArrangeTables('spread')">均匀排布</el-button>
+          <el-button size="small" :icon="Rank" @click="autoArrangeTables('compact')">密排座位</el-button>
+        </div>
         <el-select
           v-if="selectedTable"
           :model-value="selectedTable.capacity"
@@ -240,7 +244,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { FullScreen, Refresh, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
+import { FullScreen, Operation, Rank, Refresh, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import {
   LAYOUT_DEFAULT_FLOOR,
   LAYOUT_GRID_STEP,
@@ -248,6 +252,7 @@ import {
   LAYOUT_SIZE_LIMITS,
   TABLE_CAPACITY_OPTIONS,
   adjustLayoutDoorCount,
+  arrangeLayoutTables,
   clientDeltaToViewBoxDelta,
   clientPointToViewBoxPoint,
   fitViewBoxForLayout,
@@ -581,12 +586,17 @@ function changeDoorCount(delta) {
   emit('update:layout', next)
 }
 
+function autoArrangeTables(mode) {
+  const next = arrangeLayoutTables(props.layout, mode)
+  emit('update:layout', next, { source: 'arrange', transient: false })
+}
+
 function changeFloorSize(axis, value) {
   const nextSize = {
     ...floorSize.value,
     [axis]: Number(value)
   }
-  emit('update:layout', resizeLayoutFloor(props.layout, nextSize))
+  emit('update:layout', resizeLayoutFloor(props.layout, nextSize, { blockTableConflicts: true }))
 }
 
 function revertInvalidDrag(state) {

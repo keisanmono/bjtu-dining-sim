@@ -293,6 +293,12 @@ input {
   gap: 6px;
 }
 
+.layout-arrange-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .layout-capacity-select {
   width: 110px;
 }
