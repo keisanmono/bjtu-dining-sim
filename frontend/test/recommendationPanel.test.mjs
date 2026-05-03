@@ -154,6 +154,22 @@ test('frontend sends the editable dining layout to simulation APIs', () => {
   assert.equal(source.includes('baseline_config: buildSimulationConfigPayload(config, layout.value)'), true)
 })
 
+test('door and window hit areas are not rendered as visible sprites', () => {
+  const editorSource = readFileSync(new URL('../src/LayoutEditor.vue', import.meta.url), 'utf8')
+  const mapSource = readFileSync(new URL('../src/LiveDiningMap.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(editorSource.includes('layout-door-body'), true)
+  assert.equal(editorSource.includes('layout-window-body'), true)
+  assert.equal(mapSource.includes('layout-door-body'), true)
+  assert.equal(mapSource.includes('layout-window-body'), true)
+  assert.equal(styleSource.includes('.layout-door-body'), true)
+  assert.equal(styleSource.includes('.layout-window-body'), true)
+  assert.equal(styleSource.includes('.layout-door rect {'), false)
+  assert.equal(styleSource.includes('.layout-window rect {'), false)
+  assert.equal(styleSource.includes('rect:first-child'), false)
+})
+
 test('config recommendation panel shows effect metrics for alternatives', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 

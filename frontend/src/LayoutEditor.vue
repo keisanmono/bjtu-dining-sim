@@ -183,6 +183,7 @@
           rx="8"
         />
         <rect
+          class="layout-door-body"
           v-bind="itemRectFor('door', door)"
           rx="6"
         />
@@ -211,6 +212,7 @@
           rx="8"
         />
         <rect
+          class="layout-window-body"
           v-bind="itemRectFor('window', window)"
           rx="6"
         />

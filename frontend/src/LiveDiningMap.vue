@@ -48,7 +48,7 @@
         class="layout-item layout-door live-layout-item"
         :transform="`translate(${door.x}, ${door.y})`"
       >
-        <rect v-bind="itemRectFor('door', door)" rx="6" />
+        <rect class="layout-door-body" v-bind="itemRectFor('door', door)" rx="6" />
         <rect class="layout-door-marker" v-bind="doorMarkerFor(door)" rx="2" />
       </g>
 
@@ -66,7 +66,7 @@
         @keydown.enter.prevent="toggleWindowSelection(idx)"
         @keydown.space.prevent="toggleWindowSelection(idx)"
       >
-        <rect v-bind="itemRectFor('window', window)" rx="6" />
+        <rect class="layout-window-body" v-bind="itemRectFor('window', window)" rx="6" />
         <rect class="layout-window-marker" v-bind="windowMarkerFor(window)" rx="2" />
       </g>
 

@@ -371,7 +371,7 @@ input {
   filter: drop-shadow(0 0 5px rgba(220, 38, 38, 0.8));
 }
 
-.layout-door rect {
+.layout-door-body {
   fill: #edf5ed;
   stroke: #2f6b44;
   stroke-width: 2;
@@ -383,13 +383,13 @@ input {
   pointer-events: none;
 }
 
-.layout-window rect {
+.layout-window-body {
   fill: #edf4fb;
   stroke: #1f4f85;
   stroke-width: 1.5;
 }
 
-.layout-window.is-selected rect {
+.layout-window.is-selected .layout-window-body {
   stroke: #d97706;
   stroke-width: 2.4;
 }
@@ -429,13 +429,13 @@ input {
   stroke: #d97706;
 }
 
-.layout-door.is-selected rect {
+.layout-door.is-selected .layout-door-body {
   stroke: #d97706;
   stroke-width: 2.4;
 }
 
-.layout-door.is-overlapping > rect:first-child,
-.layout-window.is-overlapping > rect:first-child,
+.layout-door.is-overlapping .layout-door-body,
+.layout-window.is-overlapping .layout-window-body,
 .layout-table.is-overlapping .table-top,
 .layout-table.is-overlapping .dining-chair {
   stroke: #dc2626;
@@ -466,23 +466,23 @@ input {
   outline: none;
 }
 
-.live-clickable-item:focus-visible rect:first-child {
+.live-clickable-item:focus-visible .layout-window-body {
   stroke: #1f4f85;
   stroke-width: 2.4;
   stroke-dasharray: 3 2;
 }
 
-.layout-window.has-queue rect:first-child {
+.layout-window.has-queue .layout-window-body {
   stroke: #d99c5b;
   stroke-width: 1.7;
 }
 
-.layout-window.is-busy rect:first-child {
+.layout-window.is-busy .layout-window-body {
   stroke: #cf8b3e;
   stroke-width: 2.2;
 }
 
-.layout-window.is-selected rect:first-child {
+.layout-window.is-selected .layout-window-body {
   stroke: #2f6b44;
   stroke-width: 2.6;
 }
