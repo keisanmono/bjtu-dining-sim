@@ -5,6 +5,7 @@
       :viewBox="viewBoxString"
       role="img"
       aria-label="实时食堂仿真地图"
+      @click="clearSelection"
     >
       <defs>
         <pattern
@@ -65,9 +66,16 @@
       <g
         v-for="(window, idx) in windows"
         :key="window.id"
-        class="layout-item layout-window live-layout-item"
-        :class="{ 'is-busy': busyWindowIndexes.has(idx) }"
+        class="layout-item layout-window live-layout-item live-clickable-item"
+        :class="windowStateClasses(idx)"
         :transform="`translate(${window.x}, ${window.y})`"
+        role="button"
+        tabindex="0"
+        :aria-label="windowAriaLabel(window, idx)"
+        :aria-pressed="selectedWindowIndex === idx"
+        @click.stop="toggleWindowSelection(idx)"
+        @keydown.enter.prevent="toggleWindowSelection(idx)"
+        @keydown.space.prevent="toggleWindowSelection(idx)"
       >
         <rect v-bind="itemRectFor('window', window)" rx="6" />
         <rect class="layout-window-marker" v-bind="windowMarkerFor(window)" rx="2" />
@@ -103,37 +111,6 @@
       </g>
 
       <g class="live-party-layer">
-        <g class="party-group queue-group">
-          <g
-            v-for="row in queueRows"
-            :key="`queue-${row.windowIndex}`"
-            class="queue-party"
-          >
-            <rect
-              v-for="cap in row.capsules"
-              :key="cap.key"
-              class="queue-capsule"
-              :x="cap.x"
-              :y="cap.y"
-              :width="cap.width"
-              :height="cap.height"
-              :rx="cap.rx"
-              :ry="cap.ry"
-              :style="{ fill: cap.color }"
-            />
-            <rect
-              v-if="row.overflow"
-              class="queue-overflow"
-              :x="row.overflow.x"
-              :y="row.overflow.y"
-              :width="row.overflow.width"
-              :height="row.overflow.height"
-              :rx="row.overflow.rx"
-              :ry="row.overflow.ry"
-            />
-          </g>
-        </g>
-
         <g class="party-group service-group">
           <circle
             v-for="dot in serviceMarkers"
@@ -215,17 +192,40 @@
       </g>
     </svg>
 
-    <div class="legend-row live-map-legend">
-      <span><i class="legend queue" />排队</span>
-      <span><i class="legend service" />取餐中</span>
-      <span><i class="legend waiting" />等座</span>
-      <span><i class="legend seated" />已入座</span>
+    <div class="window-detail-bar">
+      <div v-if="selectedWindowDetail" class="window-detail-panel">
+        <div class="window-detail-header">
+          <strong>窗口 {{ selectedWindowDetail.id }}</strong>
+          <span class="window-detail-stats">
+            排队 {{ selectedWindowDetail.totalPeople }} 人 · {{ selectedWindowDetail.totalGroups }} 组
+            <template v-if="selectedWindowDetail.serving">· 正在取餐</template>
+          </span>
+          <button
+            type="button"
+            class="window-detail-close"
+            aria-label="关闭排队详情"
+            @click="clearSelection"
+          >×</button>
+        </div>
+        <div v-if="selectedWindowDetail.parties.length" class="window-detail-queue">
+          <span
+            v-for="party in selectedWindowDetail.parties"
+            :key="party.key"
+            class="window-detail-capsule"
+            :title="`${party.members} 人`"
+            :style="{ background: party.color, width: `${party.width}px` }"
+          />
+          <span v-if="selectedWindowDetail.hiddenPeople" class="window-detail-overflow">+{{ selectedWindowDetail.hiddenPeople }}</span>
+        </div>
+        <div v-else class="window-detail-empty">该窗口暂无排队</div>
+      </div>
+      <div v-else class="window-detail-hint">点击地图中的任意窗口查看排队详情</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   LAYOUT_GRID_STEP,
   fitViewBoxForLayout,
@@ -235,7 +235,7 @@ import {
   tableTopForCapacity
 } from './layoutEditor.js'
 import {
-  buildQueueRows,
+  QUEUE_VISIBLE_LIMIT,
   clamp,
   normalizeGroup,
   partyColor,
@@ -253,6 +253,8 @@ const WAITING_INSET = 36
 const WAITING_THICKNESS = 22
 const WAITING_OVERFLOW_LONG = 18
 const WAITING_OVERFLOW_SHORT = 8
+const DETAIL_CAPSULE_BASE_PX = 18
+const DETAIL_CAPSULE_INC_PX = 6
 
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
 const viewBoxString = computed(() => {
@@ -264,11 +266,60 @@ const tables = computed(() => props.layout?.tables || [])
 const windows = computed(() => props.layout?.windows || [])
 const doors = computed(() => props.layout?.doors || [])
 
+const selectedWindowIndex = ref(null)
+
+watch(
+  () => windows.value.length,
+  (count) => {
+    if (selectedWindowIndex.value !== null && selectedWindowIndex.value >= count) {
+      selectedWindowIndex.value = null
+    }
+  }
+)
+
+function toggleWindowSelection(idx) {
+  selectedWindowIndex.value = selectedWindowIndex.value === idx ? null : idx
+}
+
+function clearSelection() {
+  if (selectedWindowIndex.value !== null) {
+    selectedWindowIndex.value = null
+  }
+}
+
 const busyWindowIndexes = computed(() => new Set(
   (snapshot.value.busy_windows || [])
     .map((busy, idx) => (busy ? idx : null))
     .filter((idx) => idx !== null)
 ))
+
+const queueLengthByWindow = computed(() => {
+  const map = new Map()
+  ;(snapshot.value.queue_lengths || []).forEach((length, idx) => {
+    const value = Math.max(0, Math.floor(Number(length) || 0))
+    if (value > 0) map.set(idx, value)
+  })
+  if (!map.size && Array.isArray(snapshot.value.queue_groups)) {
+    for (const group of snapshot.value.queue_groups) {
+      const idx = Number.isFinite(Number(group?.window_index)) ? Number(group.window_index) : 0
+      const members = Math.max(1, Number(group?.member_count) || Number(group?.size) || 1)
+      map.set(idx, (map.get(idx) || 0) + members)
+    }
+  }
+  return map
+})
+
+const queueGroupsByWindow = computed(() => {
+  const map = new Map()
+  for (const raw of snapshot.value.queue_groups || []) {
+    const idx = Number.isFinite(Number(raw?.window_index)) ? Number(raw.window_index) : 0
+    const list = map.get(idx) || []
+    list.push(normalizeGroup(raw))
+    map.set(idx, list)
+  }
+  map.forEach((list) => list.sort((a, b) => a.queue_position - b.queue_position))
+  return map
+})
 
 const tableOccupancyById = computed(() => {
   const map = new Map()
@@ -280,11 +331,48 @@ const tableOccupancyById = computed(() => {
   return map
 })
 
-const queueRows = computed(() => buildQueueRows({
-  queueGroups: snapshot.value.queue_groups,
-  queueLengths: snapshot.value.queue_lengths || [],
-  windows: windows.value
-}))
+const selectedWindowDetail = computed(() => {
+  if (selectedWindowIndex.value === null) return null
+  const idx = selectedWindowIndex.value
+  const windowItem = windows.value[idx]
+  if (!windowItem) return null
+  const groups = queueGroupsByWindow.value.get(idx) || []
+  const totalPeople = queueLengthByWindow.value.get(idx) || 0
+  const totalGroups = groups.length
+
+  let visibleGroups = groups.slice(0, QUEUE_VISIBLE_LIMIT)
+  if (!visibleGroups.length && totalPeople > 0) {
+    const visibleCount = Math.min(totalPeople, QUEUE_VISIBLE_LIMIT)
+    visibleGroups = Array.from({ length: visibleCount }, (_unused, position) => normalizeGroup({
+      party_id: `q-${idx}-${position}`,
+      size: 1,
+      member_count: 1,
+      window_index: idx,
+      queue_position: position
+    }))
+  }
+
+  const parties = visibleGroups.map((group, position) => {
+    const members = Math.max(1, Number(group.member_count) || Number(group.size) || 1)
+    return {
+      key: `${idx}-${group.party_id ?? 'solo'}-${position}`,
+      color: partyColor(group),
+      members,
+      width: DETAIL_CAPSULE_BASE_PX + Math.min(4, members - 1) * DETAIL_CAPSULE_INC_PX
+    }
+  })
+
+  const visibleMembers = parties.reduce((sum, party) => sum + party.members, 0)
+  const hiddenPeople = Math.max(0, totalPeople - visibleMembers)
+  return {
+    id: windowItem.id,
+    totalPeople,
+    totalGroups: totalGroups || parties.length,
+    parties,
+    hiddenPeople,
+    serving: busyWindowIndexes.value.has(idx)
+  }
+})
 
 const serviceMarkers = computed(() => {
   let services = []
@@ -507,4 +595,18 @@ function seatedSlotOffset(table, slot) {
   return offsets[slot % offsets.length] || { x: 0, y: 0 }
 }
 
+function windowStateClasses(idx) {
+  return {
+    'is-busy': busyWindowIndexes.value.has(idx),
+    'has-queue': (queueLengthByWindow.value.get(idx) || 0) > 0,
+    'is-selected': selectedWindowIndex.value === idx
+  }
+}
+
+function windowAriaLabel(window, idx) {
+  const total = queueLengthByWindow.value.get(idx) || 0
+  return total > 0
+    ? `窗口 ${window.id}，排队 ${total} 人，点击查看详情`
+    : `窗口 ${window.id}，暂无排队，点击查看详情`
+}
 </script>

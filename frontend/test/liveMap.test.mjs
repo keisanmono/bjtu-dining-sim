@@ -36,25 +36,65 @@ test('LiveDiningMap is purely visual and never relies on <text> or seat matrix',
   assert.equal(mapSource.includes('seat_matrix'), false)
 })
 
-test('LiveDiningMap caps how many queue and waiting glyphs it emits', () => {
+test('LiveDiningMap caps how many waiting glyphs it emits and bounds the queue panel', () => {
   // The component must not flood the SVG with hundreds of points when arrival
-  // rate is high, so it bounds the visible queue and waiting cohorts.
+  // rate is high, so it bounds both the in-map waiting cohort and the panel queue.
   assert.match(modelSource, /QUEUE_VISIBLE_LIMIT\s*=\s*\d+/)
   assert.match(mapSource, /WAITING_VISIBLE_LIMIT\s*=\s*\d+/)
-  // overflow indicator must exist for both queue and waiting tail.
-  assert.equal(mapSource.includes('queue-overflow'), true)
+  // overflow indicator for the queue lives in the detail panel, not the map.
+  assert.equal(mapSource.includes('window-detail-overflow'), true)
   assert.equal(mapSource.includes('waiting-overflow'), true)
 })
 
-test('LiveDiningMap renders the four logical layers as named groups', () => {
-  assert.equal(mapSource.includes('queue-group'), true)
+test('LiveDiningMap renders only the non-queue layers as named groups in the SVG', () => {
+  // The map intentionally has no queue layer - queues live in the detail panel.
+  assert.equal(mapSource.includes('queue-group'), false)
+  assert.equal(mapSource.includes('queue-capsule'), false)
+  assert.equal(mapSource.includes('queue-overflow'), false)
+  assert.equal(mapSource.includes('selectedQueueRow'), false)
+  // The other live layers are still drawn on the map.
   assert.equal(mapSource.includes('waiting-group'), true)
   assert.equal(mapSource.includes('seated-group'), true)
   assert.equal(mapSource.includes('service-group'), true)
-  assert.equal(mapSource.includes('queue-capsule'), true)
   assert.equal(mapSource.includes('waiting-cluster'), true)
   assert.equal(mapSource.includes('seated-cluster'), true)
   assert.equal(mapSource.includes('service-mark'), true)
+})
+
+test('LiveDiningMap keeps the queue out of the SVG entirely', () => {
+  // Selecting a window must not paint capsules onto the map; the queue is
+  // shown only in the detail panel below.
+  assert.equal(/<g[^>]*queue-group/.test(mapSource), false)
+  assert.equal(mapSource.includes('selectedWindowIndex'), true)
+  assert.equal(mapSource.includes('selectedWindowDetail'), true)
+})
+
+test('LiveDiningMap windows are clickable and toggle the selected window', () => {
+  assert.equal(mapSource.includes('live-clickable-item'), true)
+  assert.equal(mapSource.includes('@click.stop="toggleWindowSelection(idx)"'), true)
+  assert.equal(mapSource.includes('toggleWindowSelection'), true)
+  assert.equal(mapSource.includes('clearSelection'), true)
+  // SVG-level click clears any current selection so users can dismiss the popup.
+  assert.match(mapSource, /class="live-dining-map[^"]*"[\s\S]{0,200}@click="clearSelection"/)
+})
+
+test('LiveDiningMap surfaces queue details outside the SVG when a window is selected', () => {
+  assert.equal(mapSource.includes('window-detail-panel'), true)
+  assert.equal(mapSource.includes('window-detail-header'), true)
+  assert.equal(mapSource.includes('window-detail-queue'), true)
+  assert.equal(mapSource.includes('window-detail-capsule'), true)
+  assert.equal(mapSource.includes('window-detail-overflow'), true)
+  assert.equal(mapSource.includes('window-detail-hint'), true)
+  assert.equal(mapSource.includes('selectedWindowDetail'), true)
+})
+
+test('LiveDiningMap exposes window state classes for queue, busy, selected', () => {
+  assert.equal(mapSource.includes("'is-busy'"), true)
+  assert.equal(mapSource.includes("'has-queue'"), true)
+  assert.equal(mapSource.includes("'is-selected'"), true)
+  assert.equal(styleSource.includes('.layout-window.has-queue'), true)
+  assert.equal(styleSource.includes('.layout-window.is-busy'), true)
+  assert.equal(styleSource.includes('.layout-window.is-selected'), true)
 })
 
 test('LiveDiningMap places queue capsules on the inner side of each window', () => {
@@ -97,18 +137,21 @@ test('busy windows can be highlighted by class and stylesheet', () => {
 
 test('styles.css declares the new live map layers with restrained visuals', () => {
   assert.equal(styleSource.includes('.live-dining-map'), true)
-  assert.equal(styleSource.includes('.queue-group'), true)
   assert.equal(styleSource.includes('.waiting-group'), true)
   assert.equal(styleSource.includes('.seated-group'), true)
   assert.equal(styleSource.includes('.service-group'), true)
   assert.equal(styleSource.includes('.table-occupancy'), true)
-  assert.equal(styleSource.includes('.queue-party'), true)
   assert.equal(styleSource.includes('.waiting-party'), true)
   assert.equal(styleSource.includes('.seated-party'), true)
-  assert.equal(styleSource.includes('.queue-capsule'), true)
-  assert.equal(styleSource.includes('.queue-overflow'), true)
   assert.equal(styleSource.includes('.waiting-zone'), true)
   assert.equal(styleSource.includes('.waiting-zone-shape'), true)
+  assert.equal(styleSource.includes('.window-detail-panel'), true)
+  assert.equal(styleSource.includes('.window-detail-capsule'), true)
+  assert.equal(styleSource.includes('.window-detail-overflow'), true)
+  assert.equal(styleSource.includes('.live-clickable-item'), true)
+  // The SVG queue layer is gone, so its dedicated rules should be gone too.
+  assert.equal(styleSource.includes('.queue-group .queue-party .queue-capsule'), false)
+  assert.equal(styleSource.includes('.queue-group .queue-overflow'), false)
 })
 
 test('styles.css drops the legacy heavy halo and noisy queue dot rules', () => {
