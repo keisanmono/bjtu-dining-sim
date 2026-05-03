@@ -17,6 +17,12 @@ const baseLayout = {
   ],
   tables: [{ id: 'T1', x: 220, y: 180, capacity: 4, table_type: 'four_seat' }]
 }
+const blockingLayout = {
+  floor: { x: 0, y: 0, width: 240, height: 220 },
+  doors: [{ id: 'D1', x: 0, y: 110, wall_side: 'left' }],
+  windows: [{ id: 'W1', x: 220, y: 20, wall_side: 'top' }],
+  tables: [{ id: 'T1', x: 120, y: 110, capacity: 4, table_type: 'four_seat', rotation: 0 }]
+}
 
 test('buildQueueRows caps visible queue parties and aggregates hidden people', () => {
   const queueGroups = Array.from({ length: 50 }, (_item, index) => ({
@@ -191,4 +197,17 @@ test('interpolateLivePartyMarkers fades removed parties back toward their door',
   assert.equal(end.opacity, 0)
   assert.notEqual(end.x, target.x)
   assert.notEqual(end.y, target.y)
+})
+
+test('interpolateLivePartyMarkers follows walkable routes around table obstacles', () => {
+  const [marker] = interpolateLivePartyMarkers({
+    previous: [{ key: 'party-21', party_id: 21, role: 'service', member_count: 1, x: 36, y: 110, door_index: 0 }],
+    next: [{ key: 'party-21', party_id: 21, role: 'seated', member_count: 1, x: 204, y: 110, door_index: 0 }],
+    progress: 0.5,
+    layout: blockingLayout
+  })
+
+  assert.equal(marker.key, 'party-21')
+  assert.ok(marker.path.length > 2, `expected routed path, got ${JSON.stringify(marker.path)}`)
+  assert.notEqual(marker.y, 110)
 })

@@ -2,6 +2,10 @@ import {
   getItemFootprint,
   tableTopForCapacity
 } from './layoutEditor.js'
+import {
+  buildWalkableRoute,
+  samplePathAtProgress
+} from './livePathfinding.js'
 
 export const PALETTE = ['#4d7ea8', '#cf8b3e', '#5e9c5e', '#9b6a8e', '#4f8b8d', '#a25b5b']
 
@@ -156,8 +160,7 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   return Array.from(targetsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)))
 }
 
-export function interpolateLivePartyMarkers({ previous = [], next = [], progress = 1, layout = {} } = {}) {
-  const amount = clamp(Number(progress) || 0, 0, 1)
+export function buildLivePartyTransitions({ previous = [], next = [], layout = {} } = {}) {
   const previousByKey = keyedTargets(previous)
   const nextByKey = keyedTargets(next)
   const keys = new Set([...previousByKey.keys(), ...nextByKey.keys()])
@@ -172,21 +175,44 @@ export function interpolateLivePartyMarkers({ previous = [], next = [], progress
       const basis = nextTarget || previousTarget
       const appearing = !previousTarget && Boolean(nextTarget)
       const leaving = Boolean(previousTarget) && !nextTarget
-      const opacity = appearing
-        ? amount
-        : leaving
-          ? 1 - amount
-          : 1
-
+      const path = pointDistance(from, to) < 0.5
+        ? [cleanPoint(from)]
+        : buildWalkableRoute({ layout, start: from, end: to })
       return {
         ...basis,
         key,
-        x: round1(lerp(from.x, to.x, amount)),
-        y: round1(lerp(from.y, to.y, amount)),
-        opacity: round2(opacity),
+        from,
+        to,
+        path,
+        appearing,
+        leaving,
         color: basis.color || partyColor(basis)
       }
     })
+}
+
+export function interpolateLivePartyMarkers({ previous = [], next = [], progress = 1, layout = {}, transitions = null } = {}) {
+  const amount = clamp(Number(progress) || 0, 0, 1)
+  const items = transitions || buildLivePartyTransitions({ previous, next, layout })
+
+  return items.map((transition) => {
+    const opacity = transition.appearing
+      ? amount
+      : transition.leaving
+        ? 1 - amount
+        : 1
+    const point = samplePathAtProgress(transition.path, amount)
+
+    return {
+      ...transition,
+      x: point.x,
+      y: point.y,
+      opacity: round2(opacity),
+      progress: round2(amount),
+      path: transition.path,
+      color: transition.color || partyColor(transition)
+    }
+  })
 }
 
 function buildServiceTargets(services, windows) {
@@ -275,8 +301,15 @@ function keyedTargets(targets) {
   return map
 }
 
-function lerp(start, end, amount) {
-  return Number(start || 0) + (Number(end || 0) - Number(start || 0)) * amount
+function pointDistance(left, right) {
+  return Math.hypot(Number(left?.x) - Number(right?.x), Number(left?.y) - Number(right?.y))
+}
+
+function cleanPoint(point) {
+  return {
+    x: round1(point.x),
+    y: round1(point.y)
+  }
 }
 
 function round1(value) {

@@ -103,6 +103,13 @@
 
       <g class="live-party-layer">
         <g class="party-group service-group">
+          <polyline
+            v-for="path in motionPaths"
+            :key="path.key"
+            class="motion-path"
+            :points="path.points"
+            :style="{ stroke: path.color, opacity: path.opacity }"
+          />
           <circle
             v-for="dot in serviceMarkers"
             :key="dot.key"
@@ -193,6 +200,7 @@ import {
   LIVE_TRANSITION_MS,
   QUEUE_VISIBLE_LIMIT,
   buildLivePartyTargets,
+  buildLivePartyTransitions,
   clamp,
   interpolateLivePartyMarkers,
   normalizeGroup,
@@ -348,6 +356,18 @@ const serviceMarkers = computed(() => (
   animatedPartyMarkers.value.filter((marker) => marker.role === 'service' && marker.opacity > 0)
 ))
 
+const motionPaths = computed(() => (
+  animatedPartyMarkers.value
+    .filter((marker) => marker.opacity > 0 && marker.progress < 1 && Array.isArray(marker.path) && marker.path.length > 2)
+    .slice(0, 12)
+    .map((marker) => ({
+      key: `path-${marker.key}`,
+      color: marker.color,
+      opacity: Math.min(0.22, marker.opacity),
+      points: marker.path.map((point) => `${point.x},${point.y}`).join(' ')
+    }))
+))
+
 const seatedClusters = computed(() => {
   return animatedPartyMarkers.value
     .filter((marker) => marker.role === 'seated' && marker.opacity > 0)
@@ -368,6 +388,11 @@ function startPartyTransition(nextTargets) {
   const previousTargets = animatedPartyMarkers.value.length
     ? animatedPartyMarkers.value
     : lastSettledPartyTargets
+  const transitions = buildLivePartyTransitions({
+    previous: previousTargets,
+    next: nextTargets,
+    layout: props.layout
+  })
 
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     animatedPartyMarkers.value = settledMarkers(nextTargets)
@@ -379,8 +404,7 @@ function startPartyTransition(nextTargets) {
   const render = (timestamp) => {
     const progress = clamp((timestamp - startedAt) / LIVE_TRANSITION_MS, 0, 1)
     animatedPartyMarkers.value = interpolateLivePartyMarkers({
-      previous: previousTargets,
-      next: nextTargets,
+      transitions,
       progress,
       layout: props.layout
     })
@@ -394,8 +418,7 @@ function startPartyTransition(nextTargets) {
   }
 
   animatedPartyMarkers.value = interpolateLivePartyMarkers({
-    previous: previousTargets,
-    next: nextTargets,
+    transitions,
     progress: 0,
     layout: props.layout
   })
