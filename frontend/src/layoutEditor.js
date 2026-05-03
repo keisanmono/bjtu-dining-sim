@@ -490,8 +490,12 @@ function spreadTableCandidatePoints(layout, table, ideal, cellW, cellH) {
 }
 
 function placeTablesForSeats(layout, numSeats) {
+  const capacities = buildTableCapacities(numSeats)
+  if (numSeats > DENSE_TABLE_THRESHOLD_SEATS) {
+    return placeTablesGreedy(layout, capacities)
+  }
   const tables = []
-  for (const [index, capacity] of buildTableCapacities(numSeats).entries()) {
+  for (const [index, capacity] of capacities.entries()) {
     const id = `T${index + 1}`
     const point = findAvailableTablePosition({ ...layout, tables }, id, index, capacity)
     if (!point) return null
@@ -502,7 +506,85 @@ function placeTablesForSeats(layout, numSeats) {
       ...point
     })
   }
+  return tables.length === capacities.length ? tables : placeTablesGreedy(layout, capacities)
+}
+
+function placeTablesGreedy(layout, capacities) {
+  const tables = []
+  const candidateCache = new Map()
+  const nextCandidateIndex = new Map()
+  for (const [index, capacity] of capacities.entries()) {
+    const id = `T${index + 1}`
+    const candidates = candidateCache.get(capacity) || tableCandidatePoints(layout, capacity)
+    candidateCache.set(capacity, candidates)
+    const startIndex = nextCandidateIndex.get(capacity) || 0
+    const placed = findGreedyTableCandidate(layout, tables, id, capacity, startIndex, candidates)
+    if (!placed) return null
+    nextCandidateIndex.set(capacity, placed.candidateIndex + 1)
+    delete placed.candidateIndex
+    tables.push(placed)
+  }
   return tables
+}
+
+function placeSameCapacityTablesGreedy(layout, capacity, maxTables) {
+  const tables = []
+  const candidates = tableCandidatePoints(layout, capacity)
+  let startIndex = 0
+  while (tables.length < maxTables) {
+    const id = `L${tables.length + 1}`
+    const placed = findGreedyTableCandidate(layout, tables, id, capacity, startIndex, candidates)
+    if (!placed) break
+    startIndex = placed.candidateIndex + 1
+    delete placed.candidateIndex
+    tables.push(placed)
+  }
+  return tables
+}
+
+function findGreedyTableCandidate(layout, tables, id, capacity, startIndex = 0, candidates = null) {
+  const points = candidates || tableCandidatePoints(layout, capacity)
+  for (let candidateIndex = startIndex; candidateIndex < points.length; candidateIndex += 1) {
+    const point = points[candidateIndex]
+    const table = {
+      id,
+      capacity,
+      table_type: tableTypeForCapacity(capacity),
+      ...point,
+      candidateIndex
+    }
+    if (!itemOverlapsLayout({ ...layout, tables }, 'table', id, point.x, point.y, table)) {
+      return table
+    }
+  }
+  return null
+}
+
+function calculateCandidateSlotSeatLimit(baseLayout) {
+  const sixTables = placeSameCapacityTablesGreedy(
+    baseLayout,
+    6,
+    Math.ceil(LAYOUT_MAX_EDITABLE_SEATS / 6)
+  )
+  for (let seats = LAYOUT_MAX_EDITABLE_SEATS; seats > DENSE_TABLE_THRESHOLD_SEATS; seats -= 2) {
+    const sixCount = Math.floor(seats / 6)
+    const remainder = seats - sixCount * 6
+    if (sixCount > sixTables.length) continue
+    if (remainder === 0) return seats
+    const placedSixTables = sixTables.slice(0, sixCount)
+    const remainderTable = findGreedyTableCandidate(
+      baseLayout,
+      placedSixTables,
+      `L${sixCount + 1}`,
+      remainder,
+      0
+    )
+    if (remainderTable) return seats
+  }
+  for (let seats = Math.min(DENSE_TABLE_THRESHOLD_SEATS, LAYOUT_MAX_EDITABLE_SEATS); seats >= 2; seats -= 2) {
+    if (placeTablesForSeats(baseLayout, seats)) return seats
+  }
+  return 2
 }
 
 export function createDefaultLayout(config) {
@@ -622,20 +704,7 @@ export function calculateLayoutSeatLimit(layout) {
     windows: layout?.windows || [],
     tables: []
   }
-  let best = 2
-  let low = 1
-  let high = LAYOUT_MAX_EDITABLE_SEATS / 2
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2)
-    const seats = middle * 2
-    if (placeTablesForSeats(baseLayout, seats)) {
-      best = seats
-      low = middle + 1
-    } else {
-      high = middle - 1
-    }
-  }
-  return best
+  return Math.max(2, normalizeSeatCount(calculateCandidateSlotSeatLimit(baseLayout), LAYOUT_MAX_EDITABLE_SEATS))
 }
 
 export function resizeLayoutFloor(layout, floorSize, options = {}) {

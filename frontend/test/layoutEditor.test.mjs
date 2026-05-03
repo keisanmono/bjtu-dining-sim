@@ -488,6 +488,20 @@ test('seat limit grows past the old 360-seat cap for large cafeterias', () => {
   assert.ok(limit > 360)
 })
 
+test('seat limit calculation stays responsive for the largest editable cafeteria', () => {
+  const large = resizeLayoutFloor(createDefaultLayout({ num_windows: 6, num_seats: 120 }), {
+    width: 2200,
+    height: 2600
+  })
+  const startedAt = performance.now()
+
+  const limit = calculateLayoutSeatLimit(large)
+  const elapsedMs = performance.now() - startedAt
+
+  assert.equal(limit, LAYOUT_MAX_EDITABLE_SEATS)
+  assert.ok(elapsedMs < 500, `seat limit calculation took ${Math.round(elapsedMs)}ms`)
+})
+
 test('rebuilt table count is clamped to the computed floor capacity', () => {
   const layout = resizeLayoutFloor(createDefaultLayout({ num_windows: 30, num_seats: 120 }), {
     width: LAYOUT_SIZE_LIMITS.width.min,
