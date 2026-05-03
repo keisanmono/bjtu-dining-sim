@@ -13,6 +13,7 @@
 
     <el-tabs v-model="activeView" class="stage-tabs" @tab-change="renderCharts">
       <el-tab-pane label="参数配置" name="config" />
+      <el-tab-pane label="场景预览" name="layout" />
       <el-tab-pane label="实时运行" name="run" />
       <el-tab-pane label="结果分析" name="analysis" />
     </el-tabs>
@@ -191,7 +192,10 @@
           </div>
         </el-card>
 
-        <el-card class="panel preview-panel">
+      </section>
+
+      <section v-show="activeView === 'layout'" class="layout-page">
+        <el-card class="panel layout-page-panel">
           <template #header>
             <div class="panel-title">
               <el-icon><Grid /></el-icon>

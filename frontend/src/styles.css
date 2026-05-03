@@ -65,6 +65,7 @@ input {
 }
 
 .config-grid,
+.layout-page,
 .run-grid,
 .analysis-grid {
   display: grid;
@@ -72,7 +73,15 @@ input {
 }
 
 .config-grid {
-  grid-template-columns: minmax(320px, 1.08fr) minmax(260px, 0.78fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
+}
+
+.layout-page {
+  justify-items: center;
+}
+
+.layout-page-panel {
+  width: min(840px, 100%);
 }
 
 .run-layout,
@@ -578,6 +587,7 @@ input {
 
 @media (max-width: 1100px) {
   .config-grid,
+  .layout-page,
   .run-grid,
   .analysis-grid {
     grid-template-columns: 1fr;

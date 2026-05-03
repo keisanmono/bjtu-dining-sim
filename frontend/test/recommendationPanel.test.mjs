@@ -33,6 +33,11 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   // App.vue delegates the floor plan to a LayoutEditor component.
   assert.equal(appSource.includes("import LayoutEditor from './LayoutEditor.vue'"), true)
   assert.equal(appSource.includes('<LayoutEditor'), true)
+  assert.equal(appSource.includes('<el-tab-pane label="场景预览" name="layout"'), true)
+  assert.equal(appSource.includes("activeView === 'layout'"), true)
+  assert.equal(appSource.includes('class="layout-page"'), true)
+  assert.equal(appSource.includes('class="panel layout-page-panel"'), true)
+  assert.equal(appSource.includes('class="panel preview-panel"'), false)
   assert.equal(appSource.includes(':layout="layout"'), true)
   assert.equal(appSource.includes('@update:layout="onLayoutUpdate"'), true)
   assert.equal(appSource.includes('@reset="resetLayout"'), true)
@@ -77,6 +82,8 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   // Stylesheet keeps the floor-plan look-and-feel and adds editor primitives.
   assert.equal(styleSource.includes('.dining-floor-plan'), true)
   assert.equal(styleSource.includes('aspect-ratio: 360 / 640'), true)
+  assert.equal(styleSource.includes('.layout-page'), true)
+  assert.equal(styleSource.includes('.layout-page-panel'), true)
   assert.equal(styleSource.includes('.layout-editor'), true)
   assert.equal(styleSource.includes('.layout-window'), true)
   assert.equal(styleSource.includes('.layout-table'), true)
