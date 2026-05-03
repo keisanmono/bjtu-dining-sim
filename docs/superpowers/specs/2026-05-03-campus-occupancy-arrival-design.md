@@ -10,7 +10,7 @@ Use real BJTU classroom occupancy signals to drive cafeteria arrival demand, so 
 
 - Classroom people counts come from `http://yaya.csoci.com:2333/api/classnum/?building=<buildingName>`.
 - The response is parsed as JSON with `time` and `data`; each classroom row contains room name plus used and capacity values.
-- The supported building names include 第十七号教学楼, 思源楼, 思源西楼, 思源东楼, 第九教学楼, 第八教学楼, 第五教学楼, 逸夫教学楼, 机械楼, 东区二教, 东区一教.
+- The supported classroom-count building names include 第十七号教学楼, 思源楼, 思源西楼, 思源东楼, 第九教学楼, 第八教学楼, 第五教学楼, 逸夫教学楼, 机械楼. 东区一教 and 东区二教 exist in `BJTUselfService`, but this project excludes them because the simulation scope is the BJTU main campus.
 - The bundled `model.pt` is used by `CaptchaModel` for captcha recognition, not classroom people detection.
 - A second classroom schedule source exists at BJTU AA `classroomtimeholdresult/room_view/`, but it depends on an authenticated session and HTML parsing. This should not be used in the first integration.
 
@@ -21,12 +21,15 @@ Primary source references:
 - Building list and classroom UI: https://github.com/HFDLYS/BJTUselfService/blob/main/app/src/main/java/team/bjtuss/bjtuselfservice/screen/DetectionScreen.kt
 - Captcha model usage: https://github.com/HFDLYS/BJTUselfService/blob/main/app/src/main/java/team/bjtuss/bjtuselfservice/CaptchaModel.java
 - Authenticated AA classroom schedule parsing: https://github.com/HFDLYS/BJTUselfService/blob/main/app/src/main/java/team/bjtuss/bjtuselfservice/web/MisDataManager.java
+- Baidu walking RouteMatrix API used for one-time precomputation: https://lbs.baidu.com/faq/api?title=webapi%2Froutchtout-walk
+- Baidu light walking route API reference for single-route fallback checks: https://lbs.baidu.com/faq/api?title=webapi%2Fguide%2Fwebservice-lwrouteplanapi%2Fwalk
 
 ## Scope
 
 ### In Scope
 
 - Add backend campus data models for real cafeterias, teaching buildings, distances, walking times, and classroom occupancy summaries.
+- Add a static main-campus walking-time data file generated once from Baidu walking RouteMatrix results.
 - Add a backend connector that fetches and normalizes `yaya.csoci.com` classroom occupancy data for selected buildings.
 - Add a fallback path using bundled/static sample occupancy values when the external service is unavailable.
 - Add a campus demand model that converts building occupancy and dismissal schedules into a per-minute arrival curve.
@@ -37,6 +40,7 @@ Primary source references:
 
 - BJTU AA login, cookie handling, captcha solving, or authenticated HTML scraping.
 - Per-person outdoor pathfinding, crowd collision, or route congestion.
+- Runtime calls to Baidu Maps. The application reads precomputed walking times instead.
 - Predicting how many students choose a cafeteria from private personal schedules.
 - Storing external occupancy data permanently beyond short-lived run/session cache.
 
@@ -60,11 +64,34 @@ class CampusLocationData:
     id: str
     name: str
     kind: str  # "cafeteria" or "teaching_building"
-    x: float
-    y: float
+    lat: float
+    lng: float
+    source: str
 ```
 
-Coordinates are campus-map units, not the existing cafeteria floor-plan coordinates. They are only used for walking-time estimates between teaching buildings and cafeterias.
+Coordinates are Baidu-map latitude/longitude values used to document how the static walking-time table was generated. Runtime demand calculation must use the precomputed walking-time table, not straight-line distance.
+
+### Campus Walking Times
+
+Static walking times live in `backend/app/data/campus_walk_times.json`.
+
+```python
+@dataclass(frozen=True)
+class CampusWalkRouteData:
+    distance_m: int
+    duration_s: int
+    duration_min: int
+
+@dataclass(frozen=True)
+class CampusWalkTimesData:
+    source: str
+    generated_at: str
+    campus_scope: str  # "main_campus_only"
+    locations: dict[str, list[CampusLocationData]]
+    walk_times: dict[str, dict[str, CampusWalkRouteData]]
+```
+
+The first version includes nine main-campus teaching buildings: 思源楼, 思源西楼, 思源东楼, 第九教学楼, 第八教学楼, 第五教学楼, 逸夫教学楼, 机械楼, 第十七号教学楼. It includes four student cafeteria targets: 学活餐厅, 明湖餐厅, 学四食堂, 学苑餐厅.
 
 ### Classroom Occupancy
 
@@ -117,8 +144,9 @@ For each selected building:
 1. Sum `used` across classrooms.
 2. Estimate released people: `round(total_used * release_ratio * cafeteria_share)`.
 3. Compute walking time from teaching building to selected cafeteria:
-   - `distance = hypot(building.x - cafeteria.x, building.y - cafeteria.y)`
-   - `walk_minutes = clamp(round(distance / walking_speed_units_per_min), 2, 20)`
+   - Load `walk_times[building_id][cafeteria_id]` from `backend/app/data/campus_walk_times.json`.
+   - Use `duration_min` as the outdoor walking offset.
+   - If a pair is missing, fail validation instead of silently using a straight-line estimate.
 4. Spread arrivals around `dismissal_minute + walk_minutes` using a short distribution:
    - 20% arrive 2 minutes before peak
    - 30% arrive 1 minute before peak
@@ -137,8 +165,8 @@ Returns preset cafeterias and teaching buildings.
 
 ```json
 {
-  "cafeterias": [{"id": "xuehuo", "name": "学活食堂", "x": 0, "y": 0}],
-  "teaching_buildings": [{"id": "sy", "name": "思源楼", "x": 120, "y": 80}]
+  "cafeterias": [{"id": "xuehuo", "name": "学活餐厅", "lat": 39.955997, "lng": 116.344712}],
+  "teaching_buildings": [{"id": "siyuan", "name": "思源楼", "lat": 39.956911, "lng": 116.347533}]
 }
 ```
 
@@ -203,6 +231,7 @@ Backend tests:
 - Parse a representative `classnum` JSON response into building totals.
 - Fall back cleanly when the connector raises timeout or malformed JSON.
 - Convert selected building occupancy and dismissal time into the expected per-minute arrival curve.
+- Validate `backend/app/data/campus_walk_times.json` covers all main-campus building/cafeteria pairs and does not contain secrets.
 - Campus-demand simulation uses the schedule instead of Poisson arrival rate.
 - Existing manual simulation tests still pass.
 

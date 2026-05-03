@@ -1,0 +1,302 @@
+{
+  "source": "baidu_routematrix_v2_walking",
+  "generated_at": "2026-05-03T20:13:24+0800",
+  "campus_scope": "main_campus_only",
+  "locations": {
+    "teaching_buildings": [
+      {
+        "id": "siyuan",
+        "name": "思源楼",
+        "lat": 39.956911,
+        "lng": 116.347533,
+        "source": "百度POI: 北京交通大学思源楼-东南门"
+      },
+      {
+        "id": "siyuan_west",
+        "name": "思源西楼",
+        "lat": 39.956925,
+        "lng": 116.346391,
+        "source": "百度POI: 北京交通大学思源西楼"
+      },
+      {
+        "id": "siyuan_east",
+        "name": "思源东楼",
+        "lat": 39.957152,
+        "lng": 116.348269,
+        "source": "百度POI: 中国银行24小时自助服务(北京交通大学支行), 地址含思源东楼1层"
+      },
+      {
+        "id": "no9",
+        "name": "第九教学楼",
+        "lat": 39.955511,
+        "lng": 116.348834,
+        "source": "百度POI: 北京交通大学-9号教学楼"
+      },
+      {
+        "id": "no8",
+        "name": "第八教学楼",
+        "lat": 39.958266,
+        "lng": 116.349126,
+        "source": "百度POI: 北京交通大学-第8教学楼"
+      },
+      {
+        "id": "no5",
+        "name": "第五教学楼",
+        "lat": 39.956662,
+        "lng": 116.34935,
+        "source": "百度POI: 北京交通大学-教五楼"
+      },
+      {
+        "id": "yifu",
+        "name": "逸夫教学楼",
+        "lat": 39.957246,
+        "lng": 116.351347,
+        "source": "百度POI: 北京交通大学逸夫教学楼"
+      },
+      {
+        "id": "mechanical",
+        "name": "机械楼",
+        "lat": 39.956792,
+        "lng": 116.352375,
+        "source": "百度POI: 北京交通大学机械工程楼"
+      },
+      {
+        "id": "no17",
+        "name": "第十七号教学楼",
+        "lat": 39.957112,
+        "lng": 116.345462,
+        "source": "百度POI: 北京交通大学-建筑与艺术学院/17号楼"
+      }
+    ],
+    "cafeterias": [
+      {
+        "id": "xuehuo",
+        "name": "学活餐厅",
+        "lat": 39.955997,
+        "lng": 116.344712,
+        "source": "百度POI: 北京交通大学-学活食堂"
+      },
+      {
+        "id": "minghu",
+        "name": "明湖餐厅",
+        "lat": 39.958787,
+        "lng": 116.349828,
+        "source": "百度POI: 明湖餐厅(交通大学店)/学生一餐厅"
+      },
+      {
+        "id": "xuesi",
+        "name": "学四食堂",
+        "lat": 39.955439,
+        "lng": 116.350702,
+        "source": "百度POI: 北京交通大学-学生四食堂"
+      },
+      {
+        "id": "xueyuan",
+        "name": "学苑餐厅",
+        "lat": 39.960235,
+        "lng": 116.354518,
+        "source": "百度POI: 北京交通大学-学苑餐厅(交大东路店)"
+      }
+    ]
+  },
+  "walk_times": {
+    "siyuan": {
+      "xuehuo": {
+        "distance_m": 660,
+        "duration_s": 562,
+        "duration_min": 10
+      },
+      "minghu": {
+        "distance_m": 366,
+        "duration_s": 312,
+        "duration_min": 6
+      },
+      "xuesi": {
+        "distance_m": 405,
+        "duration_s": 346,
+        "duration_min": 6
+      },
+      "xueyuan": {
+        "distance_m": 926,
+        "duration_s": 790,
+        "duration_min": 14
+      }
+    },
+    "siyuan_west": {
+      "xuehuo": {
+        "distance_m": 537,
+        "duration_s": 457,
+        "duration_min": 8
+      },
+      "minghu": {
+        "distance_m": 445,
+        "duration_s": 380,
+        "duration_min": 7
+      },
+      "xuesi": {
+        "distance_m": 560,
+        "duration_s": 478,
+        "duration_min": 8
+      },
+      "xueyuan": {
+        "distance_m": 1005,
+        "duration_s": 858,
+        "duration_min": 15
+      }
+    },
+    "siyuan_east": {
+      "xuehuo": {
+        "distance_m": 704,
+        "duration_s": 600,
+        "duration_min": 10
+      },
+      "minghu": {
+        "distance_m": 316,
+        "duration_s": 270,
+        "duration_min": 5
+      },
+      "xuesi": {
+        "distance_m": 355,
+        "duration_s": 303,
+        "duration_min": 6
+      },
+      "xueyuan": {
+        "distance_m": 876,
+        "duration_s": 748,
+        "duration_min": 13
+      }
+    },
+    "no9": {
+      "xuehuo": {
+        "distance_m": 879,
+        "duration_s": 750,
+        "duration_min": 13
+      },
+      "minghu": {
+        "distance_m": 459,
+        "duration_s": 391,
+        "duration_min": 7
+      },
+      "xuesi": {
+        "distance_m": 147,
+        "duration_s": 125,
+        "duration_min": 3
+      },
+      "xueyuan": {
+        "distance_m": 1019,
+        "duration_s": 869,
+        "duration_min": 15
+      }
+    },
+    "no8": {
+      "xuehuo": {
+        "distance_m": 749,
+        "duration_s": 639,
+        "duration_min": 11
+      },
+      "minghu": {
+        "distance_m": 61,
+        "duration_s": 52,
+        "duration_min": 1
+      },
+      "xuesi": {
+        "distance_m": 386,
+        "duration_s": 328,
+        "duration_min": 6
+      },
+      "xueyuan": {
+        "distance_m": 668,
+        "duration_s": 570,
+        "duration_min": 10
+      }
+    },
+    "no5": {
+      "xuehuo": {
+        "distance_m": 841,
+        "duration_s": 716,
+        "duration_min": 12
+      },
+      "minghu": {
+        "distance_m": 273,
+        "duration_s": 232,
+        "duration_min": 4
+      },
+      "xuesi": {
+        "distance_m": 219,
+        "duration_s": 187,
+        "duration_min": 4
+      },
+      "xueyuan": {
+        "distance_m": 833,
+        "duration_s": 710,
+        "duration_min": 12
+      }
+    },
+    "yifu": {
+      "xuehuo": {
+        "distance_m": 969,
+        "duration_s": 827,
+        "duration_min": 14
+      },
+      "minghu": {
+        "distance_m": 227,
+        "duration_s": 193,
+        "duration_min": 4
+      },
+      "xuesi": {
+        "distance_m": 211,
+        "duration_s": 179,
+        "duration_min": 3
+      },
+      "xueyuan": {
+        "distance_m": 632,
+        "duration_s": 539,
+        "duration_min": 9
+      }
+    },
+    "mechanical": {
+      "xuehuo": {
+        "distance_m": 1113,
+        "duration_s": 949,
+        "duration_min": 16
+      },
+      "minghu": {
+        "distance_m": 396,
+        "duration_s": 337,
+        "duration_min": 6
+      },
+      "xuesi": {
+        "distance_m": 240,
+        "duration_s": 204,
+        "duration_min": 4
+      },
+      "xueyuan": {
+        "distance_m": 599,
+        "duration_s": 510,
+        "duration_min": 9
+      }
+    },
+    "no17": {
+      "xuehuo": {
+        "distance_m": 411,
+        "duration_s": 349,
+        "duration_min": 6
+      },
+      "minghu": {
+        "distance_m": 446,
+        "duration_s": 381,
+        "duration_min": 7
+      },
+      "xuesi": {
+        "distance_m": 628,
+        "duration_s": 536,
+        "duration_min": 9
+      },
+      "xueyuan": {
+        "distance_m": 1006,
+        "duration_s": 858,
+        "duration_min": 15
+      }
+    }
+  }
+}
