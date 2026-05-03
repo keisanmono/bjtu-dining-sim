@@ -25,7 +25,7 @@ export const LAYOUT_ZOOM_LIMITS = Object.freeze({
   maxWidth: null,
   maxHeight: null
 })
-export const LAYOUT_MAX_EDITABLE_SEATS = 360
+export const LAYOUT_MAX_EDITABLE_SEATS = 2000
 export const LAYOUT_MAX_DOORS = 4
 export const LAYOUT_ITEM_GAP = 2
 
@@ -613,9 +613,16 @@ export function calculateLayoutSeatLimit(layout) {
     tables: []
   }
   let best = 2
-  for (let seats = 2; seats <= LAYOUT_MAX_EDITABLE_SEATS; seats += 2) {
+  let low = 1
+  let high = LAYOUT_MAX_EDITABLE_SEATS / 2
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const seats = middle * 2
     if (placeTablesForSeats(baseLayout, seats)) {
       best = seats
+      low = middle + 1
+    } else {
+      high = middle - 1
     }
   }
   return best

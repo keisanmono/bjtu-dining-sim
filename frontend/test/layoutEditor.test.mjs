@@ -459,6 +459,19 @@ test('seat limit is computed from floor size and wall openings', () => {
   assert.equal(calculateLayoutSeatLimit(roomy) % 2, 0)
 })
 
+test('seat limit grows past the old 360-seat cap for large cafeterias', () => {
+  const large = resizeLayoutFloor(createDefaultLayout({ num_windows: 6, num_seats: 120 }), {
+    width: 2200,
+    height: 2600
+  })
+
+  const limit = calculateLayoutSeatLimit(large)
+
+  assert.equal(LAYOUT_MAX_EDITABLE_SEATS, 2000)
+  assert.equal(limit, LAYOUT_MAX_EDITABLE_SEATS)
+  assert.ok(limit > 360)
+})
+
 test('rebuilt table count is clamped to the computed floor capacity', () => {
   const layout = resizeLayoutFloor(createDefaultLayout({ num_windows: 30, num_seats: 120 }), {
     width: LAYOUT_SIZE_LIMITS.width.min,
