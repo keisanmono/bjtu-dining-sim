@@ -366,9 +366,7 @@ const seatedClusters = computed(() => {
 
 function startPartyTransition(nextTargets) {
   cancelPartyAnimation()
-  const previousTargets = animatedPartyMarkers.value.length
-    ? animatedPartyMarkers.value
-    : lastSettledPartyTargets
+  const previousTargets = transitionStartTargets(lastSettledPartyTargets, animatedPartyMarkers.value)
   const transitions = buildLivePartyTransitions({
     previous: previousTargets,
     next: nextTargets,
@@ -407,7 +405,20 @@ function startPartyTransition(nextTargets) {
 }
 
 function settledMarkers(targets) {
-  return targets.map((target) => ({ ...target, opacity: 1 }))
+  return targets
+    .filter((target) => target.role !== 'seated')
+    .map((target) => ({ ...target, opacity: 1, progress: 1 }))
+}
+
+function transitionStartTargets(settledTargets, visibleMarkers) {
+  const targets = new Map()
+  for (const target of settledTargets || []) {
+    targets.set(target.key, target)
+  }
+  for (const marker of visibleMarkers || []) {
+    targets.set(marker.key, marker)
+  }
+  return Array.from(targets.values())
 }
 
 function cancelPartyAnimation() {

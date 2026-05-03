@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildLivePartyTargets,
+  buildLivePartyTransitions,
   QUEUE_VISIBLE_LIMIT,
   buildQueueRows,
   interpolateLivePartyMarkers
@@ -210,4 +211,45 @@ test('interpolateLivePartyMarkers follows walkable routes around table obstacles
   assert.equal(marker.key, 'party-21')
   assert.ok(marker.path.length > 2, `expected routed path, got ${JSON.stringify(marker.path)}`)
   assert.notEqual(marker.y, 110)
+})
+
+test('buildLivePartyTransitions skips stable seated parties after they settle', () => {
+  const seated = {
+    key: 'party-31',
+    party_id: 31,
+    role: 'seated',
+    member_count: 2,
+    x: 220,
+    y: 180,
+    door_index: 0
+  }
+
+  const transitions = buildLivePartyTransitions({
+    previous: [seated],
+    next: [seated],
+    layout: baseLayout
+  })
+
+  assert.equal(transitions.length, 0)
+})
+
+test('buildLivePartyTransitions keeps stable service markers visible', () => {
+  const service = {
+    key: 'party-32',
+    party_id: 32,
+    role: 'service',
+    member_count: 1,
+    x: 120,
+    y: 40,
+    door_index: 0
+  }
+
+  const transitions = buildLivePartyTransitions({
+    previous: [service],
+    next: [service],
+    layout: baseLayout
+  })
+
+  assert.equal(transitions.length, 1)
+  assert.equal(transitions[0].role, 'service')
 })

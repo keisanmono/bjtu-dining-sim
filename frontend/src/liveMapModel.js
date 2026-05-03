@@ -177,6 +177,10 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
       const basis = nextTarget || previousTarget
       const appearing = !previousTarget && Boolean(nextTarget)
       const leaving = Boolean(previousTarget) && !nextTarget
+      const samePosition = pointDistance(from, to) < 0.5
+      if (previousTarget && nextTarget && basis.role === 'seated' && samePosition) {
+        return null
+      }
       const path = pointDistance(from, to) < 0.5
         ? [cleanPoint(from)]
         : buildWalkableRoute({ planner, start: from, end: to })
@@ -191,6 +195,7 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
         color: basis.color || partyColor(basis)
       }
     })
+    .filter(Boolean)
 }
 
 export function interpolateLivePartyMarkers({ previous = [], next = [], progress = 1, layout = {}, transitions = null } = {}) {

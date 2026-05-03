@@ -366,6 +366,10 @@ const defaultConfig = {
   floor_height: LAYOUT_DEFAULT_FLOOR.height
 }
 
+const LIVE_RECORD_LIMIT = 600
+const LIVE_CHART_RECORD_LIMIT = 240
+const LIVE_CHART_RENDER_INTERVAL_MS = 900
+
 const activeView = ref('config')
 const config = reactive({ ...defaultConfig })
 const layout = ref(createDefaultLayout(defaultConfig))
@@ -377,6 +381,7 @@ const validationMessage = ref('')
 const validationType = ref('success')
 const runId = ref('')
 const records = ref([])
+const livePeakQueue = ref(0)
 const metrics = ref(null)
 const currentState = ref(null)
 const isRunning = ref(false)
@@ -393,9 +398,12 @@ let queueChart
 let trendChart
 let analysisChart
 let chartRenderFrame = 0
+let chartRenderTimer = 0
+let chartRenderScheduledAt = 0
 
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
 const currentRecord = computed(() => records.value.at(-1) || null)
+const chartRecords = computed(() => records.value.slice(-LIVE_CHART_RECORD_LIMIT))
 const recommendationCandidates = computed(() => buildCandidatesFromSettings(candidateSettings))
 const windowCandidates = computed(() => recommendationCandidates.value.windows)
 const seatCandidates = computed(() => {
@@ -407,7 +415,7 @@ const layoutSeatLimit = ref(calculateLayoutSeatLimit(layout.value))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
-  const peakQueue = metrics.value?.peak_queue ?? Math.max(queue, ...records.value.map((item) => totalQueue(item)))
+  const peakQueue = metrics.value?.peak_queue ?? livePeakQueue.value
   return [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
     { label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` },
@@ -437,12 +445,14 @@ onBeforeUnmount(() => {
   if (chartRenderFrame) {
     window.cancelAnimationFrame(chartRenderFrame)
   }
+  if (chartRenderTimer) {
+    window.clearTimeout(chartRenderTimer)
+  }
   queueChart?.dispose()
   trendChart?.dispose()
   analysisChart?.dispose()
 })
 
-watch(records, renderCharts, { deep: true })
 watch(metrics, renderCharts)
 watch(activeView, renderCharts)
 
@@ -589,6 +599,7 @@ function resetRun(clearMessage = true) {
   pauseRun()
   runId.value = ''
   records.value = []
+  livePeakQueue.value = 0
   metrics.value = null
   currentState.value = null
   isDone.value = false
@@ -598,6 +609,17 @@ function resetRun(clearMessage = true) {
   renderCharts()
 }
 
+function appendRunRecord(record) {
+  if (!record) return
+  records.value.push(record)
+  const overflow = records.value.length - LIVE_RECORD_LIMIT
+  if (overflow > 0) {
+    records.value.splice(0, overflow)
+  }
+  livePeakQueue.value = Math.max(livePeakQueue.value, totalQueue(record))
+  renderChartsThrottled()
+}
+
 async function singleStep(reset = false) {
   try {
     const payload = shouldResetStepRun(reset, runId.value)
@@ -605,7 +627,7 @@ async function singleStep(reset = false) {
       : { run_id: runId.value }
     const response = await api.stepSimulation(payload)
     runId.value = response.run_id
-    records.value = [...records.value, response.record]
+    appendRunRecord(response.record)
     currentState.value = response.state
     isDone.value = response.done
     if (response.metrics) {
@@ -633,10 +655,12 @@ async function runFullSimulation() {
 
 function applyRunResponse(response) {
   runId.value = response.run_id
-  records.value = response.records
+  records.value = (response.records || []).slice(-LIVE_RECORD_LIMIT)
   metrics.value = response.metrics
+  livePeakQueue.value = response.metrics?.peak_queue ?? records.value.reduce((peak, record) => Math.max(peak, totalQueue(record)), 0)
   currentState.value = response.final_state
   isDone.value = true
+  renderCharts()
 }
 
 async function generateRecommendation() {
@@ -682,6 +706,22 @@ function exportRecords() {
   }
 }
 
+function renderChartsThrottled() {
+  const nowMs = Date.now()
+  const elapsed = nowMs - chartRenderScheduledAt
+  if (elapsed >= LIVE_CHART_RENDER_INTERVAL_MS) {
+    chartRenderScheduledAt = nowMs
+    renderCharts()
+    return
+  }
+  if (chartRenderTimer) return
+  chartRenderTimer = window.setTimeout(() => {
+    chartRenderTimer = 0
+    chartRenderScheduledAt = Date.now()
+    renderCharts()
+  }, LIVE_CHART_RENDER_INTERVAL_MS - elapsed)
+}
+
 function renderCharts() {
   nextTick(() => {
     if (chartRenderFrame) {
@@ -705,6 +745,7 @@ function renderQueueChart() {
   queueChart.resize()
   const lengths = currentRecord.value?.queue_lengths || Array.from({ length: config.num_windows }, () => 0)
   queueChart.setOption({
+    animation: false,
     color: ['#3f6fa9'],
     grid: { left: 34, right: 16, top: 24, bottom: 30 },
     xAxis: { type: 'category', data: lengths.map((_, index) => `W${index + 1}`) },
@@ -731,14 +772,15 @@ function renderAnalysisChart() {
 
 function trendOption(large = false) {
   const chart = metrics.value?.chart_data || {
-    times: records.value.map((item) => item.t),
-    queue_totals: records.value.map((item) => totalQueue(item)),
-    empty_seats: records.value.map((item) => item.empty_seats),
-    throughput: records.value.map((item) => item.total_seated),
-    avg_wait: records.value.map((item) => item.avg_wait_so_far),
-    waiting_for_seat: records.value.map((item) => item.waiting_for_seat_count)
+    times: chartRecords.value.map((item) => item.t),
+    queue_totals: chartRecords.value.map((item) => totalQueue(item)),
+    empty_seats: chartRecords.value.map((item) => item.empty_seats),
+    throughput: chartRecords.value.map((item) => item.total_seated),
+    avg_wait: chartRecords.value.map((item) => item.avg_wait_so_far),
+    waiting_for_seat: chartRecords.value.map((item) => item.waiting_for_seat_count)
   }
   return {
+    animation: false,
     color: ['#2f65a3', '#d9912f', '#579a58', '#a94e4e'],
     tooltip: { trigger: 'axis' },
     legend: large ? { top: 0 } : { show: false },

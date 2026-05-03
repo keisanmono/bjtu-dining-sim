@@ -58,6 +58,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(sum(result.final_state["queue_lengths"]), 0)
         self.assertEqual(result.final_state["occupied_seats"], 0)
         self.assertEqual(result.final_state["waiting_for_seat_count"], 0)
+        self.assertNotIn("seat_matrix", result.final_state)
 
     def test_window_capacity_pressure_is_reported(self):
         result = run_simulation(

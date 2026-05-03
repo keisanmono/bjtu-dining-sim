@@ -573,7 +573,6 @@ class DiningSimulationRunner:
             "waiting_party_count": len(self.waiting_for_seat),
             "waiting_parties": self._waiting_parties_snapshot(),
             "seated_parties": self._seated_parties_snapshot(),
-            "seat_matrix": [idx < occupied for idx in range(self.total_seat_capacity)],
             "table_occupancy": [
                 {
                     "id": table.id,
