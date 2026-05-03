@@ -1,89 +1,110 @@
 <template>
   <div class="layout-editor" :class="{ 'is-dragging': isInteracting }">
     <div class="layout-editor-toolbar">
-      <div class="layout-editor-status">
-        <el-tag size="small" :type="selection ? 'primary' : 'info'" effect="plain">
-          {{ selectionLabel }}
-        </el-tag>
-        <span class="layout-editor-summary">
-          {{ layout.doors.length }} 入口 / {{ layout.windows.length }} 窗口 / {{ layout.tables.length }} 桌 ({{ totalSeats }} 座)
-        </span>
+      <div class="layout-toolbar-header">
+        <div class="layout-editor-status">
+          <el-tag size="small" :type="selection ? 'primary' : 'info'" effect="plain">
+            {{ selectionLabel }}
+          </el-tag>
+          <span class="layout-editor-summary">
+            {{ layout.doors.length }} 入口 / {{ layout.windows.length }} 窗口 / {{ layout.tables.length }} 桌 ({{ totalSeats }} 座)
+          </span>
+        </div>
+        <el-button size="small" :icon="Refresh" @click="$emit('reset')">重置布局</el-button>
       </div>
-      <div class="layout-editor-actions">
-        <div class="layout-resource-controls" aria-label="场景规模">
-          <span>开放窗口数</span>
-          <el-input-number
-            :model-value="windowCount"
-            :min="1"
-            :max="30"
-            size="small"
-            controls-position="right"
-            @change="changeWindowCount"
-          />
-          <span>座位数</span>
-          <el-input-number
-            :model-value="seatCount"
-            :min="2"
-            :max="seatLimit"
-            :step="2"
-            size="small"
-            controls-position="right"
-            @change="changeSeatCount"
-          />
-          <el-tag size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
+      <div class="layout-toolbar-main">
+        <div class="layout-control-group layout-resource-controls" aria-label="场景规模">
+          <span class="layout-control-heading">规模</span>
+          <label class="layout-control-field">
+            <span>窗口</span>
+            <el-input-number
+              :model-value="windowCount"
+              aria-label="开放窗口数"
+              :min="1"
+              :max="30"
+              size="small"
+              controls-position="right"
+              @change="changeWindowCount"
+            />
+          </label>
+          <label class="layout-control-field">
+            <span>座位</span>
+            <el-input-number
+              :model-value="seatCount"
+              aria-label="座位数"
+              :min="2"
+              :max="seatLimit"
+              :step="2"
+              size="small"
+              controls-position="right"
+              @change="changeSeatCount"
+            />
+          </label>
+          <el-tag class="layout-limit-tag" size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
         </div>
-        <div class="layout-size-controls" aria-label="食堂尺寸">
-          <span>食堂宽度</span>
-          <el-input-number
-            :model-value="floorSize.width"
-            :min="LAYOUT_SIZE_LIMITS.width.min"
-            :max="floorWidthMax"
-            :step="LAYOUT_SIZE_LIMITS.step"
-            size="small"
-            controls-position="right"
-            data-size-policy="floor width is capped by max area"
-            @change="changeFloorSize('width', $event)"
-          />
-          <span>食堂深度</span>
-          <el-input-number
-            :model-value="floorSize.height"
-            :min="LAYOUT_SIZE_LIMITS.height.min"
-            :max="floorHeightMax"
-            :step="LAYOUT_SIZE_LIMITS.step"
-            size="small"
-            controls-position="right"
-            data-size-policy="floor height is capped by max area"
-            @change="changeFloorSize('height', $event)"
-          />
+        <div class="layout-control-group layout-size-controls" aria-label="食堂尺寸">
+          <span class="layout-control-heading">尺寸</span>
+          <label class="layout-control-field">
+            <span>宽</span>
+            <el-input-number
+              :model-value="floorSize.width"
+              aria-label="食堂宽度"
+              :min="LAYOUT_SIZE_LIMITS.width.min"
+              :max="floorWidthMax"
+              :step="LAYOUT_SIZE_LIMITS.step"
+              size="small"
+              controls-position="right"
+              data-size-policy="floor width is capped by max area"
+              @change="changeFloorSize('width', $event)"
+            />
+          </label>
+          <label class="layout-control-field">
+            <span>深</span>
+            <el-input-number
+              :model-value="floorSize.height"
+              aria-label="食堂深度"
+              :min="LAYOUT_SIZE_LIMITS.height.min"
+              :max="floorHeightMax"
+              :step="LAYOUT_SIZE_LIMITS.step"
+              size="small"
+              controls-position="right"
+              data-size-policy="floor height is capped by max area"
+              @change="changeFloorSize('height', $event)"
+            />
+          </label>
         </div>
-        <div class="layout-count-controls" aria-label="入口数量">
+        <div class="layout-control-group layout-count-controls" aria-label="入口数量">
+          <span class="layout-control-heading">入口</span>
           <el-button size="small" :disabled="layout.doors.length <= 1" @click="changeDoorCount(-1)">入口 -</el-button>
           <el-button size="small" :disabled="layout.doors.length >= LAYOUT_MAX_DOORS" @click="changeDoorCount(1)">入口 +</el-button>
         </div>
-        <div class="layout-viewport-controls" aria-label="视野缩放">
+        <div class="layout-control-group layout-viewport-controls" aria-label="视野缩放">
+          <span class="layout-control-heading">视野</span>
           <el-button size="small" circle :icon="ZoomOut" @click="zoomViewport(1.2)" />
           <el-button size="small" circle :icon="ZoomIn" @click="zoomViewport(0.82)" />
           <el-button size="small" :icon="FullScreen" @click="fitViewportToLayout">适应视野</el-button>
         </div>
-        <div class="layout-arrange-controls" aria-label="自动排布座位">
+        <div class="layout-control-group layout-arrange-controls" aria-label="自动排布座位">
+          <span class="layout-control-heading">排布</span>
           <el-button size="small" :icon="Operation" @click="autoArrangeTables('spread')">均匀排布</el-button>
           <el-button size="small" :icon="Rank" @click="autoArrangeTables('compact')">密排座位</el-button>
         </div>
-        <el-select
-          v-if="selectedTable"
-          :model-value="selectedTable.capacity"
-          size="small"
-          class="layout-capacity-select"
-          @change="onSelectedCapacityChange"
-        >
-          <el-option
-            v-for="option in capacityOptions"
-            :key="option"
-            :value="option"
-            :label="`${option} 人桌`"
-          />
-        </el-select>
-        <el-button size="small" :icon="Refresh" @click="$emit('reset')">重置布局</el-button>
+        <div v-if="selectedTable" class="layout-control-group layout-table-controls" aria-label="餐桌设置">
+          <span class="layout-control-heading">餐桌</span>
+          <el-select
+            :model-value="selectedTable.capacity"
+            size="small"
+            class="layout-capacity-select"
+            @change="onSelectedCapacityChange"
+          >
+            <el-option
+              v-for="option in capacityOptions"
+              :key="option"
+              :value="option"
+              :label="`${option} 人桌`"
+            />
+          </el-select>
+        </div>
       </div>
     </div>
 
