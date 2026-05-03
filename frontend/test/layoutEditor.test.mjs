@@ -15,6 +15,7 @@ import {
   buildTableCapacities,
   calculateLayoutSeatLimit,
   clampToBounds,
+  clientPointToViewBoxPoint,
   createDefaultLayout,
   fitViewBoxForLayout,
   floorBoundsForLayout,
@@ -310,6 +311,16 @@ test('layout floor can be resized and updates the active bounds', () => {
   assert.equal(bounds.y, (LAYOUT_VIEWBOX.height - 380) / 2)
 })
 
+test('resizing the floor into tables preserves visible table objects', () => {
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
+  const bounds = floorBoundsForLayout(layout)
+
+  const resized = resizeLayoutFloorFromHandle(layout, 'corner', bounds.right - 40, bounds.bottom - 40)
+
+  assert.equal(resized.tables.length, layout.tables.length)
+  assert.equal(totalLayoutSeats(resized), totalLayoutSeats(layout))
+})
+
 test('floor resize handles can grow the cafeteria beyond the default viewport frame', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const before = floorBoundsForLayout(layout)
@@ -324,6 +335,18 @@ test('floor resize handles can grow the cafeteria beyond the default viewport fr
   assert.equal(after.y, before.y)
   assert.equal(resized.floor.width % LAYOUT_SIZE_LIMITS.step, 0)
   assert.equal(resized.floor.height % LAYOUT_SIZE_LIMITS.step, 0)
+})
+
+test('clientPointToViewBoxPoint accounts for centered SVG letterboxing', () => {
+  const rect = { left: 100, top: 50, width: 1000, height: 500 }
+  const viewBox = { x: 0, y: 0, width: 400, height: 400 }
+
+  const center = clientPointToViewBoxPoint(600, 300, rect, viewBox)
+  const moved = clientPointToViewBoxPoint(700, 300, rect, viewBox)
+
+  assert.equal(center.x, 200)
+  assert.equal(center.y, 200)
+  assert.equal(moved.x - center.x, 80)
 })
 
 test('fit viewBox includes an oversized cafeteria without relying on a fixed border', () => {

@@ -248,6 +248,8 @@ import {
   LAYOUT_SIZE_LIMITS,
   TABLE_CAPACITY_OPTIONS,
   adjustLayoutDoorCount,
+  clientDeltaToViewBoxDelta,
+  clientPointToViewBoxPoint,
   fitViewBoxForLayout,
   findItem,
   floorBoundsForLayout,
@@ -408,23 +410,14 @@ function clientToSvgPoint(clientX, clientY) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
   const rect = svg.getBoundingClientRect()
-  if (!rect.width || !rect.height) return { x: 0, y: 0 }
-  const current = viewBox.value
-  return {
-    x: current.x + ((clientX - rect.left) / rect.width) * current.width,
-    y: current.y + ((clientY - rect.top) / rect.height) * current.height
-  }
+  return clientPointToViewBoxPoint(clientX, clientY, rect, viewBox.value)
 }
 
 function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
   const rect = svg.getBoundingClientRect()
-  if (!rect.width || !rect.height) return { x: 0, y: 0 }
-  return {
-    x: (deltaX / rect.width) * sourceViewBox.width,
-    y: (deltaY / rect.height) * sourceViewBox.height
-  }
+  return clientDeltaToViewBoxDelta(deltaX, deltaY, rect, sourceViewBox)
 }
 
 function onItemPointerDown(event, kind, id) {

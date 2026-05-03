@@ -130,6 +130,36 @@ export function zoomViewBox(viewBox, factor, focusPoint) {
   }
 }
 
+export function clientPointToViewBoxPoint(clientX, clientY, rect, viewBox) {
+  const current = sanitizeViewBox(viewBox)
+  const safeRect = sanitizeClientRect(rect)
+  if (!safeRect.width || !safeRect.height) {
+    return { x: current.x, y: current.y }
+  }
+  const scale = viewBoxScaleForClientRect(safeRect, current)
+  const renderedWidth = current.width * scale
+  const renderedHeight = current.height * scale
+  const offsetX = (safeRect.width - renderedWidth) / 2
+  const offsetY = (safeRect.height - renderedHeight) / 2
+  return {
+    x: current.x + (Number(clientX) - safeRect.left - offsetX) / scale,
+    y: current.y + (Number(clientY) - safeRect.top - offsetY) / scale
+  }
+}
+
+export function clientDeltaToViewBoxDelta(deltaX, deltaY, rect, viewBox) {
+  const current = sanitizeViewBox(viewBox)
+  const safeRect = sanitizeClientRect(rect)
+  if (!safeRect.width || !safeRect.height) {
+    return { x: 0, y: 0 }
+  }
+  const scale = viewBoxScaleForClientRect(safeRect, current)
+  return {
+    x: Number(deltaX) / scale,
+    y: Number(deltaY) / scale
+  }
+}
+
 export function getItemFootprint(kind, item) {
   if (kind === 'window') return wallFootprintFor('window', item)
   if (kind === 'door') return wallFootprintFor('door', item)
@@ -442,7 +472,15 @@ export function adjustLayoutDoorCount(layout, desiredCount) {
 
 export function rebuildLayoutTablesForSeats(layout, numSeats) {
   const baseLayout = { ...layout, floor: sanitizeFloorSize(layout?.floor), tables: [] }
-  const tables = placeTablesForSeats(baseLayout, normalizeSeatCount(numSeats, calculateLayoutSeatLimit(baseLayout))) || []
+  const target = normalizeSeatCount(numSeats, calculateLayoutSeatLimit(baseLayout))
+  let tables = []
+  for (let seats = target; seats >= 2; seats -= 2) {
+    const placed = placeTablesForSeats(baseLayout, seats)
+    if (placed) {
+      tables = placed
+      break
+    }
+  }
   return { ...layout, tables }
 }
 
@@ -491,25 +529,16 @@ export function resizeLayoutFloor(layout, floorSize) {
     })
   })
   draft = { ...draft, windows }
-  const tables = []
-  ;(layout?.tables || []).forEach((table, index) => {
+  const tables = (layout?.tables || []).map((table, index) => {
     const id = table.id || `T${index + 1}`
     const point = snapAndClampPoint(table.x, table.y, 'table', table, floorBoundsForLayout(draft))
-    const moved = {
+    return {
       ...table,
       id,
       ...point
     }
-    const candidate = { ...draft, tables }
-    if (!itemOverlapsLayout(candidate, 'table', id, moved.x, moved.y, moved)) {
-      tables.push(moved)
-    }
   })
-  const resized = { ...draft, tables }
-  if (totalLayoutSeats(resized) === totalLayoutSeats(layout)) {
-    return resized
-  }
-  return rebuildLayoutTablesForSeats(resized, Math.min(totalLayoutSeats(layout), calculateLayoutSeatLimit(resized)))
+  return { ...draft, tables }
 }
 
 export function resizeLayoutFloorFromHandle(layout, handle, pointerX, pointerY) {
@@ -664,6 +693,19 @@ function sanitizeViewBox(viewBox = {}) {
     width,
     height
   }
+}
+
+function sanitizeClientRect(rect = {}) {
+  return {
+    left: Number(rect.left) || 0,
+    top: Number(rect.top) || 0,
+    width: Math.max(0, Number(rect.width) || 0),
+    height: Math.max(0, Number(rect.height) || 0)
+  }
+}
+
+function viewBoxScaleForClientRect(rect, viewBox) {
+  return Math.min(rect.width / viewBox.width, rect.height / viewBox.height) || 1
 }
 
 function clampToStep(value, lower, upper, step, fallback = upper) {
