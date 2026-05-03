@@ -118,6 +118,7 @@ def recommend(request: RecommendationRequest) -> dict[str, Any]:
         window_options=request.window_options,
         seat_options=request.seat_options,
         stagger_options=request.stagger_options,
+        peak_count_options=request.peak_count_options,
         top_k=request.top_k,
     )
     result = recommend_config(data)

@@ -210,6 +210,34 @@ test('config form uses a clear arrival volume label', () => {
   assert.equal(source.includes('label="到达率"'), false)
 })
 
+test('campus mode hides manual arrival controls from base parameters', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes(`v-if="arrivalMode === 'manual'"`), true)
+  assert.equal(source.includes('label="到达持续时间"'), true)
+  assert.equal(source.includes('label="到达时段"'), false)
+  assert.equal(source.includes('label="平均每分钟到达人数"'), true)
+  assert.equal(source.includes('label="错峰分钟"'), true)
+  assert.equal(source.includes('label="高峰开始"'), true)
+  assert.equal(source.includes('label="高峰结束"'), true)
+})
+
+test('config form groups base controls into aligned sections', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('class="config-section manual-arrival-section"'), true)
+  assert.equal(source.includes('class="config-section service-random-section"'), true)
+  assert.equal(source.includes('class="config-section-title"'), true)
+  assert.equal(source.includes('手动到达'), true)
+  assert.equal(source.includes('服务与随机性'), true)
+  assert.equal(source.includes('class="config-field-grid"'), true)
+  assert.equal(source.includes('class="button-row config-action-bar"'), true)
+  assert.equal(source.includes('class="form-pair"'), false)
+  assert.equal(styleSource.includes('.config-field-grid'), true)
+  assert.equal(styleSource.includes('.config-action-bar'), true)
+})
+
 test('config form exposes campus demand controls with live and random buttons', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -219,6 +247,79 @@ test('config form exposes campus demand controls with live and random buttons', 
   assert.equal(source.includes('campusRows'), true)
   assert.equal(source.includes('selectedCafeteriaId'), true)
   assert.equal(source.includes('loadCampusOccupancy'), true)
+})
+
+test('campus floor population table expands vertically instead of scrolling', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('<el-table :data="campusRows" class="campus-table" size="small">'), true)
+  assert.equal(source.includes('class="campus-table" size="small" height='), false)
+  assert.equal(source.includes('class="campus-table" size="small" max-height='), false)
+})
+
+test('campus and recommendation controls use aligned grid shells', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('class="campus-mode-strip"'), true)
+  assert.equal(source.includes('class="campus-toolbar"'), true)
+  assert.equal(source.includes('class="campus-actions"'), true)
+  assert.equal(source.includes('class="candidate-range-grid"'), true)
+  assert.equal(source.includes('class="candidate-editor-row candidate-editor-row-single"'), true)
+  assert.equal(styleSource.includes('.campus-panel'), true)
+  assert.equal(styleSource.includes('grid-row: 1 / span 2'), true)
+  assert.equal(styleSource.includes('.campus-toolbar'), true)
+  assert.equal(styleSource.includes('.candidate-range-grid'), true)
+  assert.equal(styleSource.includes('.candidate-editor-row-single'), true)
+})
+
+test('recommendation candidate editor keeps range rows full width', () => {
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(styleSource.includes('.candidate-range-grid {\n  display: grid;\n  grid-template-columns: 1fr;'), true)
+  assert.equal(styleSource.includes('grid-template-columns: 86px minmax(0, 1fr) 22px minmax(0, 1fr);'), true)
+  assert.equal(styleSource.includes('grid-template-columns: 86px minmax(0, 1fr) minmax(72px, auto);'), true)
+  assert.equal(styleSource.includes('grid-template-columns: repeat(2, minmax(220px, 1fr));'), false)
+})
+
+test('recommendation panel sends dismissal peak count candidates', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('下课峰数'), true)
+  assert.equal(source.includes('candidateSettings.peakCountMin'), true)
+  assert.equal(source.includes('candidateSettings.peakCountMax'), true)
+  assert.equal(source.includes('const peakCountCandidates = computed'), true)
+  assert.equal(source.includes('peak_count_options: peakCountCandidates.value'), true)
+})
+
+test('applying campus recommendation writes peak schedule back to editable rows', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('applyCampusDemandConfig(recommendedConfig.campus_demand)'), true)
+  assert.equal(source.includes("arrivalMode.value = 'campus'"), true)
+  assert.equal(source.includes('selectedCafeteriaId.value = campusDemand.cafeteria_id'), true)
+  assert.equal(source.includes('release_percent: releasePercentFromRatio(building.release_ratio ?? 1)'), true)
+})
+
+test('campus release control is edited as a percentage', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('label="就餐比例"'), true)
+  assert.equal(source.includes('v-model="row.release_percent"'), true)
+  assert.equal(source.includes('class="percent-suffix"'), true)
+  assert.equal(source.includes('release_ratio: releasePercentToRatio(row.release_percent)'), true)
+  assert.equal(source.includes('label="释放"'), false)
+  assert.equal(source.includes('v-model="row.release_ratio" :min="0" :max="1"'), false)
+})
+
+test('campus occupancy buttons show loading only for the requested source', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes(`:loading="campusLoadingSource === 'live'"`), true)
+  assert.equal(source.includes(`:loading="campusLoadingSource === 'random'"`), true)
+  assert.equal(source.includes('campusLoadingSource.value = sourceMode'), true)
+  assert.equal(source.includes("campusLoadingSource.value = ''"), true)
+  assert.equal(source.includes(':loading="campusLoading"'), false)
 })
 
 test('analysis cards explain secondary metrics without jargon', () => {

@@ -155,6 +155,7 @@ class RecommendationRequest(BaseModel):
     window_options: list[int] = Field(default_factory=lambda: [3, 4, 5])
     seat_options: list[int] = Field(default_factory=lambda: [100, 120, 140])
     stagger_options: list[int] = Field(default_factory=lambda: [0, 5, 10])
+    peak_count_options: list[int] = Field(default_factory=lambda: [1])
     top_k: int = Field(default=5, ge=1, le=20)
 
 

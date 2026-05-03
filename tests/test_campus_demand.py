@@ -86,6 +86,37 @@ class CampusDemandTests(unittest.TestCase):
         self.assertGreater(result.metrics.total_arrived, 0)
         self.assertLess(result.metrics.total_arrived, 99)
 
+    def test_campus_simulation_does_not_wait_for_manual_arrival_duration(self):
+        campus = CampusDemandConfigData(
+            enabled=True,
+            cafeteria_id="xuesi",
+            source_mode="manual",
+            buildings=[
+                CampusBuildingDemandData(
+                    building_id="no9",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=4)],
+                )
+            ],
+        )
+        config = SimulationConfigData(
+            num_windows=4,
+            num_seats=20,
+            arrival_rate=99.0,
+            service_time_mean=1.0,
+            dining_time_mean=1.0,
+            duration_min=120,
+            seed=6,
+            campus_demand=campus,
+        )
+
+        result = run_simulation(config)
+
+        self.assertGreater(result.metrics.total_arrived, 0)
+        self.assertEqual(result.metrics.total_left, result.metrics.total_arrived)
+        self.assertLess(len(result.records), 120)
+
     def test_random_floor_occupancy_is_reproducible_and_floor_level(self):
         first = generate_random_floor_occupancy(["no9"], seed=9)
         second = generate_random_floor_occupancy(["no9"], seed=9)

@@ -19,7 +19,9 @@ test('default candidate settings provide an editable range around the baseline',
     seatStep: 20,
     staggerMin: 0,
     staggerMax: 10,
-    staggerStep: 5
+    staggerStep: 5,
+    peakCountMin: 1,
+    peakCountMax: 3
   })
 })
 
@@ -36,12 +38,15 @@ test('candidate settings build actual recommendation payload options', () => {
     seatStep: 20,
     staggerMin: 0,
     staggerMax: 15,
-    staggerStep: 5
+    staggerStep: 5,
+    peakCountMin: 1,
+    peakCountMax: 3
   })
 
   assert.deepEqual(candidates.windows, [2, 3, 4])
   assert.deepEqual(candidates.seats, [80, 100, 120])
   assert.deepEqual(candidates.staggers, [0, 5, 10, 15])
+  assert.deepEqual(candidates.peakCounts, [1, 2, 3])
 })
 
 test('seat candidates are even because editable tables are 2/4/6 seats', () => {

@@ -28,41 +28,44 @@
             </div>
           </template>
           <el-form label-position="top" :model="config" class="config-form">
-            <div class="form-pair">
-              <el-form-item label="平均每分钟到达人数">
-                <el-input-number v-model="config.arrival_rate" :min="0.1" :step="0.5" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="到达时段">
-                <el-input-number v-model="config.duration_min" :min="5" :max="360" controls-position="right" />
-              </el-form-item>
+            <div v-if="arrivalMode === 'manual'" class="config-section manual-arrival-section">
+              <div class="config-section-title">手动到达</div>
+              <div class="config-field-grid">
+                <el-form-item label="平均每分钟到达人数">
+                  <el-input-number v-model="config.arrival_rate" :min="0.1" :step="0.5" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="到达持续时间">
+                  <el-input-number v-model="config.duration_min" :min="5" :max="360" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="错峰分钟">
+                  <el-input-number v-model="config.stagger_minutes" :min="0" :max="120" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="高峰开始">
+                  <el-input-number v-model="config.peak_start_min" :min="0" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="高峰结束">
+                  <el-input-number v-model="config.peak_end_min" :min="0" controls-position="right" />
+                </el-form-item>
+              </div>
             </div>
-            <div class="form-pair">
-              <el-form-item label="平均打饭时长">
-                <el-input-number v-model="config.service_time_mean" :min="0.5" :step="0.5" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="平均就餐时长">
-                <el-input-number v-model="config.dining_time_mean" :min="1" :step="1" controls-position="right" />
-              </el-form-item>
-            </div>
-            <div class="form-pair">
-              <el-form-item label="随机种子">
-                <el-input-number v-model="config.seed" :min="1" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="错峰分钟">
-                <el-input-number v-model="config.stagger_minutes" :min="0" :max="120" controls-position="right" />
-              </el-form-item>
-            </div>
-            <div class="form-pair">
-              <el-form-item label="高峰开始">
-                <el-input-number v-model="config.peak_start_min" :min="0" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="高峰结束">
-                <el-input-number v-model="config.peak_end_min" :min="0" controls-position="right" />
-              </el-form-item>
+
+            <div class="config-section service-random-section">
+              <div class="config-section-title">服务与随机性</div>
+              <div class="config-field-grid">
+                <el-form-item label="平均打饭时长">
+                  <el-input-number v-model="config.service_time_mean" :min="0.5" :step="0.5" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="平均就餐时长">
+                  <el-input-number v-model="config.dining_time_mean" :min="1" :step="1" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="随机种子">
+                  <el-input-number v-model="config.seed" :min="1" controls-position="right" />
+                </el-form-item>
+              </div>
             </div>
           </el-form>
 
-          <div class="button-row">
+          <div class="button-row config-action-bar">
             <el-button :icon="CircleCheck" @click="validateConfig">参数校验</el-button>
             <el-button :icon="Refresh" @click="loadDefault">加载默认场景</el-button>
             <el-button type="primary" :icon="VideoPlay" @click="startLiveRun">开始仿真</el-button>
@@ -86,15 +89,17 @@
             </div>
           </template>
           <el-form label-position="top" class="campus-form">
-            <el-form-item label="到达模式">
-              <el-radio-group v-model="arrivalMode">
-                <el-radio-button label="manual">手动平均</el-radio-button>
-                <el-radio-button label="campus">校园人数</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
+            <div class="campus-mode-strip">
+              <el-form-item label="到达模式">
+                <el-radio-group v-model="arrivalMode">
+                  <el-radio-button label="manual">手动平均</el-radio-button>
+                  <el-radio-button label="campus">校园人数</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+            </div>
 
             <template v-if="arrivalMode === 'campus'">
-              <div class="form-pair">
+              <div class="campus-toolbar">
                 <el-form-item label="目标食堂">
                   <el-select v-model="selectedCafeteriaId" placeholder="选择食堂">
                     <el-option
@@ -105,14 +110,27 @@
                     />
                   </el-select>
                 </el-form-item>
-                <el-form-item label="人数来源">
+                <el-form-item label="人数来源" class="campus-source-field">
                   <el-tag effect="light">{{ campusSourceLabel }}</el-tag>
                 </el-form-item>
-              </div>
-
-              <div class="button-row compact campus-actions">
-                <el-button :icon="Refresh" :loading="campusLoading" @click="loadCampusOccupancy('live')">获取实时数据</el-button>
-                <el-button :icon="MagicStick" :loading="campusLoading" @click="loadCampusOccupancy('random')">随机生成</el-button>
+                <div class="campus-actions">
+                  <el-button
+                    :icon="Refresh"
+                    :loading="campusLoadingSource === 'live'"
+                    :disabled="campusLoadingSource !== '' && campusLoadingSource !== 'live'"
+                    @click="loadCampusOccupancy('live')"
+                  >
+                    获取实时数据
+                  </el-button>
+                  <el-button
+                    :icon="MagicStick"
+                    :loading="campusLoadingSource === 'random'"
+                    :disabled="campusLoadingSource !== '' && campusLoadingSource !== 'random'"
+                    @click="loadCampusOccupancy('random')"
+                  >
+                    随机生成
+                  </el-button>
+                </div>
               </div>
 
               <el-alert
@@ -124,16 +142,19 @@
                 :closable="false"
               />
 
-              <el-table :data="campusRows" class="campus-table" size="small" height="360">
+              <el-table :data="campusRows" class="campus-table" size="small">
                 <el-table-column prop="building_name" label="教学楼" width="112" />
                 <el-table-column label="下课" width="104">
                   <template #default="{ row }">
                     <el-input-number v-model="row.dismissal_minute" :min="0" :max="240" size="small" controls-position="right" />
                   </template>
                 </el-table-column>
-                <el-table-column label="释放" width="104">
+                <el-table-column label="就餐比例" width="120">
                   <template #default="{ row }">
-                    <el-input-number v-model="row.release_ratio" :min="0" :max="1" :step="0.05" size="small" controls-position="right" />
+                    <div class="percent-input">
+                      <el-input-number v-model="row.release_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
+                      <span class="percent-suffix">%</span>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="选择概率" width="92">
@@ -169,33 +190,41 @@
           </template>
           <div class="candidate-block">
             <div class="candidate-editor">
-              <div class="candidate-editor-row">
-                <span>窗口</span>
-                <el-input-number v-model="candidateSettings.windowMin" :min="1" :max="30" size="small" controls-position="right" />
-                <span class="range-separator">至</span>
-                <el-input-number v-model="candidateSettings.windowMax" :min="1" :max="30" size="small" controls-position="right" />
-              </div>
-              <div class="candidate-editor-row">
-                <span>座位</span>
-                <el-input-number v-model="candidateSettings.seatMin" :min="2" :max="layoutSeatLimit" :step="2" size="small" controls-position="right" />
-                <span class="range-separator">至</span>
-                <el-input-number v-model="candidateSettings.seatMax" :min="2" :max="layoutSeatLimit" :step="2" size="small" controls-position="right" />
-              </div>
-              <div class="candidate-editor-row">
-                <span>步长</span>
-                <el-input-number v-model="candidateSettings.seatStep" :min="2" :max="200" :step="2" size="small" controls-position="right" />
-                <span class="range-hint">座位候选间隔</span>
-              </div>
-              <div class="candidate-editor-row">
-                <span>错峰</span>
-                <el-input-number v-model="candidateSettings.staggerMin" :min="0" :max="120" :step="5" size="small" controls-position="right" />
-                <span class="range-separator">至</span>
-                <el-input-number v-model="candidateSettings.staggerMax" :min="0" :max="120" :step="5" size="small" controls-position="right" />
-              </div>
-              <div class="candidate-editor-row">
-                <span>步长</span>
-                <el-input-number v-model="candidateSettings.staggerStep" :min="1" :max="60" :step="5" size="small" controls-position="right" />
-                <span class="range-hint">错峰候选间隔</span>
+              <div class="candidate-range-grid">
+                <div class="candidate-editor-row">
+                  <span>窗口</span>
+                  <el-input-number v-model="candidateSettings.windowMin" :min="1" :max="30" size="small" controls-position="right" />
+                  <span class="range-separator">至</span>
+                  <el-input-number v-model="candidateSettings.windowMax" :min="1" :max="30" size="small" controls-position="right" />
+                </div>
+                <div class="candidate-editor-row">
+                  <span>座位</span>
+                  <el-input-number v-model="candidateSettings.seatMin" :min="2" :max="layoutSeatLimit" :step="2" size="small" controls-position="right" />
+                  <span class="range-separator">至</span>
+                  <el-input-number v-model="candidateSettings.seatMax" :min="2" :max="layoutSeatLimit" :step="2" size="small" controls-position="right" />
+                </div>
+                <div class="candidate-editor-row candidate-editor-row-single">
+                  <span>座位步长</span>
+                  <el-input-number v-model="candidateSettings.seatStep" :min="2" :max="200" :step="2" size="small" controls-position="right" />
+                  <span class="range-hint">候选间隔</span>
+                </div>
+                <div class="candidate-editor-row">
+                  <span>错峰</span>
+                  <el-input-number v-model="candidateSettings.staggerMin" :min="0" :max="120" :step="5" size="small" controls-position="right" />
+                  <span class="range-separator">至</span>
+                  <el-input-number v-model="candidateSettings.staggerMax" :min="0" :max="120" :step="5" size="small" controls-position="right" />
+                </div>
+                <div class="candidate-editor-row candidate-editor-row-single">
+                  <span>错峰步长</span>
+                  <el-input-number v-model="candidateSettings.staggerStep" :min="1" :max="60" :step="5" size="small" controls-position="right" />
+                  <span class="range-hint">候选间隔</span>
+                </div>
+                <div class="candidate-editor-row">
+                  <span>下课峰数</span>
+                  <el-input-number v-model="candidateSettings.peakCountMin" :min="1" :max="6" size="small" controls-position="right" />
+                  <span class="range-separator">至</span>
+                  <el-input-number v-model="candidateSettings.peakCountMax" :min="1" :max="6" size="small" controls-position="right" />
+                </div>
               </div>
               <div class="candidate-actions">
                 <el-button size="small" :icon="Refresh" @click="resetCandidateSettings">按当前参数重置范围</el-button>
@@ -480,7 +509,7 @@ const campusLocations = ref({ cafeterias: [], teaching_buildings: [], walk_times
 const selectedCafeteriaId = ref('')
 const campusRows = ref([])
 const campusSourceMode = ref('manual')
-const campusLoading = ref(false)
+const campusLoadingSource = ref('')
 const campusWarning = ref('')
 
 const queueChartEl = ref(null)
@@ -505,6 +534,7 @@ const seatCandidates = computed(() => {
   return seats.length ? seats : [config.num_seats]
 })
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
+const peakCountCandidates = computed(() => recommendationCandidates.value.peakCounts.length ? recommendationCandidates.value.peakCounts : [1])
 const layoutSeatLimit = ref(calculateLayoutSeatLimit(layout.value))
 const runCards = computed(() => {
   const record = currentRecord.value
@@ -615,7 +645,7 @@ function buildEmptyCampusRows(buildings) {
     building_id: building.id,
     building_name: building.name,
     dismissal_minute: config.peak_start_min,
-    release_ratio: 1,
+    release_percent: 100,
     source: 'manual',
     floors: Array.from({ length: Math.max(1, Number(building.default_floor_count || 5)) }, (_, index) => ({
       floor: index + 1,
@@ -626,8 +656,9 @@ function buildEmptyCampusRows(buildings) {
 }
 
 async function loadCampusOccupancy(sourceMode) {
+  if (campusLoadingSource.value) return
   try {
-    campusLoading.value = true
+    campusLoadingSource.value = sourceMode
     campusWarning.value = ''
     const buildings = campusRows.value.length
       ? campusRows.value.map((row) => row.building_id)
@@ -645,7 +676,9 @@ async function loadCampusOccupancy(sourceMode) {
   } catch (error) {
     campusWarning.value = error?.response?.data?.detail || '校园人数加载失败'
   } finally {
-    campusLoading.value = false
+    if (campusLoadingSource.value === sourceMode) {
+      campusLoadingSource.value = ''
+    }
   }
 }
 
@@ -657,15 +690,19 @@ function applyCampusOccupancyItems(items, sourceMode) {
       building_id: item.building_id,
       building_name: item.building_name,
       dismissal_minute: config.peak_start_min,
-      release_ratio: 1,
+      release_percent: 100,
       source: sourceMode,
       floors: []
     }))
   campusRows.value = baseRows.map((row) => {
     const item = byId.get(row.building_id)
     if (!item) return row
+    const releasePercent = Number.isFinite(Number(row.release_percent))
+      ? Number(row.release_percent)
+      : releasePercentFromRatio(row.release_ratio ?? 1)
     return {
       ...row,
+      release_percent: releasePercent,
       source: item.source || sourceMode,
       floors: (item.floors || []).map((floor) => ({
         floor: Number(floor.floor) || 1,
@@ -674,6 +711,28 @@ function applyCampusOccupancyItems(items, sourceMode) {
       }))
     }
   })
+}
+
+function applyCampusDemandConfig(campusDemand) {
+  if (!campusDemand?.enabled) return
+  arrivalMode.value = 'campus'
+  selectedCafeteriaId.value = campusDemand.cafeteria_id || selectedCafeteriaId.value
+  campusSourceMode.value = campusDemand.source_mode || 'manual'
+  const buildingNames = new Map(
+    (campusLocations.value.teaching_buildings || []).map((building) => [building.id, building.name])
+  )
+  campusRows.value = (campusDemand.buildings || []).map((building) => ({
+    building_id: building.building_id,
+    building_name: buildingNames.get(building.building_id) || building.building_id,
+    dismissal_minute: Math.max(0, Math.round(Number(building.dismissal_minute) || 0)),
+    release_percent: releasePercentFromRatio(building.release_ratio ?? 1),
+    source: campusSourceMode.value,
+    floors: (building.floors || []).map((floor) => ({
+      floor: Math.max(1, Math.round(Number(floor.floor) || 1)),
+      count: Math.max(0, Math.round(Number(floor.count) || 0)),
+      capacity: Number(floor.capacity) || 0
+    }))
+  }))
 }
 
 function loadDefault() {
@@ -902,6 +961,7 @@ async function generateRecommendation() {
       window_options: windowCandidates.value,
       seat_options: seatCandidates.value,
       stagger_options: staggerCandidates.value,
+      peak_count_options: peakCountCandidates.value,
       top_k: 4
     }
     recommendation.value = await api.recommend(payload)
@@ -935,7 +995,7 @@ function buildCampusDemandPayload() {
     buildings: campusRows.value.map((row) => ({
       building_id: row.building_id,
       dismissal_minute: Math.max(0, Math.round(Number(row.dismissal_minute) || 0)),
-      release_ratio: Math.min(1, Math.max(0, Number(row.release_ratio) || 0)),
+      release_ratio: releasePercentToRatio(row.release_percent),
       floors: (row.floors || []).map((floor) => ({
         floor: Math.max(1, Math.round(Number(floor.floor) || 1)),
         count: Math.max(0, Math.round(Number(floor.count) || 0))
@@ -951,6 +1011,16 @@ function campusRowTotal(row) {
 function campusWalkMinutes(row) {
   const route = campusLocations.value.walk_times?.[row.building_id]?.[selectedCafeteriaId.value]
   return route?.duration_min ?? '-'
+}
+
+function releasePercentFromRatio(value) {
+  const ratio = Math.min(1, Math.max(0, Number(value) || 0))
+  return Math.round(ratio * 100)
+}
+
+function releasePercentToRatio(value) {
+  const percent = Math.min(100, Math.max(0, Number(value) || 0))
+  return percent / 100
 }
 
 function campusChoiceProbability(row) {
@@ -969,6 +1039,9 @@ function campusChoiceProbability(row) {
 
 function applyRecommendationConfig(recommendedConfig) {
   applyRecommendedConfig(config, recommendedConfig)
+  if (recommendedConfig.campus_demand) {
+    applyCampusDemandConfig(recommendedConfig.campus_demand)
+  }
   isSyncingLayout.value = true
   layout.value = createDefaultLayout(config)
   validationMessage.value = ''

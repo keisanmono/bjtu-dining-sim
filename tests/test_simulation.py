@@ -5,8 +5,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+import app.optimization as optimization_module
 from app.optimization import RecommendationRequestData, recommend_config
 from app.simulation import (
+    CampusBuildingDemandData,
+    CampusDemandConfigData,
+    CampusFloorDemandData,
     DiningLayoutData,
     DiningSimulationRunner,
     LayoutDoorData,
@@ -226,6 +230,151 @@ class DiningSimulationTests(unittest.TestCase):
         candidate_layout = recommendation.best.config.layout
         self.assertEqual([table.capacity for table in candidate_layout.tables], [6, 2])
         self.assertEqual([table.table_type for table in candidate_layout.tables], ["six_seat", "two_seat"])
+
+    def test_recommendation_splits_campus_buildings_into_dismissal_peaks(self):
+        campus = CampusDemandConfigData(
+            enabled=True,
+            cafeteria_id="xuesi",
+            source_mode="manual",
+            buildings=[
+                CampusBuildingDemandData(
+                    building_id="no9",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=90)],
+                ),
+                CampusBuildingDemandData(
+                    building_id="siyuan",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=80)],
+                ),
+                CampusBuildingDemandData(
+                    building_id="yifu",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=70)],
+                ),
+            ],
+        )
+        request = RecommendationRequestData(
+            base_config=SimulationConfigData(
+                num_windows=2,
+                num_seats=120,
+                arrival_rate=1.0,
+                service_time_mean=1.0,
+                dining_time_mean=5.0,
+                duration_min=80,
+                seed=43,
+                campus_demand=campus,
+            ),
+            window_options=[2],
+            seat_options=[120],
+            stagger_options=[10],
+            peak_count_options=[3],
+            top_k=1,
+        )
+
+        recommendation = recommend_config(request)
+
+        candidate_campus = recommendation.best.config.campus_demand
+        self.assertIsNotNone(candidate_campus)
+        self.assertEqual({building.building_id for building in candidate_campus.buildings}, {"no9", "siyuan", "yifu"})
+        self.assertEqual(sorted({building.dismissal_minute for building in candidate_campus.buildings}), [0, 10, 20])
+        self.assertEqual(recommendation.best.config.stagger_minutes, 0)
+        self.assertIn("3 峰下课", recommendation.best.strategy)
+        self.assertIn("间隔 10 分钟", recommendation.best.strategy)
+
+    def test_campus_recommendation_uses_fast_estimator_for_candidates(self):
+        campus = CampusDemandConfigData(
+            enabled=True,
+            cafeteria_id="xuesi",
+            source_mode="manual",
+            buildings=[
+                CampusBuildingDemandData(
+                    building_id="no9",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=80)],
+                ),
+                CampusBuildingDemandData(
+                    building_id="siyuan",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=70)],
+                ),
+                CampusBuildingDemandData(
+                    building_id="yifu",
+                    dismissal_minute=0,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=60)],
+                ),
+            ],
+        )
+        request = RecommendationRequestData(
+            base_config=SimulationConfigData(
+                num_windows=4,
+                num_seats=120,
+                arrival_rate=1.0,
+                service_time_mean=1.0,
+                dining_time_mean=5.0,
+                duration_min=80,
+                seed=44,
+                campus_demand=campus,
+            ),
+            window_options=[2, 3, 4, 5, 6, 7],
+            seat_options=[60, 80, 100, 120, 140, 160, 180, 200],
+            stagger_options=[0, 5, 10, 15],
+            peak_count_options=[1, 2, 3, 4],
+            top_k=4,
+        )
+        def fail_if_full_simulation_runs(config):
+            raise AssertionError("校园推荐候选应使用快速估算器，而不是完整仿真。")
+
+        original_run_simulation = optimization_module.run_simulation
+        optimization_module.run_simulation = fail_if_full_simulation_runs
+        try:
+            recommendation = optimization_module.recommend_config(request)
+        finally:
+            optimization_module.run_simulation = original_run_simulation
+
+        self.assertEqual(len(recommendation.ranking), 4)
+        self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
+        self.assertTrue(any("峰下课" in candidate.strategy for candidate in recommendation.ranking))
+
+    def test_manual_recommendation_uses_fast_estimator_for_candidates(self):
+        request = RecommendationRequestData(
+            base_config=SimulationConfigData(
+                num_windows=4,
+                num_seats=120,
+                arrival_rate=8.0,
+                service_time_mean=3.0,
+                dining_time_mean=20.0,
+                duration_min=60,
+                seed=45,
+                peak_start_min=15,
+                peak_end_min=40,
+                peak_multiplier=1.4,
+            ),
+            window_options=[3, 4, 5, 6],
+            seat_options=[80, 100, 120, 140, 160],
+            stagger_options=[0, 5, 10],
+            top_k=3,
+        )
+
+        def fail_if_full_simulation_runs(config):
+            raise AssertionError("手动平均推荐候选应使用快速估算器，而不是完整仿真。")
+
+        original_run_simulation = optimization_module.run_simulation
+        optimization_module.run_simulation = fail_if_full_simulation_runs
+        try:
+            recommendation = optimization_module.recommend_config(request)
+        finally:
+            optimization_module.run_simulation = original_run_simulation
+
+        self.assertEqual(len(recommendation.ranking), 3)
+        self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
+        self.assertTrue(any(candidate.config.num_windows > request.base_config.num_windows for candidate in recommendation.ranking))
 
     def test_party_members_choose_windows_independently(self):
         layout = DiningLayoutData(

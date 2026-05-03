@@ -74,6 +74,17 @@ input {
 
 .config-grid {
   grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
+  align-items: start;
+}
+
+.campus-panel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.recommendation-panel {
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .layout-page {
@@ -112,8 +123,47 @@ input {
   font-weight: 700;
 }
 
-.config-form .el-input-number {
+.config-form,
+.campus-form {
+  display: grid;
+  gap: 12px;
+}
+
+.config-form .el-form-item,
+.campus-form .el-form-item {
+  margin-bottom: 0;
+}
+
+.config-form .el-input-number,
+.config-form .el-select,
+.campus-form .el-input-number,
+.campus-form .el-select {
   width: 100%;
+}
+
+.config-section,
+.campus-mode-strip,
+.campus-toolbar {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe6f0;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+
+.config-section-title {
+  color: #1f4f85;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.config-field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: start;
 }
 
 .field-hint {
@@ -123,16 +173,6 @@ input {
   line-height: 1.4;
 }
 
-.candidate-actions .el-button + .el-button {
-  margin-left: 0;
-}
-
-.form-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -140,8 +180,21 @@ input {
   margin-top: 6px;
 }
 
+.button-row .el-button + .el-button,
+.candidate-actions .el-button + .el-button,
+.campus-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
 .button-row.compact {
   margin-top: 16px;
+}
+
+.config-action-bar {
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e2ebf3;
 }
 
 .validation-alert {
@@ -174,17 +227,29 @@ input {
 
 .candidate-editor {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #dbe6f0;
   border-radius: 8px;
-  background: #edf4fb;
+  background: #f7fafc;
+}
+
+.candidate-range-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 .candidate-editor-row {
   display: grid;
-  grid-template-columns: 46px minmax(92px, 1fr) 22px minmax(92px, 1fr);
+  grid-template-columns: 86px minmax(0, 1fr) 22px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.candidate-editor-row-single {
+  grid-template-columns: 86px minmax(0, 1fr) minmax(72px, auto);
 }
 
 .candidate-editor-row > span:first-child {
@@ -205,7 +270,6 @@ input {
 }
 
 .range-hint {
-  grid-column: span 2;
   text-align: left;
 }
 
@@ -214,19 +278,47 @@ input {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: space-between;
-}
-
-.campus-form {
-  display: grid;
-  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #e2ebf3;
 }
 
 .campus-actions {
-  justify-content: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-self: end;
+}
+
+.campus-toolbar {
+  grid-template-columns: minmax(180px, 1fr) minmax(104px, auto) minmax(230px, auto);
+  align-items: end;
+}
+
+.campus-source-field .el-form-item__content {
+  min-height: 32px;
+  align-items: center;
 }
 
 .campus-table {
   width: 100%;
+}
+
+.percent-input {
+  display: inline-grid;
+  grid-template-columns: 82px 14px;
+  align-items: center;
+  gap: 4px;
+}
+
+.percent-input .el-input-number {
+  width: 82px;
+}
+
+.percent-suffix {
+  color: #36536f;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .floor-inputs {
@@ -835,6 +927,12 @@ input {
     grid-template-columns: 1fr;
   }
 
+  .campus-panel,
+  .recommendation-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .metric-grid {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
   }
@@ -857,13 +955,15 @@ input {
 
   .topbar-actions,
   .time-chip,
-  .metric-grid,
-  .form-pair {
+  .metric-grid {
     width: 100%;
   }
 
   .metric-grid,
-  .config-recommend-summary {
+  .config-recommend-summary,
+  .config-field-grid,
+  .campus-toolbar,
+  .candidate-range-grid {
     grid-template-columns: 1fr;
   }
 
@@ -876,7 +976,13 @@ input {
     margin-left: 0;
   }
 
-  .candidate-editor-row {
+  .config-action-bar,
+  .campus-actions {
+    justify-content: flex-start;
+  }
+
+  .candidate-editor-row,
+  .candidate-editor-row-single {
     grid-template-columns: 1fr;
   }
 

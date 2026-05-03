@@ -19,7 +19,9 @@ export function createDefaultCandidateSettings(config) {
     seatStep,
     staggerMin: 0,
     staggerMax: 10,
-    staggerStep: 5
+    staggerStep: 5,
+    peakCountMin: 1,
+    peakCountMax: 3
   }
 }
 
@@ -44,7 +46,8 @@ export function buildCandidatesFromSettings(settings) {
   return {
     windows: buildIntegerRange(settings.windowMin, settings.windowMax, 1, 1, 30),
     seats: buildEvenSeatRange(settings.seatMin, settings.seatMax, settings.seatStep, 2, LAYOUT_MAX_EDITABLE_SEATS),
-    staggers: buildIntegerRange(settings.staggerMin, settings.staggerMax, settings.staggerStep, 0, 120)
+    staggers: buildIntegerRange(settings.staggerMin, settings.staggerMax, settings.staggerStep, 0, 120),
+    peakCounts: buildIntegerRange(settings.peakCountMin, settings.peakCountMax, 1, 1, 6)
   }
 }
 

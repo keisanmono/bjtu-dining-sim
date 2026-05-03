@@ -72,6 +72,50 @@ class ApiTests(unittest.TestCase):
         )
         self.assertIn("建议采用", explanation.text)
 
+    def test_recommendation_accepts_campus_peak_count_options(self):
+        rec_body = recommend(
+            RecommendationRequest(
+                base_config={
+                    **self.config,
+                    "duration_min": 80,
+                    "campus_demand": {
+                        "enabled": True,
+                        "cafeteria_id": "xuesi",
+                        "source_mode": "manual",
+                        "buildings": [
+                            {
+                                "building_id": "no9",
+                                "dismissal_minute": 0,
+                                "release_ratio": 1,
+                                "floors": [{"floor": 1, "count": 30}],
+                            },
+                            {
+                                "building_id": "siyuan",
+                                "dismissal_minute": 0,
+                                "release_ratio": 1,
+                                "floors": [{"floor": 1, "count": 25}],
+                            },
+                            {
+                                "building_id": "yifu",
+                                "dismissal_minute": 0,
+                                "release_ratio": 1,
+                                "floors": [{"floor": 1, "count": 20}],
+                            },
+                        ],
+                    },
+                },
+                window_options=[3],
+                seat_options=[80],
+                stagger_options=[10],
+                peak_count_options=[3],
+                top_k=1,
+            )
+        )
+
+        buildings = rec_body["best"]["config"]["campus_demand"]["buildings"]
+        self.assertEqual(sorted({building["dismissal_minute"] for building in buildings}), [0, 10, 20])
+        self.assertIn("3 峰下课", rec_body["best"]["strategy"])
+
     def test_layout_payload_drives_table_state_and_metrics(self):
         config = {
             **self.config,

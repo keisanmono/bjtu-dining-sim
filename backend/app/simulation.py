@@ -217,7 +217,7 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
     if config.dining_time_mean <= 0:
         errors.append("平均就餐时长必须大于 0。")
     if config.duration_min < 5 or config.duration_min > 360:
-        errors.append("到达时段应在 5 到 360 分钟之间。")
+        errors.append("手动到达持续时间应在 5 到 360 分钟之间。")
     if config.peak_start_min >= config.peak_end_min:
         warnings.append("高峰开始时间不早于结束时间，将按普通到达人数运行。")
     if config.num_seats < config.num_windows * 6:
@@ -500,6 +500,10 @@ class DiningSimulationRunner:
         )
 
     def _arrival_horizon_minute(self) -> int:
+        if self.config.campus_demand and self.config.campus_demand.enabled:
+            if not self.campus_arrival_schedule:
+                return 1
+            return max(self.campus_arrival_schedule) + 1
         if not self.campus_arrival_schedule:
             return self.config.duration_min
         return max(self.config.duration_min, max(self.campus_arrival_schedule) + 1)
