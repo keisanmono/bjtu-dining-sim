@@ -19,6 +19,8 @@ export const QUEUE_SHORT = 5
 export const QUEUE_OVERFLOW_LONG = 12
 export const QUEUE_OVERFLOW_SHORT = 7
 export const LIVE_TRANSITION_MS = 320
+export const LIVE_TRANSITION_MIN_MS = 120
+export const LIVE_TRANSITION_FRAME_BUFFER_MS = 40
 
 export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = [] } = {}) {
   const rows = []
@@ -137,6 +139,10 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
     targetsByKey.set(target.key, target)
   }
 
+  for (const target of buildWaitingTargets(snapshot.waiting_parties || [], windows, layout)) {
+    targetsByKey.set(target.key, target)
+  }
+
   const slotsByTable = new Map()
   for (const rawGroup of snapshot.seated_parties || []) {
     const group = normalizeGroup(rawGroup)
@@ -172,13 +178,17 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
     .map((key) => {
       const previousTarget = previousByKey.get(key)
       const nextTarget = nextByKey.get(key)
-      const from = previousTarget || entryPointForTarget(nextTarget, layout)
+      if (previousTarget && !nextTarget && shouldSuppressServiceExit(previousTarget, nextByKey)) {
+        return null
+      }
+      const previousMotionTarget = previousTarget || samePartyPreviousTarget(nextTarget, previousByKey)
+      const from = previousMotionTarget || entryPointForTarget(nextTarget, layout)
       const to = nextTarget || entryPointForTarget(previousTarget, layout)
       const basis = nextTarget || previousTarget
-      const appearing = !previousTarget && Boolean(nextTarget)
+      const appearing = !previousMotionTarget && Boolean(nextTarget)
       const leaving = Boolean(previousTarget) && !nextTarget
       const samePosition = pointDistance(from, to) < 0.5
-      if (previousTarget && nextTarget && basis.role === 'seated' && samePosition) {
+      if (previousTarget && nextTarget && basis.role !== 'service' && samePosition) {
         return null
       }
       const path = pointDistance(from, to) < 0.5
@@ -193,6 +203,51 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
         appearing,
         leaving,
         color: basis.color || partyColor(basis)
+      }
+    })
+    .filter(Boolean)
+}
+
+export function transitionDurationForSnapshotGap(snapshotGapMs, fallbackMs = LIVE_TRANSITION_MS) {
+  const fallback = Math.max(LIVE_TRANSITION_MIN_MS, Number(fallbackMs) || LIVE_TRANSITION_MS)
+  const gap = Number(snapshotGapMs)
+  if (!Number.isFinite(gap) || gap <= 0) {
+    return Math.min(LIVE_TRANSITION_MS, fallback)
+  }
+  return clamp(gap - LIVE_TRANSITION_FRAME_BUFFER_MS, LIVE_TRANSITION_MIN_MS, LIVE_TRANSITION_MS)
+}
+
+export function backendTimelinePlaybackMs(timeline = {}) {
+  const declared = Number(timeline?.playback_ms)
+  const eventEnd = Math.max(0, ...(timeline?.events || []).map((event) => (
+    Number(event?.playback_end_ms) || (
+      (Number(event?.playback_start_ms) || 0) + backendEventPlaybackDurationMs(event)
+    )
+  )))
+  return Math.max(Number.isFinite(declared) ? declared : 0, eventEnd)
+}
+
+export function buildBackendWalkingMarkers({ timeline = {}, elapsedMs = 0 } = {}) {
+  const elapsed = Math.max(0, Number(elapsedMs) || 0)
+  return (timeline?.events || [])
+    .map((event) => {
+      const playbackStart = Math.max(0, Number(event?.playback_start_ms) || 0)
+      const playbackDuration = backendEventPlaybackDurationMs(event)
+      const playbackEnd = playbackStart + playbackDuration
+      if (elapsed < playbackStart || elapsed > playbackEnd) return null
+      const progress = clamp((elapsed - playbackStart) / playbackDuration, 0, 1)
+      const point = sampleBackendWalkingEvent(event, progress)
+      const group = normalizeGroup(event)
+      return {
+        ...group,
+        key: `walking-${group.party_id}-${event?.start_time_sec ?? playbackStart}`,
+        role: 'walking',
+        table_id: event?.table_id ?? group.table_id,
+        x: point.x,
+        y: point.y,
+        opacity: 1,
+        progress: round2(progress),
+        color: partyColor(group)
       }
     })
     .filter(Boolean)
@@ -222,38 +277,115 @@ export function interpolateLivePartyMarkers({ previous = [], next = [], progress
   })
 }
 
-function buildServiceTargets(services, windows) {
-  const parties = new Map()
-  for (const rawService of services) {
-    const group = normalizeGroup(rawService)
-    const windowItem = windows[group.window_index] || windows[0]
-    if (!windowItem) continue
-    const point = servicePointForWindow(windowItem)
-    const key = livePartyKey(group)
-    const existing = parties.get(key) || {
-      ...group,
-      key,
-      role: 'service',
-      x: 0,
-      y: 0,
-      pointCount: 0,
-      member_count: 0,
-      color: partyColor(group)
+function backendEventPlaybackDurationMs(event) {
+  const declared = Number(event?.playback_duration_ms)
+  if (Number.isFinite(declared) && declared > 0) return declared
+  const durationSec = Number(event?.duration_sec)
+  return clamp(
+    Number.isFinite(durationSec) && durationSec > 0 ? durationSec * 90 : LIVE_TRANSITION_MS,
+    LIVE_TRANSITION_MS,
+    900
+  )
+}
+
+function sampleBackendWalkingEvent(event, progress) {
+  const frames = Array.isArray(event?.frames)
+    ? event.frames
+      .filter((frame) => Number.isFinite(Number(frame?.time_sec)))
+      .map((frame) => ({
+        time_sec: Number(frame.time_sec),
+        x: Number(frame.x),
+        y: Number(frame.y),
+        progress: Number(frame.progress)
+      }))
+      .filter((frame) => Number.isFinite(frame.x) && Number.isFinite(frame.y))
+      .sort((left, right) => left.time_sec - right.time_sec)
+    : []
+  if (frames.length) {
+    const startSec = Number(event?.start_time_sec)
+    const endSec = Number(event?.arrive_time_sec)
+    const first = frames[0]
+    const last = frames[frames.length - 1]
+    const targetSec = Number.isFinite(startSec) && Number.isFinite(endSec)
+      ? startSec + (endSec - startSec) * progress
+      : first.time_sec + (last.time_sec - first.time_sec) * progress
+    if (targetSec <= first.time_sec) return cleanPoint(first)
+    if (targetSec >= last.time_sec) return cleanPoint(last)
+    for (let index = 1; index < frames.length; index += 1) {
+      const previous = frames[index - 1]
+      const next = frames[index]
+      if (targetSec <= next.time_sec) {
+        const span = Math.max(1, next.time_sec - previous.time_sec)
+        const local = clamp((targetSec - previous.time_sec) / span, 0, 1)
+        return cleanPoint({
+          x: previous.x + (next.x - previous.x) * local,
+          y: previous.y + (next.y - previous.y) * local
+        })
+      }
     }
-    existing.x += point.x
-    existing.y += point.y
-    existing.pointCount += 1
-    existing.member_count = Math.max(existing.member_count, group.size, group.member_count)
-    existing.window_index = group.window_index
-    existing.door_index = group.door_index
-    parties.set(key, existing)
+    return cleanPoint(last)
   }
 
-  return Array.from(parties.values()).map((target) => ({
-    ...target,
-    x: round1(target.x / Math.max(1, target.pointCount)),
-    y: round1(target.y / Math.max(1, target.pointCount))
-  }))
+  const fallbackPath = Array.isArray(event?.path) && event.path.length
+    ? event.path
+    : [event?.from, event?.to].filter(Boolean)
+  return samplePathAtProgress(fallbackPath, progress)
+}
+
+function buildServiceTargets(services, windows) {
+  return (services || []).map((rawService) => {
+    const group = normalizeGroup(rawService)
+    const windowItem = windows[group.window_index] || windows[0]
+    if (!windowItem) return null
+    const point = servicePointForWindow(windowItem)
+    return {
+      ...group,
+      key: serviceTargetKey(group),
+      role: 'service',
+      x: round1(point.x),
+      y: round1(point.y),
+      member_count: Math.max(1, Number(group.member_count) || 1),
+      color: partyColor(group)
+    }
+  }).filter(Boolean)
+}
+
+function serviceTargetKey(group) {
+  return `service-${group?.party_id ?? 'solo'}-${group?.window_index ?? 0}`
+}
+
+function shouldSuppressServiceExit(previousTarget, nextByKey) {
+  if (previousTarget?.role !== 'service') return false
+  const partyTarget = nextByKey.get(livePartyKey(previousTarget))
+  return Boolean(partyTarget && partyTarget.role !== 'service')
+}
+
+function samePartyPreviousTarget(nextTarget, previousByKey) {
+  if (!nextTarget || nextTarget.role === 'service') return null
+  const candidates = Array.from(previousByKey.values())
+    .filter((target) => target?.role === 'service' && String(target.party_id) === String(nextTarget.party_id))
+  if (!candidates.length) return null
+  return candidates.sort((left, right) => pointDistance(left, nextTarget) - pointDistance(right, nextTarget))[0]
+}
+
+function buildWaitingTargets(waitingParties, windows, layout) {
+  return (waitingParties || [])
+    .map((rawGroup) => {
+      const group = normalizeGroup(rawGroup)
+      const windowItem = windows[group.window_index] || windows[0]
+      const point = windowItem
+        ? waitingPointForWindow(windowItem, group.wait_position)
+        : entryPointForTarget(group, layout)
+      const key = livePartyKey(group)
+      return {
+        ...group,
+        key,
+        role: 'waiting',
+        x: point.x,
+        y: point.y,
+        color: partyColor(group)
+      }
+    })
 }
 
 function servicePointForWindow(windowItem) {
@@ -266,6 +398,18 @@ function servicePointForWindow(windowItem) {
     x: windowItem.x + normal.x * (half + 6),
     y: windowItem.y + normal.y * (half + 6)
   }
+}
+
+function waitingPointForWindow(windowItem, waitPosition = 0) {
+  const base = servicePointForWindow(windowItem)
+  const normal = wallNormal(windowItem)
+  const lateral = normal.x === 0 ? { x: 1, y: 0 } : { x: 0, y: 1 }
+  const position = Math.max(0, Number(waitPosition) || 0)
+  const laneOffset = Math.min(4, position) * 7
+  return cleanPoint({
+    x: base.x + normal.x * 12 + lateral.x * laneOffset,
+    y: base.y + normal.y * 12 + lateral.y * laneOffset
+  })
 }
 
 function seatedSlotOffset(table, slot) {

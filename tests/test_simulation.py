@@ -290,7 +290,10 @@ class DiningSimulationTests(unittest.TestCase):
             student.service_end_time = 3
         party.ready_time = 3
         runner.waiting_for_seat.append(party)
+        waiting_snapshot = runner._snapshot()
+        self.assertEqual(waiting_snapshot["waiting_parties"][0]["window_index"], 0)
         runner._seat_waiting_students(minute=4)
+        runner._advance_walking_to_seats(end_time_sec=5 * 60)
 
         seated_snapshot = runner._snapshot()
 
@@ -325,10 +328,12 @@ class DiningSimulationTests(unittest.TestCase):
         runner.waiting_for_seat.append(party)
 
         seated = runner._seat_waiting_students(minute=4)
+        arrived = runner._advance_walking_to_seats(end_time_sec=5 * 60)
 
         self.assertEqual(seated, 2)
+        self.assertEqual(arrived, 2)
         self.assertEqual(runner.table_occupied_seats, [2, 0])
-        self.assertEqual({student.seat_time for student in students}, {4})
+        self.assertEqual({student.seat_time for student in students}, {5})
         self.assertEqual(runner.metrics_counters["party_split_count"], 0)
 
     def test_solo_student_prefers_empty_table_before_sharing(self):
@@ -363,6 +368,54 @@ class DiningSimulationTests(unittest.TestCase):
         runner._seat_waiting_students(minute=3)
 
         self.assertEqual(party.table_index, 1)
+
+    def test_ready_party_walks_to_seat_through_backend_timeline(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=120)],
+            windows=[LayoutWindowData(id="W1", x=120, y=24)],
+            tables=[LayoutTableData(id="T1", x=220, y=220, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                arrival_rate=1.0,
+                service_time_mean=1.0,
+                dining_time_mean=8.0,
+                duration_min=5,
+                layout=layout,
+                party_size_distribution={2: 1.0},
+                seed=25,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+        party = runner.parties[students[0].party_id]
+        for student in students:
+            student.window_index = 0
+            student.service_end_time = 5
+        party.ready_time = 5
+        runner.waiting_for_seat.append(party)
+        runner.current_minute = 5
+
+        record = runner.step()
+
+        timeline = record.snapshot["timeline"]
+        event = timeline["events"][0]
+        self.assertEqual(record.seated_count, 2)
+        self.assertEqual(event["type"], "walk_to_seat")
+        self.assertEqual(event["party_id"], party.party_id)
+        self.assertEqual(event["table_id"], "T1")
+        self.assertEqual(event["window_index"], 0)
+        self.assertGreater(event["duration_sec"], 0)
+        self.assertLess(event["duration_sec"], 60)
+        self.assertEqual(event["frames"][0]["progress"], 0)
+        self.assertEqual(event["frames"][-1]["progress"], 1)
+        self.assertEqual(event["path"][0], event["from"])
+        self.assertEqual(event["path"][-1], event["to"])
+        self.assertGreaterEqual(timeline["playback_ms"], event["playback_end_ms"])
+        self.assertEqual(record.snapshot["walking_parties"], [])
+        self.assertEqual(record.snapshot["seated_parties"][0]["party_id"], party.party_id)
+        self.assertEqual(record.snapshot["table_occupancy"][0]["occupied"], 2)
 
 
 if __name__ == "__main__":

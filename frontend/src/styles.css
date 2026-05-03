@@ -559,8 +559,14 @@ input {
 }
 
 .seated-party,
+.walking-party,
 .service-party {
   pointer-events: none;
+}
+
+.walking-group .walking-cluster .party-dot {
+  stroke: rgba(31, 79, 133, 0.85);
+  stroke-width: 0.7;
 }
 
 .moving-party {

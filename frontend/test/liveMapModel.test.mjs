@@ -6,7 +6,10 @@ import {
   buildLivePartyTransitions,
   QUEUE_VISIBLE_LIMIT,
   buildQueueRows,
-  interpolateLivePartyMarkers
+  interpolateLivePartyMarkers,
+  backendTimelinePlaybackMs,
+  buildBackendWalkingMarkers,
+  transitionDurationForSnapshotGap
 } from '../src/liveMapModel.js'
 
 const topWindow = { id: 'W1', x: 120, y: 24, wall_side: 'top' }
@@ -94,7 +97,7 @@ test('buildQueueRows scales the overflow tail with hidden queue size', () => {
   assert.equal(longTail.overflow.hiddenPeople, 70)
 })
 
-test('buildLivePartyTargets aggregates active services by party id', () => {
+test('buildLivePartyTargets keeps split party services anchored to their actual windows', () => {
   const targets = buildLivePartyTargets({
     layout: baseLayout,
     snapshot: {
@@ -106,13 +109,92 @@ test('buildLivePartyTargets aggregates active services by party id', () => {
     }
   })
 
+  assert.equal(targets.length, 2)
+  assert.deepEqual(targets.map((target) => target.key), ['service-7-0', 'service-7-1'])
+  assert.deepEqual(targets.map((target) => target.role), ['service', 'service'])
+  assert.equal(targets[0].x, baseLayout.windows[0].x)
+  assert.equal(targets[1].x, baseLayout.windows[1].x)
+  assert.ok(targets.every((target) => target.y > baseLayout.windows[0].y))
+})
+
+test('buildLivePartyTransitions moves newly seated parties from a same-party service window', () => {
+  const [serviceTarget] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [{ party_id: 19, size: 1, member_count: 1, window_index: 1, door_index: 0 }],
+      seated_parties: []
+    }
+  })
+  const [seatedTarget] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [],
+      seated_parties: [{ party_id: 19, size: 1, member_count: 1, table_index: 0, table_id: 'T1', door_index: 0 }]
+    }
+  })
+
+  const transitions = buildLivePartyTransitions({
+    previous: [serviceTarget],
+    next: [seatedTarget],
+    layout: baseLayout
+  })
+  const seatedTransition = transitions.find((transition) => transition.role === 'seated')
+
+  assert.equal(transitions.some((transition) => transition.role === 'service' && transition.leaving), false)
+  assert.equal(seatedTransition.from.x, serviceTarget.x)
+  assert.equal(seatedTransition.from.y, serviceTarget.y)
+})
+
+test('buildLivePartyTargets keeps waiting parties as hidden motion anchors near their window', () => {
+  const targets = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [],
+      waiting_parties: [{ party_id: 17, size: 1, member_count: 1, window_index: 1, wait_position: 0, door_index: 0 }],
+      seated_parties: []
+    }
+  })
+
   assert.equal(targets.length, 1)
-  assert.equal(targets[0].key, 'party-7')
-  assert.equal(targets[0].role, 'service')
-  assert.equal(targets[0].member_count, 2)
-  assert.equal(targets[0].door_index, 0)
-  assert.ok(targets[0].x > baseLayout.windows[0].x)
-  assert.ok(targets[0].x < baseLayout.windows[1].x)
+  assert.equal(targets[0].key, 'party-17')
+  assert.equal(targets[0].role, 'waiting')
+  assert.equal(targets[0].x, baseLayout.windows[1].x)
+  assert.ok(targets[0].y > baseLayout.windows[1].y)
+})
+
+test('buildLivePartyTransitions starts seating movement from the waiting anchor when available', () => {
+  const [waitingTarget] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      waiting_parties: [{ party_id: 18, size: 1, member_count: 1, window_index: 1, wait_position: 0, door_index: 0 }],
+      seated_parties: []
+    }
+  })
+  const [seatedTarget] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [],
+      waiting_parties: [],
+      seated_parties: [{ party_id: 18, size: 1, member_count: 1, table_index: 0, table_id: 'T1', door_index: 0 }]
+    }
+  })
+
+  const [transition] = buildLivePartyTransitions({
+    previous: [waitingTarget],
+    next: [seatedTarget],
+    layout: baseLayout
+  })
+
+  assert.equal(transition.role, 'seated')
+  assert.equal(transition.from.x, waitingTarget.x)
+  assert.equal(transition.from.y, waitingTarget.y)
+})
+
+test('transitionDurationForSnapshotGap keeps animation inside the observed snapshot cadence', () => {
+  assert.equal(transitionDurationForSnapshotGap(undefined), 320)
+  assert.equal(transitionDurationForSnapshotGap(1000), 320)
+  assert.equal(transitionDurationForSnapshotGap(220), 180)
+  assert.equal(transitionDurationForSnapshotGap(80), 120)
 })
 
 test('interpolateLivePartyMarkers moves the same party between minute snapshots', () => {
@@ -145,6 +227,40 @@ test('interpolateLivePartyMarkers moves the same party between minute snapshots'
   assert.ok(halfway.x < Math.max(serviceTarget.x, seatedTarget.x))
   assert.ok(halfway.y > Math.min(serviceTarget.y, seatedTarget.y))
   assert.ok(halfway.y < Math.max(serviceTarget.y, seatedTarget.y))
+})
+
+test('buildBackendWalkingMarkers samples backend timeline frames instead of inventing targets', () => {
+  const timeline = {
+    playback_ms: 600,
+    events: [
+      {
+        party_id: 41,
+        size: 2,
+        member_count: 2,
+        table_index: 0,
+        table_id: 'T1',
+        start_time_sec: 300,
+        arrive_time_sec: 306,
+        playback_start_ms: 0,
+        playback_duration_ms: 600,
+        frames: [
+          { time_sec: 300, x: 120, y: 42, progress: 0 },
+          { time_sec: 303, x: 150, y: 90, progress: 0.5 },
+          { time_sec: 306, x: 180, y: 138, progress: 1 }
+        ]
+      }
+    ]
+  }
+
+  const [marker] = buildBackendWalkingMarkers({ timeline, elapsedMs: 300 })
+
+  assert.equal(marker.key, 'walking-41-300')
+  assert.equal(marker.role, 'walking')
+  assert.equal(marker.member_count, 2)
+  assert.equal(marker.x, 150)
+  assert.equal(marker.y, 90)
+  assert.equal(marker.progress, 0.5)
+  assert.equal(backendTimelinePlaybackMs(timeline), 600)
 })
 
 test('interpolateLivePartyMarkers fades new parties in from their door', () => {

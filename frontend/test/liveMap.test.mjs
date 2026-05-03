@@ -29,9 +29,9 @@ test('LiveDiningMap consumes the structured snapshot fields from the backend', (
   assert.equal(modelSource.includes('seated_parties'), true)
   assert.equal(mapSource.includes('table_occupancy'), true)
   assert.equal(mapSource.includes('busy_windows'), true)
-  // waiting_parties is intentionally not consumed: the metric card already
-  // shows the waiting count, so the map does not render those parties.
-  assert.equal(mapSource.includes('waiting_parties'), false)
+  // waiting parties are consumed as hidden motion anchors, while the visible
+  // waiting count still lives in the metric card outside this component.
+  assert.equal(modelSource.includes('waiting_parties'), true)
 })
 
 test('LiveDiningMap delays table occupancy changes until party movement settles', () => {
@@ -55,6 +55,25 @@ test('LiveDiningMap interpolates party positions between minute snapshots', () =
   assert.equal(modelSource.includes('buildWalkableRoute'), true)
   assert.equal(modelSource.includes('samplePathAtProgress'), true)
   assert.equal(modelSource.includes('createPathPlanner'), true)
+  assert.equal(modelSource.includes('transitionDurationForSnapshotGap'), true)
+  assert.equal(mapSource.includes('transitionDurationMs'), true)
+  assert.equal(mapSource.includes("defineEmits(['transition-settled'])"), true)
+  assert.equal(mapSource.includes("emit('transition-settled')"), true)
+})
+
+test('LiveDiningMap renders backend walking timeline as the source of seat movement', () => {
+  assert.equal(mapSource.includes('backendTimelinePlaybackMs'), true)
+  assert.equal(mapSource.includes('buildBackendWalkingMarkers'), true)
+  assert.equal(mapSource.includes('walkingPartyMarkers'), true)
+  assert.equal(mapSource.includes('walking-party'), true)
+  assert.equal(modelSource.includes('frames'), true)
+  assert.equal(modelSource.includes('playback_duration_ms'), true)
+})
+
+test('LiveDiningMap starts backend timeline playback on the first animation frame', () => {
+  assert.equal(mapSource.includes('timelinePlaybackStartedAt'), true)
+  assert.equal(mapSource.includes('timelinePlaybackStartedAt = timestamp'), true)
+  assert.equal(mapSource.includes('elapsedMs: 0'), true)
 })
 
 test('LiveDiningMap is purely visual and never relies on <text> or seat matrix', () => {
@@ -171,6 +190,7 @@ test('styles.css declares the live map layers with restrained visuals', () => {
   assert.equal(styleSource.includes('.service-group'), true)
   assert.equal(styleSource.includes('.table-occupancy'), true)
   assert.equal(styleSource.includes('.seated-party'), true)
+  assert.equal(styleSource.includes('.walking-party'), true)
   assert.equal(styleSource.includes('.window-detail-panel'), true)
   assert.equal(styleSource.includes('.window-detail-capsule'), true)
   assert.equal(styleSource.includes('.window-detail-overflow'), true)

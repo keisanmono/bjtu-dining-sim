@@ -17,6 +17,7 @@ class LayoutDoor(BaseModel):
     id: str
     x: float
     y: float
+    wall_side: str = "left"
     arrival_share: float = Field(default=1.0, ge=0)
 
 
@@ -24,6 +25,7 @@ class LayoutWindow(BaseModel):
     id: str
     x: float
     y: float
+    wall_side: str = "top"
     service_rate_factor: float = Field(default=1.0, gt=0)
 
 

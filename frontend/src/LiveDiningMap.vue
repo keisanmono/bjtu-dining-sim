@@ -114,6 +114,36 @@
           />
         </g>
 
+        <g class="party-group walking-group">
+          <g
+            v-for="cluster in walkingClusters"
+            :key="cluster.key"
+            class="walking-party walking-cluster moving-party"
+            :transform="`translate(${cluster.cx}, ${cluster.cy})`"
+            :style="{ opacity: cluster.opacity }"
+          >
+            <line
+              v-for="link in cluster.links"
+              :key="link.key"
+              class="party-link"
+              :x1="link.x1"
+              :y1="link.y1"
+              :x2="link.x2"
+              :y2="link.y2"
+              :style="{ stroke: cluster.color }"
+            />
+            <circle
+              v-for="dot in cluster.dots"
+              :key="dot.key"
+              class="party-dot"
+              :cx="dot.x"
+              :cy="dot.y"
+              r="1.7"
+              :style="{ fill: cluster.color }"
+            />
+          </g>
+        </g>
+
         <g class="party-group seated-group">
           <g
             v-for="cluster in seatedClusters"
@@ -192,18 +222,22 @@ import {
 import {
   LIVE_TRANSITION_MS,
   QUEUE_VISIBLE_LIMIT,
+  backendTimelinePlaybackMs,
+  buildBackendWalkingMarkers,
   buildLivePartyTargets,
   buildLivePartyTransitions,
   clamp,
   interpolateLivePartyMarkers,
   normalizeGroup,
-  partyColor
+  partyColor,
+  transitionDurationForSnapshotGap
 } from './liveMapModel.js'
 
 const props = defineProps({
   layout: { type: Object, required: true },
   state: { type: Object, default: null }
 })
+const emit = defineEmits(['transition-settled'])
 
 const DETAIL_CAPSULE_BASE_PX = 18
 const DETAIL_CAPSULE_INC_PX = 6
@@ -221,6 +255,7 @@ const snapshotTableOccupancy = computed(() => snapshot.value.table_occupancy || 
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
+const walkingPartyMarkers = ref([])
 const displayedTableOccupancy = ref([])
 const livePartyTargets = computed(() => buildLivePartyTargets({
   snapshot: snapshot.value,
@@ -228,6 +263,7 @@ const livePartyTargets = computed(() => buildLivePartyTargets({
 }))
 let lastSettledPartyTargets = []
 let partyAnimationFrame = 0
+let lastSnapshotArrivedAt = 0
 
 watch(
   () => windows.value.length,
@@ -239,9 +275,9 @@ watch(
 )
 
 watch(
-  livePartyTargets,
-  (targets) => {
-    startPartyTransition(targets)
+  [livePartyTargets, () => snapshot.value.timeline],
+  ([targets, timeline]) => {
+    startPartyTransition(targets, timeline)
   },
   { immediate: true }
 )
@@ -366,8 +402,35 @@ const seatedClusters = computed(() => {
     })
 })
 
-function startPartyTransition(nextTargets) {
+const walkingClusters = computed(() => {
+  return walkingPartyMarkers.value
+    .filter((marker) => marker.opacity > 0)
+    .map((marker) => {
+      const dots = clusterDots(marker)
+      return {
+        ...marker,
+        cx: marker.x,
+        cy: marker.y,
+        dots,
+        links: clusterLinks(dots)
+      }
+    })
+})
+
+function startPartyTransition(nextTargets, timeline = null) {
   cancelPartyAnimation()
+  walkingPartyMarkers.value = []
+  const backendPlaybackMs = backendTimelinePlaybackMs(timeline)
+  if (backendPlaybackMs > 0) {
+    startBackendTimelineTransition(nextTargets, timeline, backendPlaybackMs)
+    return
+  }
+  const snapshotArrivedAt = now()
+  const snapshotIntervalMs = lastSnapshotArrivedAt
+    ? snapshotArrivedAt - lastSnapshotArrivedAt
+    : LIVE_TRANSITION_MS
+  lastSnapshotArrivedAt = snapshotArrivedAt
+  const transitionDurationMs = transitionDurationForSnapshotGap(snapshotIntervalMs)
   const previousTargets = transitionStartTargets(lastSettledPartyTargets, animatedPartyMarkers.value)
   const transitions = buildLivePartyTransitions({
     previous: previousTargets,
@@ -375,19 +438,24 @@ function startPartyTransition(nextTargets) {
     layout: props.layout
   })
   if (!transitions.length) {
+    lastSettledPartyTargets = nextTargets
+    animatedPartyMarkers.value = settledMarkers(nextTargets)
     settleTableOccupancy()
+    emit('transition-settled')
+    return
   }
 
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     animatedPartyMarkers.value = settledMarkers(nextTargets)
     lastSettledPartyTargets = nextTargets
     settleTableOccupancy()
+    emit('transition-settled')
     return
   }
 
-  const startedAt = now()
+  const startedAt = snapshotArrivedAt
   const render = (timestamp) => {
-    const progress = clamp((timestamp - startedAt) / LIVE_TRANSITION_MS, 0, 1)
+    const progress = clamp((timestamp - startedAt) / transitionDurationMs, 0, 1)
     animatedPartyMarkers.value = interpolateLivePartyMarkers({
       transitions,
       progress,
@@ -401,6 +469,7 @@ function startPartyTransition(nextTargets) {
     lastSettledPartyTargets = nextTargets
     animatedPartyMarkers.value = settledMarkers(nextTargets)
     settleTableOccupancy()
+    emit('transition-settled')
   }
 
   animatedPartyMarkers.value = interpolateLivePartyMarkers({
@@ -411,13 +480,50 @@ function startPartyTransition(nextTargets) {
   partyAnimationFrame = window.requestAnimationFrame(render)
 }
 
+function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
+  animatedPartyMarkers.value = settledMarkers(nextTargets)
+
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    lastSettledPartyTargets = nextTargets
+    walkingPartyMarkers.value = []
+    settleTableOccupancy()
+    emit('transition-settled')
+    return
+  }
+
+  let timelinePlaybackStartedAt = null
+  const render = (timestamp) => {
+    if (timelinePlaybackStartedAt === null) {
+      timelinePlaybackStartedAt = timestamp
+      walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs: 0 })
+      partyAnimationFrame = window.requestAnimationFrame(render)
+      return
+    }
+    const elapsedMs = clamp(timestamp - timelinePlaybackStartedAt, 0, playbackMs)
+    walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs })
+    if (elapsedMs < playbackMs) {
+      partyAnimationFrame = window.requestAnimationFrame(render)
+      return
+    }
+    partyAnimationFrame = 0
+    lastSettledPartyTargets = nextTargets
+    walkingPartyMarkers.value = []
+    animatedPartyMarkers.value = settledMarkers(nextTargets)
+    settleTableOccupancy()
+    emit('transition-settled')
+  }
+
+  walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs: 0 })
+  partyAnimationFrame = window.requestAnimationFrame(render)
+}
+
 function settleTableOccupancy() {
   displayedTableOccupancy.value = snapshotTableOccupancy.value.map((entry) => ({ ...entry }))
 }
 
 function settledMarkers(targets) {
   return targets
-    .filter((target) => target.role !== 'seated')
+    .filter((target) => target.role === 'service')
     .map((target) => ({ ...target, opacity: 1, progress: 1 }))
 }
 

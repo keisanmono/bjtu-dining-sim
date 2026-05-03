@@ -20,3 +20,18 @@ test('live chart rendering is throttled during automatic runs', () => {
   assert.equal(appSource.includes('chartRenderScheduledAt'), true)
   assert.equal(appSource.includes('renderChartsThrottled'), true)
 })
+
+test('automatic live run self-schedules after each completed step', () => {
+  assert.equal(appSource.includes('scheduleNextLiveStep'), true)
+  assert.equal(appSource.includes('runScheduledLiveStep'), true)
+  assert.equal(appSource.includes('window.setTimeout'), true)
+  assert.equal(appSource.includes('window.setInterval'), false)
+  assert.equal(appSource.includes('window.clearInterval'), false)
+  assert.equal(appSource.includes('stepInFlight'), true)
+})
+
+test('automatic live run waits for the map transition before scheduling another snapshot', () => {
+  assert.equal(appSource.includes('@transition-settled="onLiveMapTransitionSettled"'), true)
+  assert.equal(appSource.includes('awaitingLiveMapTransition'), true)
+  assert.equal(appSource.includes('onLiveMapTransitionSettled'), true)
+})

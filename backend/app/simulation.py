@@ -6,12 +6,22 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+WALKING_SPEED_UNITS_PER_SEC = 38.0
+MIN_WALKING_DURATION_SEC = 3
+MAX_WALKING_DURATION_SEC = 45
+TIMELINE_BASE_PLAYBACK_MS = 720
+WALKING_PLAYBACK_MS_PER_SEC = 90
+MIN_WALKING_PLAYBACK_MS = 320
+MAX_WALKING_PLAYBACK_MS = 900
+PATH_OBSTACLE_PADDING = 7
+
 
 @dataclass(frozen=True)
 class LayoutDoorData:
     id: str
     x: float
     y: float
+    wall_side: str = "left"
     arrival_share: float = 1.0
 
 
@@ -20,6 +30,7 @@ class LayoutWindowData:
     id: str
     x: float
     y: float
+    wall_side: str = "top"
     service_rate_factor: float = 1.0
 
 
@@ -101,6 +112,17 @@ class DiningSeat:
     student: Student
     remaining: int
     table_index: int | None = None
+
+
+@dataclass
+class WalkingSeatTransfer:
+    party: DiningParty
+    table_index: int
+    window_index: int
+    dining_remaining: int
+    start_time_sec: int
+    arrive_time_sec: int
+    path: list[dict[str, float]]
 
 
 @dataclass(frozen=True)
@@ -225,8 +247,10 @@ class DiningSimulationRunner:
         self.queues: list[list[Student]] = [[] for _ in range(len(self.layout.windows))]
         self.windows: list[WindowService | None] = [None for _ in range(len(self.layout.windows))]
         self.waiting_for_seat: list[DiningParty] = []
+        self.walking_to_seat: list[WalkingSeatTransfer] = []
         self.seated: list[DiningSeat] = []
         self.table_occupied_seats: list[int] = [0 for _ in self.layout.tables]
+        self.table_reserved_seats: list[int] = [0 for _ in self.layout.tables]
         self.table_party_ids: list[set[int]] = [set() for _ in self.layout.tables]
         self.records: list[StepRecord] = []
         self.students: dict[int, Student] = {}
@@ -253,13 +277,17 @@ class DiningSimulationRunner:
             raise RuntimeError("仿真已经结束。")
 
         minute = self.current_minute
+        step_start_sec = minute * 60
+        step_end_sec = (minute + 1) * 60
+        timeline_events: list[dict[str, Any]] = []
         left_count = self._advance_dining(minute)
         served_students = self._advance_windows(minute)
         self._move_ready_parties_to_seat_wait(served_students, minute)
-        seated_count = self._seat_waiting_students(minute)
+        self._seat_waiting_students(minute, timeline_events=timeline_events)
         arrivals = self._generate_arrivals(minute)
         self._enqueue_arrivals(arrivals)
         self._start_window_services(minute)
+        seated_count = self._advance_walking_to_seats(step_end_sec)
         self.peak_fragmented_seats = max(self.peak_fragmented_seats, self._fragmented_seats())
 
         busy_windows = sum(1 for window in self.windows if window is not None)
@@ -273,6 +301,7 @@ class DiningSimulationRunner:
             served_count=len(served_students),
             seated_count=seated_count,
             left_count=left_count,
+            timeline=self._build_step_timeline(step_start_sec, step_end_sec, timeline_events),
         )
         self.records.append(record)
         return record
@@ -332,8 +361,8 @@ class DiningSimulationRunner:
                 party.ready_time = minute
                 self.waiting_for_seat.append(party)
 
-    def _seat_waiting_students(self, minute: int) -> int:
-        seated_count = 0
+    def _seat_waiting_students(self, minute: int, timeline_events: list[dict[str, Any]] | None = None) -> int:
+        walking_count = 0
         still_waiting: list[DiningParty] = []
         for party in self.waiting_for_seat:
             table_index = self._choose_table_for_party(party)
@@ -342,22 +371,75 @@ class DiningSimulationRunner:
                 self.blocked_party_ids.add(party.party_id)
                 self.metrics_counters["blocked_party_count"] = len(self.blocked_party_ids)
                 continue
-            occupied_before = self.table_occupied_seats[table_index]
+            occupied_before = self.table_occupied_seats[table_index] + self.table_reserved_seats[table_index]
             if occupied_before > 0:
                 self.metrics_counters["shared_table_count"] += 1
             remaining = self._sample_duration(self.config.dining_time_mean)
+            transfer = self._start_walking_to_seat(party, table_index, remaining, minute)
+            self.walking_to_seat.append(transfer)
+            self.table_reserved_seats[table_index] += party.size
+            party.table_index = table_index
+            walking_count += party.size
+            if timeline_events is not None:
+                timeline_events.append(self._walking_event_snapshot(transfer, step_start_sec=minute * 60))
+        self.waiting_for_seat = still_waiting
+        return walking_count
+
+    def _start_walking_to_seat(
+        self,
+        party: DiningParty,
+        table_index: int,
+        dining_remaining: int,
+        minute: int,
+    ) -> WalkingSeatTransfer:
+        window_index = self._party_reference_window_index(party)
+        start = self._window_service_point(self.layout.windows[window_index])
+        table = self.layout.tables[table_index]
+        end = {"x": round(float(table.x), 1), "y": round(float(table.y), 1)}
+        path = self._walking_path(start, end, table_index)
+        duration = self._walking_duration_sec(path)
+        start_time_sec = minute * 60
+        return WalkingSeatTransfer(
+            party=party,
+            table_index=table_index,
+            window_index=window_index,
+            dining_remaining=dining_remaining,
+            start_time_sec=start_time_sec,
+            arrive_time_sec=start_time_sec + duration,
+            path=path,
+        )
+
+    def _advance_walking_to_seats(self, end_time_sec: int) -> int:
+        arrived_count = 0
+        still_walking: list[WalkingSeatTransfer] = []
+        for transfer in self.walking_to_seat:
+            if transfer.arrive_time_sec > end_time_sec:
+                still_walking.append(transfer)
+                continue
+            party = transfer.party
+            seat_minute = math.ceil(transfer.arrive_time_sec / 60)
             for student_id in party.student_ids:
                 student = self.students[student_id]
-                student.seat_time = minute
-                self.seated.append(DiningSeat(student=student, remaining=remaining, table_index=table_index))
-            self.table_occupied_seats[table_index] += party.size
-            self.table_party_ids[table_index].add(party.party_id)
-            party.seat_time = minute
-            party.table_index = table_index
+                student.seat_time = seat_minute
+                self.seated.append(
+                    DiningSeat(
+                        student=student,
+                        remaining=transfer.dining_remaining,
+                        table_index=transfer.table_index,
+                    )
+                )
+            self.table_reserved_seats[transfer.table_index] = max(
+                0,
+                self.table_reserved_seats[transfer.table_index] - party.size,
+            )
+            self.table_occupied_seats[transfer.table_index] += party.size
+            self.table_party_ids[transfer.table_index].add(party.party_id)
+            party.seat_time = seat_minute
+            party.table_index = transfer.table_index
             self.total_seated += party.size
-            seated_count += party.size
-        self.waiting_for_seat = still_waiting
-        return seated_count
+            arrived_count += party.size
+        self.walking_to_seat = still_walking
+        return arrived_count
 
     def _generate_arrivals(self, minute: int) -> list[Student]:
         if minute >= self.config.duration_min:
@@ -427,7 +509,7 @@ class DiningSimulationRunner:
         candidates: list[tuple[float, int]] = []
         party_window = self._party_reference_window(party)
         for idx, table in enumerate(self.layout.tables):
-            occupied = self.table_occupied_seats[idx]
+            occupied = self.table_occupied_seats[idx] + self.table_reserved_seats[idx]
             available = table.capacity - occupied
             if available < party.size:
                 continue
@@ -442,16 +524,136 @@ class DiningSimulationRunner:
         return min(candidates, key=lambda item: (item[0], item[1]))[1]
 
     def _party_reference_window(self, party: DiningParty) -> LayoutWindowData:
-        member_windows = [
-            self.students[student_id].window_index
+        return self.layout.windows[self._party_reference_window_index(party)]
+
+    def _party_reference_window_index(self, party: DiningParty) -> int:
+        if not self.layout.windows:
+            return 0
+        members = [
+            self.students[student_id]
             for student_id in party.student_ids
             if self.students[student_id].window_index is not None
         ]
-        if not member_windows:
-            return self.layout.windows[0]
-        avg_x = _average(self.layout.windows[idx].x for idx in member_windows)
-        avg_y = _average(self.layout.windows[idx].y for idx in member_windows)
-        return LayoutWindowData(id="party-window-centroid", x=avg_x, y=avg_y)
+        if not members:
+            return 0
+        latest = max(
+            members,
+            key=lambda student: (
+                student.service_end_time if student.service_end_time is not None else -1,
+                -student.student_id,
+            ),
+        )
+        return min(max(0, int(latest.window_index or 0)), len(self.layout.windows) - 1)
+
+    def _window_service_point(self, window: LayoutWindowData) -> dict[str, float]:
+        normal = self._wall_normal(window.wall_side)
+        footprint = self._opening_footprint("window", window.wall_side)
+        half = footprint["width"] / 2 if window.wall_side in {"left", "right"} else footprint["height"] / 2
+        return _clean_point({
+            "x": window.x + normal["x"] * (half + 6),
+            "y": window.y + normal["y"] * (half + 6),
+        })
+
+    def _walking_path(
+        self,
+        start: dict[str, float],
+        end: dict[str, float],
+        target_table_index: int,
+    ) -> list[dict[str, float]]:
+        boxes = self._table_obstacle_boxes(exclude_index=target_table_index)
+        direct = _dedupe_path([start, end])
+        if self._path_is_clear(direct, boxes):
+            return direct
+
+        candidates = [
+            _dedupe_path([start, {"x": start["x"], "y": end["y"]}, end]),
+            _dedupe_path([start, {"x": end["x"], "y": start["y"]}, end]),
+        ]
+        blocking_boxes = [
+            box for box in boxes if _segment_intersects_box(start, end, box)
+        ] or boxes
+        for box in blocking_boxes:
+            for x in (box["left"] - 10, box["right"] + 10):
+                candidates.append(_dedupe_path([
+                    start,
+                    {"x": x, "y": start["y"]},
+                    {"x": x, "y": end["y"]},
+                    end,
+                ]))
+            for y in (box["top"] - 10, box["bottom"] + 10):
+                candidates.append(_dedupe_path([
+                    start,
+                    {"x": start["x"], "y": y},
+                    {"x": end["x"], "y": y},
+                    end,
+                ]))
+
+        for path in sorted(candidates, key=_path_length):
+            if self._path_is_clear(path, boxes):
+                return path
+        return direct
+
+    def _path_is_clear(self, path: list[dict[str, float]], boxes: list[dict[str, float]]) -> bool:
+        points = _dedupe_path(path)
+        return all(
+            not any(_segment_intersects_box(points[index - 1], points[index], box) for box in boxes)
+            for index in range(1, len(points))
+        )
+
+    def _walking_duration_sec(self, path: list[dict[str, float]]) -> int:
+        distance = _path_length(path)
+        if distance <= 0:
+            return MIN_WALKING_DURATION_SEC
+        return max(
+            MIN_WALKING_DURATION_SEC,
+            min(MAX_WALKING_DURATION_SEC, int(round(distance / WALKING_SPEED_UNITS_PER_SEC))),
+        )
+
+    def _table_obstacle_boxes(self, exclude_index: int | None = None) -> list[dict[str, float]]:
+        boxes: list[dict[str, float]] = []
+        for idx, table in enumerate(self.layout.tables):
+            if exclude_index is not None and idx == exclude_index:
+                continue
+            footprint = self._table_footprint(table)
+            boxes.append(_box(
+                table.x - footprint["width"] / 2,
+                table.y - footprint["height"] / 2,
+                table.x + footprint["width"] / 2,
+                table.y + footprint["height"] / 2,
+                padding=PATH_OBSTACLE_PADDING,
+            ))
+        return boxes
+
+    def _table_footprint(self, table: LayoutTableData) -> dict[str, float]:
+        capacity = max(1, int(table.capacity or 1))
+        if capacity <= 2:
+            footprint = {"width": 52.0, "height": 26.0}
+        elif capacity <= 4:
+            footprint = {"width": 64.0, "height": 50.0}
+        else:
+            footprint = {"width": 76.0, "height": 50.0}
+        rotation = ((round(float(table.rotation or 0)) % 180) + 180) % 180
+        if 45 <= rotation < 135:
+            return {"width": footprint["height"], "height": footprint["width"]}
+        return footprint
+
+    def _opening_footprint(self, kind: str, wall_side: str) -> dict[str, float]:
+        if kind == "door":
+            horizontal = {"width": 52.0, "height": 32.0}
+            vertical = {"width": 32.0, "height": 52.0}
+        else:
+            horizontal = {"width": 36.0, "height": 32.0}
+            vertical = {"width": 32.0, "height": 36.0}
+        return horizontal if wall_side in {"top", "bottom"} else vertical
+
+    def _wall_normal(self, wall_side: str) -> dict[str, float]:
+        if wall_side == "right":
+            return {"x": -1.0, "y": 0.0}
+        if wall_side == "bottom":
+            return {"x": 0.0, "y": -1.0}
+        if wall_side == "left":
+            return {"x": 1.0, "y": 0.0}
+        return {"x": 0.0, "y": 1.0}
 
     def _arrival_rate_for_minute(self, minute: int) -> float:
         rate = self.config.arrival_rate
@@ -522,6 +724,7 @@ class DiningSimulationRunner:
             any(self.queues)
             or any(window is not None for window in self.windows)
             or bool(self.waiting_for_seat)
+            or bool(self.walking_to_seat)
             or bool(self.seated)
         )
 
@@ -532,7 +735,11 @@ class DiningSimulationRunner:
         served_count: int,
         seated_count: int,
         left_count: int,
+        timeline: dict[str, Any] | None = None,
     ) -> StepRecord:
+        snapshot = self._snapshot()
+        if timeline is not None:
+            snapshot["timeline"] = timeline
         return StepRecord(
             run_id=self.run_id,
             t=t,
@@ -548,7 +755,7 @@ class DiningSimulationRunner:
             total_seated=self.total_seated,
             total_left=self.total_left,
             avg_wait_so_far=self._avg_wait_so_far(),
-            snapshot=self._snapshot(),
+            snapshot=snapshot,
         )
 
     def _avg_wait_so_far(self) -> float:
@@ -572,6 +779,8 @@ class DiningSimulationRunner:
             "waiting_for_seat_count": self._waiting_for_seat_people(),
             "waiting_party_count": len(self.waiting_for_seat),
             "waiting_parties": self._waiting_parties_snapshot(),
+            "walking_to_seat_count": sum(transfer.party.size for transfer in self.walking_to_seat),
+            "walking_parties": self._walking_parties_snapshot(),
             "seated_parties": self._seated_parties_snapshot(),
             "table_occupancy": [
                 {
@@ -579,6 +788,7 @@ class DiningSimulationRunner:
                     "type": table.table_type,
                     "capacity": table.capacity,
                     "occupied": self.table_occupied_seats[idx],
+                    "reserved": self.table_reserved_seats[idx],
                     "party_count": len(self.table_party_ids[idx]),
                     "party_ids": sorted(self.table_party_ids[idx]),
                 }
@@ -640,12 +850,100 @@ class DiningSimulationRunner:
                 "size": party.size,
                 "member_count": party.size,
                 "door_index": party.door_index,
+                "window_index": self._party_reference_window_index(party),
                 "arrival_time": party.arrival_time,
                 "ready_time": party.ready_time,
                 "wait_position": position,
             }
             for position, party in enumerate(self.waiting_for_seat)
         ]
+
+    def _walking_parties_snapshot(self, time_sec: int | None = None) -> list[dict[str, Any]]:
+        now_sec = self.current_minute * 60 if time_sec is None else time_sec
+        return [
+            self._walking_transfer_snapshot(transfer, now_sec)
+            for transfer in self.walking_to_seat
+        ]
+
+    def _walking_transfer_snapshot(self, transfer: WalkingSeatTransfer, time_sec: int) -> dict[str, Any]:
+        duration = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
+        progress = max(0.0, min(1.0, (time_sec - transfer.start_time_sec) / duration))
+        point = _sample_path(transfer.path, progress)
+        party = transfer.party
+        table = self.layout.tables[transfer.table_index]
+        return {
+            "type": "walk_to_seat",
+            "party_id": party.party_id,
+            "size": party.size,
+            "member_count": party.size,
+            "door_index": party.door_index,
+            "window_index": transfer.window_index,
+            "table_index": transfer.table_index,
+            "table_id": table.id,
+            "arrival_time": party.arrival_time,
+            "ready_time": party.ready_time,
+            "start_time_sec": transfer.start_time_sec,
+            "arrive_time_sec": transfer.arrive_time_sec,
+            "duration_sec": duration,
+            "progress": round(progress, 3),
+            "x": point["x"],
+            "y": point["y"],
+            "from": transfer.path[0],
+            "to": transfer.path[-1],
+            "path": transfer.path,
+        }
+
+    def _walking_event_snapshot(self, transfer: WalkingSeatTransfer, step_start_sec: int) -> dict[str, Any]:
+        payload = self._walking_transfer_snapshot(transfer, transfer.start_time_sec)
+        duration_sec = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
+        playback_start_ms = max(
+            0,
+            round((transfer.start_time_sec - step_start_sec) / 60 * TIMELINE_BASE_PLAYBACK_MS),
+        )
+        playback_duration_ms = max(
+            MIN_WALKING_PLAYBACK_MS,
+            min(MAX_WALKING_PLAYBACK_MS, round(duration_sec * WALKING_PLAYBACK_MS_PER_SEC)),
+        )
+        payload.update({
+            "playback_start_ms": playback_start_ms,
+            "playback_duration_ms": playback_duration_ms,
+            "playback_end_ms": playback_start_ms + playback_duration_ms,
+            "frames": self._walking_frames(transfer),
+        })
+        return payload
+
+    def _walking_frames(self, transfer: WalkingSeatTransfer) -> list[dict[str, Any]]:
+        duration = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
+        frames = []
+        for time_sec in range(transfer.start_time_sec, transfer.arrive_time_sec + 1):
+            progress = max(0.0, min(1.0, (time_sec - transfer.start_time_sec) / duration))
+            point = _sample_path(transfer.path, progress)
+            frames.append({
+                "time_sec": time_sec,
+                "x": point["x"],
+                "y": point["y"],
+                "progress": round(progress, 3),
+            })
+        return frames
+
+    def _build_step_timeline(
+        self,
+        start_time_sec: int,
+        end_time_sec: int,
+        events: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if not events:
+            return None
+        playback_ms = max(
+            TIMELINE_BASE_PLAYBACK_MS,
+            max(int(event.get("playback_end_ms", 0)) for event in events),
+        )
+        return {
+            "start_time_sec": start_time_sec,
+            "end_time_sec": end_time_sec,
+            "playback_ms": playback_ms,
+            "events": events,
+        }
 
     def _seated_parties_snapshot(self) -> list[dict[str, Any]]:
         seated: dict[tuple[int, int], dict[str, Any]] = {}
@@ -846,6 +1144,121 @@ def _normalized_party_distribution(distribution: dict[int, float]) -> list[tuple
 
 def _distance(a: Any, b: Any) -> float:
     return math.hypot(float(a.x) - float(b.x), float(a.y) - float(b.y))
+
+
+def _point_distance(a: dict[str, float], b: dict[str, float]) -> float:
+    return math.hypot(float(a["x"]) - float(b["x"]), float(a["y"]) - float(b["y"]))
+
+
+def _clean_point(point: dict[str, float] | Any) -> dict[str, float]:
+    if isinstance(point, dict):
+        x = point.get("x", 0)
+        y = point.get("y", 0)
+    else:
+        x = getattr(point, "x", 0)
+        y = getattr(point, "y", 0)
+    return {"x": round(float(x), 1), "y": round(float(y), 1)}
+
+
+def _dedupe_path(path: list[dict[str, float]]) -> list[dict[str, float]]:
+    cleaned: list[dict[str, float]] = []
+    for point in path:
+        item = _clean_point(point)
+        if cleaned and _point_distance(cleaned[-1], item) < 0.1:
+            continue
+        cleaned.append(item)
+    return cleaned
+
+
+def _path_length(path: list[dict[str, float]]) -> float:
+    points = _dedupe_path(path)
+    return sum(_point_distance(points[index - 1], points[index]) for index in range(1, len(points)))
+
+
+def _sample_path(path: list[dict[str, float]], progress: float) -> dict[str, float]:
+    points = _dedupe_path(path)
+    if not points:
+        return {"x": 0.0, "y": 0.0}
+    if len(points) == 1:
+        return points[0]
+    amount = max(0.0, min(1.0, float(progress)))
+    if amount <= 0:
+        return points[0]
+    if amount >= 1:
+        return points[-1]
+
+    total = _path_length(points)
+    if total <= 0:
+        return points[-1]
+    remaining = total * amount
+    for index in range(1, len(points)):
+        start = points[index - 1]
+        end = points[index]
+        length = _point_distance(start, end)
+        if length <= 0:
+            continue
+        if remaining <= length:
+            local = remaining / length
+            return _clean_point({
+                "x": start["x"] + (end["x"] - start["x"]) * local,
+                "y": start["y"] + (end["y"] - start["y"]) * local,
+            })
+        remaining -= length
+    return points[-1]
+
+
+def _point_inside_box(point: dict[str, float], box: dict[str, float]) -> bool:
+    return box["left"] <= point["x"] <= box["right"] and box["top"] <= point["y"] <= box["bottom"]
+
+
+def _segments_intersect(a: dict[str, float], b: dict[str, float], c: dict[str, float], d: dict[str, float]) -> bool:
+    def orientation(left: dict[str, float], mid: dict[str, float], right: dict[str, float]) -> float:
+        return (mid["y"] - left["y"]) * (right["x"] - mid["x"]) - (mid["x"] - left["x"]) * (right["y"] - mid["y"])
+
+    def on_segment(left: dict[str, float], mid: dict[str, float], right: dict[str, float]) -> bool:
+        return (
+            min(left["x"], right["x"]) <= mid["x"] <= max(left["x"], right["x"])
+            and min(left["y"], right["y"]) <= mid["y"] <= max(left["y"], right["y"])
+        )
+
+    o1 = orientation(a, b, c)
+    o2 = orientation(a, b, d)
+    o3 = orientation(c, d, a)
+    o4 = orientation(c, d, b)
+    epsilon = 1e-9
+    if abs(o1) < epsilon and on_segment(a, c, b):
+        return True
+    if abs(o2) < epsilon and on_segment(a, d, b):
+        return True
+    if abs(o3) < epsilon and on_segment(c, a, d):
+        return True
+    if abs(o4) < epsilon and on_segment(c, b, d):
+        return True
+    return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
+
+
+def _segment_intersects_box(start: dict[str, float], end: dict[str, float], box: dict[str, float]) -> bool:
+    if _point_inside_box(start, box) or _point_inside_box(end, box):
+        return True
+    corners = [
+        {"x": box["left"], "y": box["top"]},
+        {"x": box["right"], "y": box["top"]},
+        {"x": box["right"], "y": box["bottom"]},
+        {"x": box["left"], "y": box["bottom"]},
+    ]
+    return any(
+        _segments_intersect(start, end, corners[index], corners[(index + 1) % len(corners)])
+        for index in range(len(corners))
+    )
+
+
+def _box(left: float, top: float, right: float, bottom: float, padding: float = 0.0) -> dict[str, float]:
+    return {
+        "left": left - padding,
+        "top": top - padding,
+        "right": right + padding,
+        "bottom": bottom + padding,
+    }
 
 
 def _average(values: Any) -> float:

@@ -248,6 +248,7 @@
             <LiveDiningMap
               :layout="layout"
               :state="currentState"
+              @transition-settled="onLiveMapTransitionSettled"
             />
           </el-card>
 
@@ -346,8 +347,9 @@ import {
 } from './layoutEditor'
 import LayoutEditor from './LayoutEditor.vue'
 import LiveDiningMap from './LiveDiningMap.vue'
+import { LIVE_TRANSITION_MS } from './liveMapModel'
 import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
-import { shouldResetStepRun } from './runControl'
+import { liveStepDelay, shouldRequestLiveStep, shouldResetStepRun } from './runControl'
 
 const defaultConfig = {
   num_windows: 4,
@@ -400,6 +402,8 @@ let analysisChart
 let chartRenderFrame = 0
 let chartRenderTimer = 0
 let chartRenderScheduledAt = 0
+let stepInFlight = false
+let awaitingLiveMapTransition = false
 
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
 const currentRecord = computed(() => records.value.at(-1) || null)
@@ -573,30 +577,62 @@ async function validateConfig() {
 
 async function startLiveRun() {
   if (isRunning.value) return
-  if (!runId.value || isDone.value) {
-    resetRun(false)
-    await singleStep(true)
-  }
-  if (isDone.value) return
   isRunning.value = true
   activeView.value = 'run'
-  timer.value = window.setInterval(async () => {
-    if (isRunning.value) {
-      await singleStep(false)
+  if (!runId.value || isDone.value) {
+    resetRun(false)
+    isRunning.value = true
+    activeView.value = 'run'
+    const response = await singleStep(true, { waitForMapTransition: true })
+    if (!response) {
+      awaitingLiveMapTransition = false
+      return
     }
-  }, 360)
+    if (isDone.value) return
+    return
+  }
+  if (isDone.value) return
+  scheduleNextLiveStep()
 }
 
 function pauseRun() {
   isRunning.value = false
   if (timer.value) {
-    window.clearInterval(timer.value)
+    window.clearTimeout(timer.value)
     timer.value = null
+  }
+}
+
+function scheduleNextLiveStep(delayMs = liveStepDelay(LIVE_TRANSITION_MS)) {
+  if (typeof window === 'undefined' || !isRunning.value || isDone.value) return
+  if (timer.value) {
+    window.clearTimeout(timer.value)
+  }
+  timer.value = window.setTimeout(runScheduledLiveStep, delayMs)
+}
+
+async function runScheduledLiveStep() {
+  timer.value = null
+  if (!shouldRequestLiveStep({ isRunning: isRunning.value, isDone: isDone.value, stepInFlight })) {
+    return
+  }
+  const response = await singleStep(false, { waitForMapTransition: true })
+  if (!response) {
+    awaitingLiveMapTransition = false
+  }
+}
+
+function onLiveMapTransitionSettled() {
+  if (!awaitingLiveMapTransition) return
+  awaitingLiveMapTransition = false
+  if (isRunning.value && !isDone.value) {
+    scheduleNextLiveStep(liveStepDelay(0))
   }
 }
 
 function resetRun(clearMessage = true) {
   pauseRun()
+  awaitingLiveMapTransition = false
   runId.value = ''
   records.value = []
   livePeakQueue.value = 0
@@ -620,7 +656,9 @@ function appendRunRecord(record) {
   renderChartsThrottled()
 }
 
-async function singleStep(reset = false) {
+async function singleStep(reset = false, options = {}) {
+  if (stepInFlight) return null
+  stepInFlight = true
   try {
     const payload = shouldResetStepRun(reset, runId.value)
       ? { config: buildSimulationConfigPayload(config, layout.value), reset: true }
@@ -628,6 +666,9 @@ async function singleStep(reset = false) {
     const response = await api.stepSimulation(payload)
     runId.value = response.run_id
     appendRunRecord(response.record)
+    if (options?.waitForMapTransition) {
+      awaitingLiveMapTransition = true
+    }
     currentState.value = response.state
     isDone.value = response.done
     if (response.metrics) {
@@ -635,9 +676,13 @@ async function singleStep(reset = false) {
       pauseRun()
       activeView.value = 'analysis'
     }
+    return response
   } catch (error) {
     pauseRun()
     ElMessage.error(error?.response?.data?.detail || '单步运行失败')
+    return null
+  } finally {
+    stepInFlight = false
   }
 }
 
