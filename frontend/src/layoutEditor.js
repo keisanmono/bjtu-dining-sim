@@ -33,6 +33,8 @@ export const TABLE_CAPACITY_OPTIONS = [2, 4, 6]
 
 const TABLE_PATTERN = [2, 4, 4, 6]
 const DENSE_TABLE_THRESHOLD_SEATS = 120
+const COMPACT_TABLE_COLUMN_STEP = 80
+const COMPACT_TABLE_ROW_STEP = 52
 
 const FOOTPRINTS = Object.freeze({
   door: Object.freeze({
@@ -435,13 +437,13 @@ function firstAvailableTableCandidate(layout, table, candidates) {
 function compactTableCandidatePoints(layout, table) {
   const bounds = floorBoundsForLayout(layout)
   const fp = getItemFootprint('table', table)
-  const startX = snapInsideRange(bounds.x + fp.width / 2 + LAYOUT_GRID_STEP, bounds.x + fp.width / 2, bounds.right - fp.width / 2)
-  const startY = snapInsideRange(bounds.y + fp.height / 2 + LAYOUT_GRID_STEP, bounds.y + fp.height / 2, bounds.bottom - fp.height / 2)
+  const startX = snapInsideRange(bounds.x + 76, bounds.x + fp.width / 2, bounds.right - fp.width / 2)
+  const startY = snapInsideRange(bounds.y + 36, bounds.y + fp.height / 2, bounds.bottom - fp.height / 2)
   const endX = bounds.right - fp.width / 2
   const endY = bounds.bottom - fp.height / 2
   const points = []
-  for (let y = startY; y <= endY; y += LAYOUT_GRID_STEP) {
-    for (let x = startX; x <= endX; x += LAYOUT_GRID_STEP) {
+  for (let y = startY; y <= endY; y += COMPACT_TABLE_ROW_STEP) {
+    for (let x = startX; x <= endX; x += COMPACT_TABLE_COLUMN_STEP) {
       points.push({ x, y })
     }
   }

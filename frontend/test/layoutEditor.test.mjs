@@ -358,11 +358,15 @@ test('compact table auto-arrangement packs seats toward the upper-left', () => {
   const bounds = floorBoundsForLayout(compact)
   const minX = Math.min(...compact.tables.map((table) => table.x))
   const minY = Math.min(...compact.tables.map((table) => table.y))
+  const columns = new Set(compact.tables.map((table) => table.x))
+  const rows = new Set(compact.tables.map((table) => table.y))
 
   assert.equal(totalLayoutSeats(compact), totalLayoutSeats(layout))
   assertNoLayoutOverlaps(compact)
   assert.ok(minX < bounds.x + 110)
   assert.ok(minY < bounds.y + 110)
+  assert.ok(columns.size <= 4)
+  assert.ok(rows.size <= 3)
 })
 
 test('spread table auto-arrangement uses more of the existing floor than compact packing', () => {
