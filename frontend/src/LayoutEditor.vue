@@ -10,6 +10,28 @@
         </span>
       </div>
       <div class="layout-editor-actions">
+        <div class="layout-resource-controls" aria-label="场景规模">
+          <span>开放窗口数</span>
+          <el-input-number
+            :model-value="windowCount"
+            :min="1"
+            :max="30"
+            size="small"
+            controls-position="right"
+            @change="changeWindowCount"
+          />
+          <span>座位数</span>
+          <el-input-number
+            :model-value="seatCount"
+            :min="2"
+            :max="seatLimit"
+            :step="2"
+            size="small"
+            controls-position="right"
+            @change="changeSeatCount"
+          />
+          <el-tag size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
+        </div>
         <div class="layout-size-controls" aria-label="食堂尺寸">
           <span>食堂宽度</span>
           <el-input-number
@@ -33,7 +55,6 @@
             data-size-policy="floor height is capped by max area"
             @change="changeFloorSize('height', $event)"
           />
-          <el-tag size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
         </div>
         <div class="layout-count-controls" aria-label="入口数量">
           <el-button size="small" :disabled="layout.doors.length <= 1" @click="changeDoorCount(-1)">入口 -</el-button>
@@ -281,10 +302,18 @@ const props = defineProps({
   seatLimit: {
     type: Number,
     default: 0
+  },
+  windowCount: {
+    type: Number,
+    default: 1
+  },
+  seatCount: {
+    type: Number,
+    default: 2
   }
 })
 
-const emit = defineEmits(['update:layout', 'reset'])
+const emit = defineEmits(['update:layout', 'update:window-count', 'update:seat-count', 'reset'])
 
 const svgRef = ref(null)
 const selection = ref(null)
@@ -589,6 +618,14 @@ function onSelectedCapacityChange(value) {
 function changeDoorCount(delta) {
   const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
+}
+
+function changeWindowCount(value) {
+  emit('update:window-count', Number(value))
+}
+
+function changeSeatCount(value) {
+  emit('update:seat-count', Number(value))
 }
 
 function autoArrangeTables(mode) {

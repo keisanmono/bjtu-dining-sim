@@ -29,15 +29,6 @@
           </template>
           <el-form label-position="top" :model="config" class="config-form">
             <div class="form-pair">
-              <el-form-item label="开放窗口数">
-                <el-input-number v-model="config.num_windows" :min="1" :max="30" controls-position="right" />
-              </el-form-item>
-              <el-form-item label="座位数">
-                <el-input-number v-model="config.num_seats" :min="2" :max="layoutSeatLimit" :step="2" controls-position="right" />
-                <p class="field-hint">当前布局最多 {{ layoutSeatLimit }} 座</p>
-              </el-form-item>
-            </div>
-            <div class="form-pair">
               <el-form-item label="平均每分钟到达人数">
                 <el-input-number v-model="config.arrival_rate" :min="0.1" :step="0.5" controls-position="right" />
               </el-form-item>
@@ -205,7 +196,11 @@
           <LayoutEditor
             :layout="layout"
             :seat-limit="layoutSeatLimit"
+            :window-count="config.num_windows"
+            :seat-count="config.num_seats"
             @update:layout="onLayoutUpdate"
+            @update:window-count="updateWindowCount"
+            @update:seat-count="updateSeatCount"
             @reset="resetLayout"
           />
         </el-card>
@@ -507,6 +502,14 @@ function resetLayout() {
   config.num_windows = layout.value.windows.length
   ElMessage.info('已根据当前参数重置布局')
   nextTick(() => { isSyncingLayout.value = false })
+}
+
+function updateWindowCount(value) {
+  config.num_windows = Math.min(30, Math.max(1, Math.round(Number(value) || 1)))
+}
+
+function updateSeatCount(value) {
+  config.num_seats = normalizeSeatCount(value, layoutSeatLimit.value)
 }
 
 function onLayoutUpdate(nextLayout, meta = {}) {

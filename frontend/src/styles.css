@@ -269,6 +269,7 @@ input {
   flex-wrap: wrap;
 }
 
+.layout-resource-controls,
 .layout-size-controls {
   display: inline-flex;
   align-items: center;
@@ -278,6 +279,7 @@ input {
   font-size: 12px;
 }
 
+.layout-resource-controls .el-input-number,
 .layout-size-controls .el-input-number {
   width: 96px;
 }
