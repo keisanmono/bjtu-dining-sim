@@ -247,21 +247,13 @@
             <template #header>
               <div class="panel-title">
                 <el-icon><Grid /></el-icon>
-                <span>座位占用矩阵</span>
+                <span>实时食堂地图</span>
               </div>
             </template>
-            <div class="seat-grid" :style="seatGridStyle">
-              <span
-                v-for="(occupied, index) in visibleSeatMatrix"
-                :key="index"
-                class="seat-cell"
-                :class="occupied ? 'is-occupied' : 'is-empty'"
-              />
-            </div>
-            <div class="legend-row">
-              <span><i class="legend occupied" />已占用</span>
-              <span><i class="legend empty" />空座位</span>
-            </div>
+            <LiveDiningMap
+              :layout="layout"
+              :state="currentState"
+            />
           </el-card>
 
           <el-card class="panel">
@@ -358,6 +350,7 @@ import {
   totalLayoutSeats
 } from './layoutEditor'
 import LayoutEditor from './LayoutEditor.vue'
+import LiveDiningMap from './LiveDiningMap.vue'
 import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
 import { shouldResetStepRun } from './runControl'
 
@@ -406,19 +399,8 @@ let trendChart
 let analysisChart
 let chartRenderFrame = 0
 
-const previewSeatLimit = 240
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
 const currentRecord = computed(() => records.value.at(-1) || null)
-const seatGridStyle = computed(() => ({
-  gridTemplateColumns: `repeat(${Math.min(config.seat_columns, 20)}, minmax(10px, 1fr))`
-}))
-const visibleSeatMatrix = computed(() => {
-  const matrix = currentState.value?.seat_matrix || []
-  if (!matrix.length) {
-    return Array.from({ length: Math.min(config.num_seats, previewSeatLimit) }, () => false)
-  }
-  return matrix.slice(0, previewSeatLimit)
-})
 const recommendationCandidates = computed(() => buildCandidatesFromSettings(candidateSettings))
 const windowCandidates = computed(() => recommendationCandidates.value.windows)
 const seatCandidates = computed(() => {

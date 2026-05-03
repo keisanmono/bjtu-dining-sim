@@ -563,11 +563,15 @@ class DiningSimulationRunner:
         return {
             "minute": self.current_minute,
             "queue_lengths": [len(queue) for queue in self.queues],
+            "queue_groups": self._queue_groups_snapshot(),
             "busy_windows": [window is not None for window in self.windows],
+            "window_services": self._window_services_snapshot(),
             "occupied_seats": occupied,
             "empty_seats": self.total_seat_capacity - occupied,
             "waiting_for_seat_count": self._waiting_for_seat_people(),
             "waiting_party_count": len(self.waiting_for_seat),
+            "waiting_parties": self._waiting_parties_snapshot(),
+            "seated_parties": self._seated_parties_snapshot(),
             "seat_matrix": [idx < occupied for idx in range(self.total_seat_capacity)],
             "table_occupancy": [
                 {
@@ -575,6 +579,8 @@ class DiningSimulationRunner:
                     "type": table.table_type,
                     "capacity": table.capacity,
                     "occupied": self.table_occupied_seats[idx],
+                    "party_count": len(self.table_party_ids[idx]),
+                    "party_ids": sorted(self.table_party_ids[idx]),
                 }
                 for idx, table in enumerate(self.layout.tables)
             ],
@@ -585,6 +591,87 @@ class DiningSimulationRunner:
                 "left": self.total_left,
             },
         }
+
+    def _queue_groups_snapshot(self) -> list[dict[str, Any]]:
+        groups: list[dict[str, Any]] = []
+        for window_index, queue in enumerate(self.queues):
+            grouped: dict[int, dict[str, Any]] = {}
+            for position, student in enumerate(queue):
+                party = self.parties[student.party_id]
+                item = grouped.setdefault(
+                    party.party_id,
+                    {
+                        "party_id": party.party_id,
+                        "size": party.size,
+                        "member_count": 0,
+                        "window_index": window_index,
+                        "door_index": party.door_index,
+                        "arrival_time": party.arrival_time,
+                        "queue_position": position,
+                    },
+                )
+                item["member_count"] += 1
+            groups.extend(sorted(grouped.values(), key=lambda item: item["queue_position"]))
+        return groups
+
+    def _window_services_snapshot(self) -> list[dict[str, Any]]:
+        services: list[dict[str, Any]] = []
+        for window_index, service in enumerate(self.windows):
+            if service is None:
+                continue
+            party = self.parties[service.student.party_id]
+            services.append(
+                {
+                    "party_id": party.party_id,
+                    "size": party.size,
+                    "member_count": 1,
+                    "window_index": window_index,
+                    "door_index": party.door_index,
+                    "arrival_time": party.arrival_time,
+                    "remaining": service.remaining,
+                }
+            )
+        return services
+
+    def _waiting_parties_snapshot(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "party_id": party.party_id,
+                "size": party.size,
+                "member_count": party.size,
+                "door_index": party.door_index,
+                "arrival_time": party.arrival_time,
+                "ready_time": party.ready_time,
+                "wait_position": position,
+            }
+            for position, party in enumerate(self.waiting_for_seat)
+        ]
+
+    def _seated_parties_snapshot(self) -> list[dict[str, Any]]:
+        seated: dict[tuple[int, int], dict[str, Any]] = {}
+        for seat in self.seated:
+            if seat.table_index is None:
+                continue
+            party = self.parties[seat.student.party_id]
+            table = self.layout.tables[seat.table_index]
+            key = (party.party_id, seat.table_index)
+            item = seated.setdefault(
+                key,
+                {
+                    "party_id": party.party_id,
+                    "size": party.size,
+                    "member_count": 0,
+                    "table_index": seat.table_index,
+                    "table_id": table.id,
+                    "door_index": party.door_index,
+                    "arrival_time": party.arrival_time,
+                    "seat_time": party.seat_time,
+                    "remaining": seat.remaining,
+                },
+            )
+            item["member_count"] += 1
+            item["remaining"] = max(item["remaining"], seat.remaining)
+        return sorted(seated.values(), key=lambda item: (item["table_index"], item["party_id"]))
 
     def _build_metrics(self) -> MetricsSummary:
         seated_students = [student for student in self.students.values() if student.seat_time is not None]

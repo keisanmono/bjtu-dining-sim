@@ -251,6 +251,52 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual([len(queue) for queue in runner.queues], [1, 1])
         self.assertEqual({student.window_index for student in students}, {0, 1})
 
+    def test_snapshot_exposes_party_locations_for_live_map(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[
+                LayoutWindowData(id="W1", x=10, y=0),
+                LayoutWindowData(id="W2", x=80, y=0),
+            ],
+            tables=[LayoutTableData(id="T1", x=30, y=30, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=2,
+                num_seats=4,
+                layout=layout,
+                party_size_distribution={2: 1.0},
+                seed=22,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+        runner._enqueue_arrivals(students)
+
+        queued_snapshot = runner._snapshot()
+
+        self.assertEqual(
+            sorted(group["member_count"] for group in queued_snapshot["queue_groups"]),
+            [1, 1],
+        )
+        self.assertEqual({group["party_id"] for group in queued_snapshot["queue_groups"]}, {students[0].party_id})
+        self.assertEqual(queued_snapshot["table_occupancy"][0]["party_count"], 0)
+
+        party = runner.parties[students[0].party_id]
+        runner.queues = [[], []]
+        for student in students:
+            student.window_index = 0
+            student.service_end_time = 3
+        party.ready_time = 3
+        runner.waiting_for_seat.append(party)
+        runner._seat_waiting_students(minute=4)
+
+        seated_snapshot = runner._snapshot()
+
+        self.assertEqual(seated_snapshot["seated_parties"][0]["party_id"], students[0].party_id)
+        self.assertEqual(seated_snapshot["seated_parties"][0]["size"], 2)
+        self.assertEqual(seated_snapshot["seated_parties"][0]["table_id"], "T1")
+        self.assertEqual(seated_snapshot["table_occupancy"][0]["party_count"], 1)
+
     def test_party_seating_keeps_companions_at_one_table(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
