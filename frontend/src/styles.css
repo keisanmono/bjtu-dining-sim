@@ -503,17 +503,6 @@ input {
   stroke: #2f6b44;
 }
 
-.waiting-zone {
-  pointer-events: none;
-}
-
-.waiting-zone-shape {
-  fill: rgba(207, 139, 62, 0.05);
-  stroke: rgba(207, 139, 62, 0.32);
-  stroke-width: 0.7;
-  stroke-dasharray: 3 3;
-}
-
 .live-party-layer {
   pointer-events: none;
 }
@@ -540,24 +529,11 @@ input {
   opacity: 0.95;
 }
 
-.waiting-group .waiting-cluster .party-dot {
-  stroke: rgba(207, 139, 62, 0.85);
-  stroke-width: 0.7;
-}
-
-.waiting-group .waiting-overflow {
-  fill: rgba(44, 63, 85, 0.85);
-  stroke: rgba(15, 23, 42, 0.4);
-  stroke-width: 0.6;
-}
-
 .seated-group .seated-cluster .party-dot {
   stroke: rgba(47, 107, 68, 0.9);
   stroke-width: 0.6;
 }
 
-.queue-party,
-.waiting-party,
 .seated-party,
 .service-party {
   pointer-events: none;

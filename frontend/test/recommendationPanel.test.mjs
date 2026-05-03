@@ -205,16 +205,16 @@ test('live run renders the editable layout as a live dining map with party group
   assert.equal(mapSource.includes('layout-table'), true)
   assert.equal(mapSource.includes('table-occupancy'), true)
   assert.equal(mapSource.includes('party-group'), true)
-  // Queue capsules never render on the map. The detail panel below the SVG
-  // shows the queue when a window is selected.
+  // Queue and waiting parties are not painted on the map. The queue is shown
+  // in the detail panel below; the waiting count is reported by the metric card.
   assert.equal(mapSource.includes('queue-party'), false)
+  assert.equal(mapSource.includes('waiting-party'), false)
+  assert.equal(mapSource.includes('waiting-zone'), false)
   assert.equal(mapSource.includes('window-detail-panel'), true)
-  assert.equal(mapSource.includes('waiting-party'), true)
   assert.equal(mapSource.includes('seated-party'), true)
   assert.equal(mapSource.includes('party-link'), true)
   assert.equal(mapSource.includes('queue_groups'), true)
   assert.equal(mapSource.includes('seated_parties'), true)
-  assert.equal(mapSource.includes('waiting_parties'), true)
   assert.equal(mapSource.includes('seat_matrix'), false)
   assert.equal(mapSource.includes('<text'), false)
 

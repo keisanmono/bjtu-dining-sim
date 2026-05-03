@@ -42,17 +42,6 @@
         :height="floorBounds.bottom - floorBounds.y"
       />
 
-      <g class="waiting-zone">
-        <rect
-          class="waiting-zone-shape"
-          :x="waitingZone.x"
-          :y="waitingZone.y"
-          :width="waitingZone.width"
-          :height="waitingZone.height"
-          rx="6"
-        />
-      </g>
-
       <g
         v-for="door in doors"
         :key="door.id"
@@ -120,44 +109,6 @@
             :cy="dot.cy"
             r="3.2"
             :style="{ fill: dot.color }"
-          />
-        </g>
-
-        <g class="party-group waiting-group">
-          <g
-            v-for="cap in waitingMarkers.capsules"
-            :key="cap.key"
-            class="waiting-party waiting-cluster"
-            :transform="`translate(${cap.cx}, ${cap.cy})`"
-          >
-            <line
-              v-for="link in cap.links"
-              :key="link.key"
-              class="party-link"
-              :x1="link.x1"
-              :y1="link.y1"
-              :x2="link.x2"
-              :y2="link.y2"
-              :style="{ stroke: cap.color }"
-            />
-            <circle
-              v-for="dot in cap.dots"
-              :key="dot.key"
-              class="party-dot"
-              :cx="dot.x"
-              :cy="dot.y"
-              r="1.9"
-              :style="{ fill: cap.color }"
-            />
-          </g>
-          <rect
-            v-if="waitingMarkers.overflow"
-            class="waiting-overflow"
-            :x="waitingMarkers.overflow.x"
-            :y="waitingMarkers.overflow.y"
-            :width="waitingMarkers.overflow.width"
-            :height="waitingMarkers.overflow.height"
-            rx="3"
           />
         </g>
 
@@ -247,12 +198,6 @@ const props = defineProps({
   state: { type: Object, default: null }
 })
 
-const WAITING_VISIBLE_LIMIT = 8
-const WAITING_STEP = 16
-const WAITING_INSET = 36
-const WAITING_THICKNESS = 22
-const WAITING_OVERFLOW_LONG = 18
-const WAITING_OVERFLOW_SHORT = 8
 const DETAIL_CAPSULE_BASE_PX = 18
 const DETAIL_CAPSULE_INC_PX = 6
 
@@ -403,84 +348,6 @@ const serviceMarkers = computed(() => {
       }
     })
     .filter(Boolean)
-})
-
-const waitingZone = computed(() => {
-  const bounds = floorBounds.value
-  const door = doors.value[0]
-  let normal = { x: 0, y: 1 }
-  let baseX = (bounds.x + bounds.right) / 2
-  let baseY = bounds.bottom - WAITING_INSET
-  if (door) {
-    normal = wallNormal(door)
-    const footprint = getItemFootprint('door', door)
-    const half = (door.wall_side === 'left' || door.wall_side === 'right')
-      ? footprint.width / 2
-      : footprint.height / 2
-    baseX = door.x + normal.x * (half + WAITING_INSET)
-    baseY = door.y + normal.y * (half + WAITING_INSET)
-  }
-  const tangent = (Math.abs(normal.x) > Math.abs(normal.y))
-    ? { x: 0, y: 1 }
-    : { x: 1, y: 0 }
-  const length = Math.min(170, Math.max(96, (bounds.right - bounds.x) * 0.42))
-  const width = tangent.x !== 0 ? length : WAITING_THICKNESS
-  const height = tangent.y !== 0 ? length : WAITING_THICKNESS
-  const cx = clamp(baseX, bounds.x + width / 2 + 4, bounds.right - width / 2 - 4)
-  const cy = clamp(baseY, bounds.y + height / 2 + 4, bounds.bottom - height / 2 - 4)
-  return {
-    cx,
-    cy,
-    nx: normal.x,
-    ny: normal.y,
-    tx: tangent.x,
-    ty: tangent.y,
-    length,
-    width,
-    height,
-    x: cx - width / 2,
-    y: cy - height / 2
-  }
-})
-
-const waitingMarkers = computed(() => {
-  const zone = waitingZone.value
-  const groups = (snapshot.value.waiting_parties || []).map(normalizeGroup)
-  const visible = groups.slice(0, WAITING_VISIBLE_LIMIT)
-  const hidden = groups.slice(WAITING_VISIBLE_LIMIT)
-  const denominator = Math.max(1, visible.length - 1)
-  const step = visible.length > 1
-    ? Math.min(WAITING_STEP, (zone.length - 18) / denominator)
-    : 0
-  const offsetIdx = (visible.length - 1) / 2
-  const capsules = visible.map((group, idx) => {
-    const cx = zone.cx + zone.tx * (idx - offsetIdx) * step
-    const cy = zone.cy + zone.ty * (idx - offsetIdx) * step
-    const dots = clusterDots(group)
-    return {
-      key: `wait-${group.party_id}-${idx}`,
-      cx,
-      cy,
-      color: partyColor(group),
-      dots,
-      links: clusterLinks(dots)
-    }
-  })
-  let overflow = null
-  if (hidden.length) {
-    const idx = visible.length
-    const cx = zone.cx + zone.tx * (idx - offsetIdx) * step
-    const cy = zone.cy + zone.ty * (idx - offsetIdx) * step
-    const width = zone.tx !== 0 ? WAITING_OVERFLOW_LONG : WAITING_OVERFLOW_SHORT
-    const height = zone.ty !== 0 ? WAITING_OVERFLOW_LONG : WAITING_OVERFLOW_SHORT
-    overflow = {
-      x: cx - width / 2,
-      y: cy - height / 2,
-      width,
-      height
-    }
-  }
-  return { capsules, overflow }
 })
 
 const seatedClusters = computed(() => {

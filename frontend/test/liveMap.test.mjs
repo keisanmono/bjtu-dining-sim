@@ -25,10 +25,12 @@ test('live run page no longer renders the legacy seat matrix or seat-grid', () =
 test('LiveDiningMap consumes the structured snapshot fields from the backend', () => {
   assert.equal(mapSource.includes('queue_groups'), true)
   assert.equal(mapSource.includes('window_services'), true)
-  assert.equal(mapSource.includes('waiting_parties'), true)
   assert.equal(mapSource.includes('seated_parties'), true)
   assert.equal(mapSource.includes('table_occupancy'), true)
   assert.equal(mapSource.includes('busy_windows'), true)
+  // waiting_parties is intentionally not consumed: the metric card already
+  // shows the waiting count, so the map does not render those parties.
+  assert.equal(mapSource.includes('waiting_parties'), false)
 })
 
 test('LiveDiningMap is purely visual and never relies on <text> or seat matrix', () => {
@@ -36,27 +38,27 @@ test('LiveDiningMap is purely visual and never relies on <text> or seat matrix',
   assert.equal(mapSource.includes('seat_matrix'), false)
 })
 
-test('LiveDiningMap caps how many waiting glyphs it emits and bounds the queue panel', () => {
-  // The component must not flood the SVG with hundreds of points when arrival
-  // rate is high, so it bounds both the in-map waiting cohort and the panel queue.
+test('LiveDiningMap caps how many parties it emits and bounds the queue panel', () => {
+  // The queue cap lives in the model file (used by the detail panel).
   assert.match(modelSource, /QUEUE_VISIBLE_LIMIT\s*=\s*\d+/)
-  assert.match(mapSource, /WAITING_VISIBLE_LIMIT\s*=\s*\d+/)
   // overflow indicator for the queue lives in the detail panel, not the map.
   assert.equal(mapSource.includes('window-detail-overflow'), true)
-  assert.equal(mapSource.includes('waiting-overflow'), true)
 })
 
-test('LiveDiningMap renders only the non-queue layers as named groups in the SVG', () => {
-  // The map intentionally has no queue layer - queues live in the detail panel.
+test('LiveDiningMap renders only the seated and service layers as named groups', () => {
+  // No queue, no waiting parties on the map: queues live in the detail panel,
+  // and waiting count is reported by the metric card outside this component.
   assert.equal(mapSource.includes('queue-group'), false)
   assert.equal(mapSource.includes('queue-capsule'), false)
   assert.equal(mapSource.includes('queue-overflow'), false)
   assert.equal(mapSource.includes('selectedQueueRow'), false)
-  // The other live layers are still drawn on the map.
-  assert.equal(mapSource.includes('waiting-group'), true)
+  assert.equal(mapSource.includes('waiting-group'), false)
+  assert.equal(mapSource.includes('waiting-cluster'), false)
+  assert.equal(mapSource.includes('waiting-overflow'), false)
+  assert.equal(mapSource.includes('waiting-zone'), false)
+  // The remaining live layers are still drawn on the map.
   assert.equal(mapSource.includes('seated-group'), true)
   assert.equal(mapSource.includes('service-group'), true)
-  assert.equal(mapSource.includes('waiting-cluster'), true)
   assert.equal(mapSource.includes('seated-cluster'), true)
   assert.equal(mapSource.includes('service-mark'), true)
 })
@@ -123,11 +125,15 @@ test('LiveDiningMap renders the static layout layers without dragging', () => {
   assert.equal(mapSource.includes('live-layout-item'), true)
 })
 
-test('LiveDiningMap exposes a dedicated waiting zone shape between entrance and tables', () => {
-  assert.equal(mapSource.includes('waiting-zone'), true)
-  assert.equal(mapSource.includes('waiting-zone-shape'), true)
-  // The zone is positioned via doors when available.
-  assert.equal(mapSource.includes('doors.value[0]'), true)
+test('LiveDiningMap does not render a waiting zone or waiting parties', () => {
+  // The waiting-for-seat count is shown by the metric card outside this
+  // component, so the map should not duplicate it with shapes or clusters.
+  assert.equal(mapSource.includes('waiting-zone'), false)
+  assert.equal(mapSource.includes('waiting-zone-shape'), false)
+  assert.equal(mapSource.includes('waiting-party'), false)
+  assert.equal(mapSource.includes('waiting-cluster'), false)
+  assert.equal(mapSource.includes('waitingZone'), false)
+  assert.equal(mapSource.includes('waitingMarkers'), false)
 })
 
 test('busy windows can be highlighted by class and stylesheet', () => {
@@ -135,16 +141,12 @@ test('busy windows can be highlighted by class and stylesheet', () => {
   assert.equal(styleSource.includes('.layout-window.is-busy'), true)
 })
 
-test('styles.css declares the new live map layers with restrained visuals', () => {
+test('styles.css declares the live map layers with restrained visuals', () => {
   assert.equal(styleSource.includes('.live-dining-map'), true)
-  assert.equal(styleSource.includes('.waiting-group'), true)
   assert.equal(styleSource.includes('.seated-group'), true)
   assert.equal(styleSource.includes('.service-group'), true)
   assert.equal(styleSource.includes('.table-occupancy'), true)
-  assert.equal(styleSource.includes('.waiting-party'), true)
   assert.equal(styleSource.includes('.seated-party'), true)
-  assert.equal(styleSource.includes('.waiting-zone'), true)
-  assert.equal(styleSource.includes('.waiting-zone-shape'), true)
   assert.equal(styleSource.includes('.window-detail-panel'), true)
   assert.equal(styleSource.includes('.window-detail-capsule'), true)
   assert.equal(styleSource.includes('.window-detail-overflow'), true)
@@ -152,6 +154,10 @@ test('styles.css declares the new live map layers with restrained visuals', () =
   // The SVG queue layer is gone, so its dedicated rules should be gone too.
   assert.equal(styleSource.includes('.queue-group .queue-party .queue-capsule'), false)
   assert.equal(styleSource.includes('.queue-group .queue-overflow'), false)
+  // Same for waiting visuals: removed from styles since map no longer paints them.
+  assert.equal(styleSource.includes('.waiting-zone'), false)
+  assert.equal(styleSource.includes('.waiting-group'), false)
+  assert.equal(styleSource.includes('.waiting-overflow'), false)
 })
 
 test('styles.css drops the legacy heavy halo and noisy queue dot rules', () => {
