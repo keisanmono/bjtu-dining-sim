@@ -14,16 +14,16 @@ export const LAYOUT_DEFAULT_FLOOR = Object.freeze({
   height: LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y
 })
 export const LAYOUT_SIZE_LIMITS = Object.freeze({
-  width: Object.freeze({ min: 220, max: 960 }),
-  height: Object.freeze({ min: 320, max: 1280 }),
+  width: Object.freeze({ min: 220, max: null }),
+  height: Object.freeze({ min: 320, max: null }),
   step: 20
 })
 export const LAYOUT_VIEWPORT_MARGIN = 32
 export const LAYOUT_ZOOM_LIMITS = Object.freeze({
   minWidth: 140,
   minHeight: 120,
-  maxWidth: 1800,
-  maxHeight: 2200
+  maxWidth: null,
+  maxHeight: null
 })
 export const LAYOUT_MAX_EDITABLE_SEATS = 360
 export const LAYOUT_MAX_DOORS = 4
@@ -116,8 +116,8 @@ export function fitViewBoxForLayout(layout, margin = LAYOUT_VIEWPORT_MARGIN) {
 export function zoomViewBox(viewBox, factor, focusPoint) {
   const current = sanitizeViewBox(viewBox)
   const safeFactor = Math.max(0.2, Math.min(5, Number(factor) || 1))
-  const width = Math.min(LAYOUT_ZOOM_LIMITS.maxWidth, Math.max(LAYOUT_ZOOM_LIMITS.minWidth, current.width * safeFactor))
-  const height = Math.min(LAYOUT_ZOOM_LIMITS.maxHeight, Math.max(LAYOUT_ZOOM_LIMITS.minHeight, current.height * safeFactor))
+  const width = clampOptionalUpper(current.width * safeFactor, LAYOUT_ZOOM_LIMITS.minWidth, LAYOUT_ZOOM_LIMITS.maxWidth)
+  const height = clampOptionalUpper(current.height * safeFactor, LAYOUT_ZOOM_LIMITS.minHeight, LAYOUT_ZOOM_LIMITS.maxHeight)
   const focus = focusPoint || {
     x: current.x + current.width / 2,
     y: current.y + current.height / 2
@@ -860,13 +860,15 @@ function sanitizeFloorSize(floor = {}) {
 }
 
 function sanitizeViewBox(viewBox = {}) {
-  const width = Math.min(
-    LAYOUT_ZOOM_LIMITS.maxWidth,
-    Math.max(LAYOUT_ZOOM_LIMITS.minWidth, Number(viewBox.width) || LAYOUT_VIEWBOX.width)
+  const width = clampOptionalUpper(
+    Number(viewBox.width) || LAYOUT_VIEWBOX.width,
+    LAYOUT_ZOOM_LIMITS.minWidth,
+    LAYOUT_ZOOM_LIMITS.maxWidth
   )
-  const height = Math.min(
-    LAYOUT_ZOOM_LIMITS.maxHeight,
-    Math.max(LAYOUT_ZOOM_LIMITS.minHeight, Number(viewBox.height) || LAYOUT_VIEWBOX.height)
+  const height = clampOptionalUpper(
+    Number(viewBox.height) || LAYOUT_VIEWBOX.height,
+    LAYOUT_ZOOM_LIMITS.minHeight,
+    LAYOUT_ZOOM_LIMITS.maxHeight
   )
   return {
     x: Number.isFinite(Number(viewBox.x)) ? Number(viewBox.x) : 0,
@@ -891,8 +893,16 @@ function viewBoxScaleForClientRect(rect, viewBox) {
 
 function clampToStep(value, lower, upper, step, fallback = upper) {
   const raw = Number.isFinite(Number(value)) ? Number(value) : fallback
-  const bounded = Math.min(upper, Math.max(lower, raw))
-  return Math.min(upper, Math.max(lower, Math.round(bounded / step) * step))
+  const bounded = clampOptionalUpper(raw, lower, upper)
+  return clampOptionalUpper(Math.round(bounded / step) * step, lower, upper)
+}
+
+function clampOptionalUpper(value, lower, upper) {
+  const boundedLower = Math.max(lower, Number(value) || lower)
+  const numericUpper = upper === null || upper === undefined ? Number.NaN : Number(upper)
+  return Number.isFinite(numericUpper)
+    ? Math.min(numericUpper, boundedLower)
+    : boundedLower
 }
 
 function sanitizeFloorDimension(value, lower, upper, step, fallback) {

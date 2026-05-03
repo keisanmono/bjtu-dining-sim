@@ -8,6 +8,7 @@ import {
   LAYOUT_SIZE_LIMITS,
   LAYOUT_VIEWBOX,
   LAYOUT_VIEWPORT_MARGIN,
+  LAYOUT_ZOOM_LIMITS,
   TABLE_CAPACITY_OPTIONS,
   LAYOUT_MAX_EDITABLE_SEATS,
   adjustLayoutDoorCount,
@@ -338,6 +339,38 @@ test('floor resize handles can grow the cafeteria beyond the default viewport fr
   assert.equal(after.y, before.y)
   assert.equal(resized.floor.width % LAYOUT_SIZE_LIMITS.step, 0)
   assert.equal(resized.floor.height % LAYOUT_SIZE_LIMITS.step, 0)
+})
+
+test('floor resize is not capped by a fixed maximum cafeteria size', () => {
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
+  const oversized = resizeLayoutFloor(layout, {
+    width: 2200,
+    height: 2600
+  })
+  const before = floorBoundsForLayout(oversized)
+  const draggedLarger = resizeLayoutFloorFromHandle(
+    oversized,
+    'corner',
+    before.x + 2840,
+    before.y + 3120
+  )
+
+  assert.equal(LAYOUT_SIZE_LIMITS.width.max, null)
+  assert.equal(LAYOUT_SIZE_LIMITS.height.max, null)
+  assert.equal(oversized.floor.width, 2200)
+  assert.equal(oversized.floor.height, 2600)
+  assert.equal(draggedLarger.floor.width, 2840)
+  assert.equal(draggedLarger.floor.height, 3120)
+})
+
+test('zoomViewBox can zoom out past the old fixed viewport ceiling', () => {
+  const initial = { x: 0, y: 0, width: 2200, height: 2600 }
+  const zoomed = zoomViewBox(initial, 1.5, { x: 1100, y: 1300 })
+
+  assert.equal(LAYOUT_ZOOM_LIMITS.maxWidth, null)
+  assert.equal(LAYOUT_ZOOM_LIMITS.maxHeight, null)
+  assert.equal(zoomed.width, 3300)
+  assert.equal(zoomed.height, 3900)
 })
 
 test('clientPointToViewBoxPoint accounts for centered SVG letterboxing', () => {

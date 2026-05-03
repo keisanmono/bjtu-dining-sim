@@ -15,20 +15,20 @@
           <el-input-number
             :model-value="floorSize.width"
             :min="LAYOUT_SIZE_LIMITS.width.min"
-            :max="LAYOUT_SIZE_LIMITS.width.max"
             :step="LAYOUT_SIZE_LIMITS.step"
             size="small"
             controls-position="right"
+            data-size-policy="floor width has no fixed max"
             @change="changeFloorSize('width', $event)"
           />
           <span>食堂深度</span>
           <el-input-number
             :model-value="floorSize.height"
             :min="LAYOUT_SIZE_LIMITS.height.min"
-            :max="LAYOUT_SIZE_LIMITS.height.max"
             :step="LAYOUT_SIZE_LIMITS.step"
             size="small"
             controls-position="right"
+            data-size-policy="floor height has no fixed max"
             @change="changeFloorSize('height', $event)"
           />
           <el-tag size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
