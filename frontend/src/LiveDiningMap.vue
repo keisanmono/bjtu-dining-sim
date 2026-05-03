@@ -77,26 +77,28 @@
         :class="[`capacity-${table.capacity}`, { 'has-occupancy': tableOccupancyFor(table, tableIndex).occupied > 0 }]"
         :transform="`translate(${table.x}, ${table.y})`"
       >
-        <rect
-          v-for="(chair, chairIndex) in chairLayoutFor(table)"
-          :key="chair.key"
-          class="dining-chair table-seat"
-          :class="{ 'is-occupied': isChairOccupied(table, chairIndex, tableIndex) }"
-          :x="chair.x"
-          :y="chair.y"
-          :width="chair.width"
-          :height="chair.height"
-          rx="2"
-        />
-        <rect
-          class="table-top"
-          :class="{ 'has-occupancy': tableOccupancyFor(table, tableIndex).occupied > 0 }"
-          :x="-tableTopFor(table).width / 2"
-          :y="-tableTopFor(table).height / 2"
-          :width="tableTopFor(table).width"
-          :height="tableTopFor(table).height"
-          rx="4"
-        />
+        <g class="table-shape" :transform="tableTransformFor(table)">
+          <rect
+            v-for="(chair, chairIndex) in chairLayoutFor(table)"
+            :key="chair.key"
+            class="dining-chair table-seat"
+            :class="{ 'is-occupied': isChairOccupied(table, chairIndex, tableIndex) }"
+            :x="chair.x"
+            :y="chair.y"
+            :width="chair.width"
+            :height="chair.height"
+            rx="2"
+          />
+          <rect
+            class="table-top"
+            :class="{ 'has-occupancy': tableOccupancyFor(table, tableIndex).occupied > 0 }"
+            :x="-tableTopFor(table).width / 2"
+            :y="-tableTopFor(table).height / 2"
+            :width="tableTopFor(table).width"
+            :height="tableTopFor(table).height"
+            rx="4"
+          />
+        </g>
       </g>
 
       <g class="live-party-layer">
@@ -182,6 +184,7 @@ import {
   fitViewBoxForLayout,
   floorBoundsForLayout,
   getItemFootprint,
+  normalizeTableRotation,
   tableChairRectsForCapacity,
   tableTopForCapacity
 } from './layoutEditor.js'
@@ -438,6 +441,10 @@ function tableTopFor(table) {
 
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
+}
+
+function tableTransformFor(table) {
+  return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
 function tableOccupancyFor(table, index = 0) {

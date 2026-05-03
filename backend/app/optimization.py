@@ -151,6 +151,7 @@ def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> D
                         y=existing.y,
                         table_type=default_table.table_type,
                         capacity=default_table.capacity,
+                        rotation=existing.rotation,
                     )
                 )
             else:

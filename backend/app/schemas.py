@@ -33,6 +33,7 @@ class LayoutTable(BaseModel):
     y: float
     table_type: str = "four_seat"
     capacity: int = Field(default=4, ge=1)
+    rotation: int = 0
 
 
 class DiningLayout(BaseModel):

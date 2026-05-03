@@ -84,14 +84,17 @@ class ApiTests(unittest.TestCase):
                     {"id": "rice", "x": 220, "y": 88, "service_rate_factor": 1.2},
                 ],
                 "tables": [
-                    {"id": "solo-1", "x": 148, "y": 238, "table_type": "two_seat", "capacity": 2},
+                    {"id": "solo-1", "x": 148, "y": 238, "table_type": "two_seat", "capacity": 2, "rotation": 90},
                     {"id": "group-1", "x": 226, "y": 238, "table_type": "four_seat", "capacity": 4},
                 ],
             },
             "party_size_distribution": {"1": 0.5, "2": 0.5},
         }
 
-        body = run_full_simulation(SimulationConfig(**config)).model_dump()
+        config_model = SimulationConfig(**config)
+        self.assertEqual(config_model.to_data().layout.tables[0].rotation, 90)
+
+        body = run_full_simulation(config_model).model_dump()
 
         self.assertEqual(body["final_state"]["table_occupancy"][0]["id"], "solo-1")
         self.assertEqual(body["final_state"]["table_occupancy"][1]["type"], "four_seat")

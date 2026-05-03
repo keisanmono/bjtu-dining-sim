@@ -32,6 +32,7 @@ export const LAYOUT_MAX_DOORS = 4
 export const LAYOUT_ITEM_GAP = 2
 
 export const TABLE_CAPACITY_OPTIONS = [2, 4, 6]
+export const TABLE_ROTATION_OPTIONS = [0, 90]
 
 const TABLE_PATTERN = [2, 4, 4, 6]
 const DENSE_TABLE_THRESHOLD_SEATS = 120
@@ -177,11 +178,16 @@ export function getItemFootprint(kind, item) {
   if (kind === 'door') return wallFootprintFor('door', item)
   if (kind === 'table') {
     const capacity = Math.max(1, Number(item?.capacity) || 1)
-    if (capacity <= 2) return FOOTPRINTS.table[2]
-    if (capacity <= 4) return FOOTPRINTS.table[4]
-    return FOOTPRINTS.table[6]
+    if (capacity <= 2) return rotatedFootprint(FOOTPRINTS.table[2], item)
+    if (capacity <= 4) return rotatedFootprint(FOOTPRINTS.table[4], item)
+    return rotatedFootprint(FOOTPRINTS.table[6], item)
   }
   return { width: 20, height: 20 }
+}
+
+export function normalizeTableRotation(rotation) {
+  const normalized = ((Math.round(Number(rotation) || 0) % 180) + 180) % 180
+  return normalized >= 45 && normalized < 135 ? 90 : 0
 }
 
 export function tableTopForCapacity(capacity) {
@@ -503,6 +509,7 @@ function placeTablesForSeats(layout, numSeats) {
       id,
       capacity,
       table_type: tableTypeForCapacity(capacity),
+      rotation: 0,
       ...point
     })
   }
@@ -550,6 +557,7 @@ function findGreedyTableCandidate(layout, tables, id, capacity, startIndex = 0, 
       id,
       capacity,
       table_type: tableTypeForCapacity(capacity),
+      rotation: 0,
       ...point,
       candidateIndex
     }
@@ -665,7 +673,8 @@ export function arrangeLayoutTables(layout, mode = 'spread') {
   const tables = (layout?.tables || []).map((table, index) => ({
     ...table,
     id: table.id || `T${index + 1}`,
-    table_type: table.table_type || tableTypeForCapacity(table.capacity)
+    table_type: table.table_type || tableTypeForCapacity(table.capacity),
+    rotation: normalizeTableRotation(table.rotation)
   }))
   if (!tables.length) return layout
   const baseLayout = {
@@ -752,6 +761,7 @@ export function resizeLayoutFloor(layout, floorSize, options = {}) {
     return {
       ...table,
       id,
+      rotation: normalizeTableRotation(table.rotation),
       ...point
     }
   })
@@ -804,17 +814,39 @@ export function setTableCapacity(layout, id, capacity) {
   const bounds = floorBoundsForLayout(layout)
   const tables = (layout?.tables || []).map((table) => {
     if (table.id !== id) return table
-    const point = snapAndClampPoint(table.x, table.y, 'table', { ...table, capacity: sanitized }, bounds)
-    if (itemOverlapsLayout(layout, 'table', id, point.x, point.y, { ...table, capacity: sanitized })) {
+    const candidate = { ...table, capacity: sanitized, rotation: normalizeTableRotation(table.rotation) }
+    const point = snapAndClampPoint(table.x, table.y, 'table', candidate, bounds)
+    if (itemOverlapsLayout(layout, 'table', id, point.x, point.y, candidate)) {
       return table
     }
     return {
       ...table,
       capacity: sanitized,
       table_type: tableTypeForCapacity(sanitized),
+      rotation: candidate.rotation,
       x: point.x,
       y: point.y
     }
+  })
+  return { ...layout, tables }
+}
+
+export function setTableRotation(layout, id, rotation) {
+  const sanitized = normalizeTableRotation(rotation)
+  const bounds = floorBoundsForLayout(layout)
+  const tables = (layout?.tables || []).map((table) => {
+    if (table.id !== id) return table
+    const candidate = { ...table, rotation: sanitized }
+    const point = snapAndClampPoint(table.x, table.y, 'table', candidate, bounds)
+    const moved = {
+      ...candidate,
+      x: point.x,
+      y: point.y
+    }
+    if (itemOverlapsLayout(layout, 'table', id, moved.x, moved.y, moved)) {
+      return table
+    }
+    return moved
   })
   return { ...layout, tables }
 }
@@ -1091,7 +1123,7 @@ function boxesOverlapAny(leftBoxes, rightBoxes) {
 
 function tableShapeRects(table) {
   const top = tableTopForCapacity(table?.capacity)
-  return [
+  const rects = [
     {
       key: 'top',
       x: -top.width / 2,
@@ -1101,6 +1133,7 @@ function tableShapeRects(table) {
     },
     ...tableChairRectsForCapacity(table?.capacity)
   ]
+  return rects.map((rect) => rotateLocalRect(rect, normalizeTableRotation(table?.rotation)))
 }
 
 function localRectToBox(item, rect) {
@@ -1110,6 +1143,35 @@ function localRectToBox(item, rect) {
     top: item.y + rect.y,
     bottom: item.y + rect.y + rect.height
   }
+}
+
+function rotatedFootprint(footprint, item) {
+  return normalizeTableRotation(item?.rotation) === 90
+    ? { width: footprint.height, height: footprint.width }
+    : footprint
+}
+
+function rotateLocalRect(rect, rotation) {
+  if (rotation !== 90) return rect
+  const corners = [
+    rotatePoint(rect.x, rect.y),
+    rotatePoint(rect.x + rect.width, rect.y),
+    rotatePoint(rect.x, rect.y + rect.height),
+    rotatePoint(rect.x + rect.width, rect.y + rect.height)
+  ]
+  const xs = corners.map((point) => point.x)
+  const ys = corners.map((point) => point.y)
+  return {
+    ...rect,
+    x: Math.min(...xs),
+    y: Math.min(...ys),
+    width: Math.max(...xs) - Math.min(...xs),
+    height: Math.max(...ys) - Math.min(...ys)
+  }
+}
+
+function rotatePoint(x, y) {
+  return { x: -y, y: x }
 }
 
 function snapWallItemPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {

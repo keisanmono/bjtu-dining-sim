@@ -159,7 +159,7 @@ class DiningSimulationTests(unittest.TestCase):
                 LayoutWindowData(id="W2", x=230, y=75),
             ],
             tables=[
-                LayoutTableData(id="T1", x=90, y=280, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T1", x=90, y=280, table_type="two_seat", capacity=2, rotation=90),
                 LayoutTableData(id="T2", x=170, y=280, table_type="four_seat", capacity=4),
             ],
         )
@@ -189,6 +189,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(candidate_layout.doors[0].x, 35)
         self.assertEqual(candidate_layout.windows[0].x, 145)
         self.assertEqual(candidate_layout.tables[0].x, 90)
+        self.assertEqual(candidate_layout.tables[0].rotation, 90)
 
     def test_recommendation_keeps_custom_table_types_when_seat_count_is_unchanged(self):
         layout = DiningLayoutData(

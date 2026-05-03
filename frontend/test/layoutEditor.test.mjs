@@ -33,6 +33,7 @@ import {
   resizeLayoutFloorFromHandle,
   setItemPosition,
   setTableCapacity,
+  setTableRotation,
   snapAndClampPoint,
   snapToGrid,
   tableTypeForCapacity,
@@ -195,6 +196,19 @@ test('table collisions still trigger when visible table parts intersect', () => 
   assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, first), true)
 })
 
+test('rotated tables swap their footprint and collision shape', () => {
+  const first = { id: 'T1', capacity: 4, table_type: 'four_seat', x: 100, y: 100, rotation: 0 }
+  const second = { id: 'T2', capacity: 4, table_type: 'four_seat', x: 100, y: 155, rotation: 0 }
+  const layout = { doors: [], windows: [], tables: [first, second] }
+  const unrotated = getItemFootprint('table', first)
+  const rotated = getItemFootprint('table', { ...first, rotation: 90 })
+
+  assert.equal(rotated.width, unrotated.height)
+  assert.equal(rotated.height, unrotated.width)
+  assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, first), false)
+  assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, { ...first, rotation: 90 }), true)
+})
+
 test('setTableCapacity rounds to a supported size and updates table_type', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 16 })
   const tableId = layout.tables[0].id
@@ -220,6 +234,21 @@ test('setTableCapacity keeps a larger table inside the editable bounds', () => {
   assert.ok(found.y <= LAYOUT_BOUNDS.bottom - fp.height / 2)
   assert.equal(found.x % LAYOUT_GRID_STEP, 0)
   assert.equal(found.y % LAYOUT_GRID_STEP, 0)
+})
+
+test('setTableRotation rotates a table and keeps it inside the active floor', () => {
+  const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
+  const tableId = layout.tables[0].id
+  const moved = setItemPosition(layout, 'table', tableId, LAYOUT_BOUNDS.right, LAYOUT_BOUNDS.bottom)
+
+  const rotated = setTableRotation(moved, tableId, 90)
+  const found = findItem(rotated, 'table', tableId)
+  const fp = getItemFootprint('table', found)
+
+  assert.equal(found.rotation, 90)
+  assert.ok(found.x <= LAYOUT_BOUNDS.right - fp.width / 2)
+  assert.ok(found.y <= LAYOUT_BOUNDS.bottom - fp.height / 2)
+  assert.equal(itemOverlapsLayout(rotated, 'table', tableId, found.x, found.y, found), false)
 })
 
 test('adjustLayoutDoorCount appends and trims entrances while preserving existing positions', () => {
@@ -520,7 +549,8 @@ test('drag-edited layout flows into the simulation payload coordinates', () => {
   const draggedDoor = setItemPosition(layout, 'door', layout.doors[0].id, 307, 548)
   const draggedWindow = setItemPosition(draggedDoor, 'window', layout.windows[0].id, 192, 88)
   const draggedTable = setItemPosition(draggedWindow, 'table', layout.tables[0].id, 264, 304)
-  const finalLayout = setTableCapacity(draggedTable, draggedTable.tables[1].id, 6)
+  const resizedTable = setTableCapacity(draggedTable, draggedTable.tables[1].id, 6)
+  const finalLayout = setTableRotation(resizedTable, resizedTable.tables[0].id, 90)
 
   const payload = buildSimulationConfigPayload(
     {
@@ -549,6 +579,7 @@ test('drag-edited layout flows into the simulation payload coordinates', () => {
   assert.equal(payload.layout.windows[0].wall_side, 'top')
   assert.equal(payload.layout.tables[0].x, 260)
   assert.equal(payload.layout.tables[0].y, 300)
+  assert.equal(payload.layout.tables[0].rotation, 90)
   // Capacity edits are propagated into the payload too.
   const reconfiguredTable = payload.layout.tables[1]
   assert.equal(reconfiguredTable.capacity, 6)

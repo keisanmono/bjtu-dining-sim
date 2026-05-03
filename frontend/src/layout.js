@@ -1,6 +1,7 @@
 import {
   buildTableCapacities,
   createDefaultLayout,
+  normalizeTableRotation,
   tableTypeForCapacity,
   totalLayoutSeats
 } from './layoutEditor.js'
@@ -64,7 +65,8 @@ function normalizeLayout(layout) {
       x: round1(table.x),
       y: round1(table.y),
       capacity,
-      table_type: table.table_type || tableTypeForCapacity(capacity)
+      table_type: table.table_type || tableTypeForCapacity(capacity),
+      rotation: normalizeTableRotation(table.rotation)
     }
   })
   return { doors, windows, tables }

@@ -91,6 +91,7 @@
         </div>
         <div v-if="selectedTable" class="layout-control-group layout-table-controls" aria-label="餐桌设置">
           <span class="layout-control-heading">餐桌</span>
+          <el-button size="small" :icon="RefreshRight" @click="rotateSelectedTable">旋转餐桌</el-button>
           <el-select
             :model-value="selectedTable.capacity"
             size="small"
@@ -264,24 +265,26 @@
           v-bind="itemHitRectFor('table', table)"
           rx="8"
         />
-        <rect
-          v-for="chair in chairLayoutFor(table)"
-          :key="chair.key"
-          class="dining-chair"
-          :x="chair.x"
-          :y="chair.y"
-          :width="chair.width"
-          :height="chair.height"
-          rx="2"
-        />
-        <rect
-          class="table-top"
-          :x="-tableTopFor(table).width / 2"
-          :y="-tableTopFor(table).height / 2"
-          :width="tableTopFor(table).width"
-          :height="tableTopFor(table).height"
-          rx="4"
-        />
+        <g class="table-shape" :transform="tableTransformFor(table)">
+          <rect
+            v-for="chair in chairLayoutFor(table)"
+            :key="chair.key"
+            class="dining-chair"
+            :x="chair.x"
+            :y="chair.y"
+            :width="chair.width"
+            :height="chair.height"
+            rx="2"
+          />
+          <rect
+            class="table-top"
+            :x="-tableTopFor(table).width / 2"
+            :y="-tableTopFor(table).height / 2"
+            :width="tableTopFor(table).width"
+            :height="tableTopFor(table).height"
+            rx="4"
+          />
+        </g>
       </g>
     </svg>
 
@@ -290,7 +293,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { FullScreen, Operation, Rank, Refresh, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
+import { FullScreen, Operation, Rank, Refresh, RefreshRight, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import {
   LAYOUT_DEFAULT_FLOOR,
   LAYOUT_GRID_STEP,
@@ -307,10 +310,12 @@ import {
   getItemFootprint,
   itemOverlapsLayout,
   maxFloorDimensionForArea,
+  normalizeTableRotation,
   resizeLayoutFloor,
   resizeLayoutFloorFromHandle,
   setItemPosition,
   setTableCapacity,
+  setTableRotation,
   tableChairRectsForCapacity,
   tableTopForCapacity,
   totalLayoutSeats,
@@ -466,6 +471,10 @@ function tableTopFor(table) {
 
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
+}
+
+function tableTransformFor(table) {
+  return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
 function clientToSvgPoint(clientX, clientY) {
@@ -635,6 +644,13 @@ function fitViewportToLayout() {
 function onSelectedCapacityChange(value) {
   if (!selectedTable.value) return
   const next = setTableCapacity(props.layout, selectedTable.value.id, Number(value))
+  emit('update:layout', next)
+}
+
+function rotateSelectedTable() {
+  if (!selectedTable.value) return
+  const nextRotation = Number(selectedTable.value.rotation) === 90 ? 0 : 90
+  const next = setTableRotation(props.layout, selectedTable.value.id, nextRotation)
   emit('update:layout', next)
 }
 

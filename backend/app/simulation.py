@@ -30,6 +30,7 @@ class LayoutTableData:
     y: float
     table_type: str = "four_seat"
     capacity: int = 4
+    rotation: int = 0
 
 
 @dataclass(frozen=True)
