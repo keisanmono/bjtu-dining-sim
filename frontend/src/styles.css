@@ -81,7 +81,7 @@ input {
 }
 
 .layout-page-panel {
-  width: min(840px, 100%);
+  width: min(1180px, 100%);
 }
 
 .run-layout,
@@ -219,7 +219,8 @@ input {
 .dining-floor-plan {
   display: block;
   width: 100%;
-  aspect-ratio: 360 / 640;
+  height: min(72vh, 760px);
+  min-height: 520px;
   border-radius: 8px;
   background: #f8faf7;
   touch-action: none;
@@ -286,21 +287,18 @@ input {
   gap: 6px;
 }
 
+.layout-viewport-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .layout-capacity-select {
   width: 110px;
 }
 
-.layout-editor-hint {
-  margin: 0;
-  color: #6b7b8f;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
 .floor-fill {
   fill: #f8faf7;
-  stroke: #aebdcc;
-  stroke-width: 2;
 }
 
 .floor-grid {
@@ -319,6 +317,29 @@ input {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 4;
+}
+
+.layout-resize-handle {
+  fill: #fff;
+  stroke: #1f4f85;
+  stroke-width: 1.5;
+  opacity: 0.92;
+}
+
+.layout-resize-handle:hover {
+  fill: #dbeafe;
+}
+
+.layout-resize-handle.is-right {
+  cursor: ew-resize;
+}
+
+.layout-resize-handle.is-bottom {
+  cursor: ns-resize;
+}
+
+.layout-resize-handle.is-corner {
+  cursor: nwse-resize;
 }
 
 .layout-item {
@@ -626,6 +647,7 @@ input {
   }
 
   .dining-floor-plan {
+    height: 560px;
     min-height: 0;
   }
 

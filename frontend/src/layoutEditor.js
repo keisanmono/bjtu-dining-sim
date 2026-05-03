@@ -1,23 +1,31 @@
 // Pure helpers for the editable cafeteria floor plan.
 //
-// Coordinates use the SVG viewBox 0 0 360 640. Each draggable item stores
-// its center coordinates. Items are kept inside `LAYOUT_BOUNDS` (the inner
-// floor area) and snapped to a fixed grid step so dragging produces clean,
-// reproducible positions that the backend simulation can interpret.
+// Coordinates live in the cafeteria world space. LAYOUT_VIEWBOX is only the
+// default camera frame; the floor can be larger than it and the SVG viewport
+// can pan/zoom over that world space.
 
 export const LAYOUT_VIEWBOX = Object.freeze({ width: 360, height: 640 })
 export const LAYOUT_GRID_STEP = 10
 export const LAYOUT_BOUNDS = Object.freeze({ x: 24, y: 24, right: 336, bottom: 616 })
 export const LAYOUT_DEFAULT_FLOOR = Object.freeze({
+  x: LAYOUT_BOUNDS.x,
+  y: LAYOUT_BOUNDS.y,
   width: LAYOUT_BOUNDS.right - LAYOUT_BOUNDS.x,
   height: LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y
 })
 export const LAYOUT_SIZE_LIMITS = Object.freeze({
-  width: Object.freeze({ min: 220, max: LAYOUT_DEFAULT_FLOOR.width }),
-  height: Object.freeze({ min: 320, max: LAYOUT_DEFAULT_FLOOR.height }),
+  width: Object.freeze({ min: 220, max: 960 }),
+  height: Object.freeze({ min: 320, max: 1280 }),
   step: 20
 })
-export const LAYOUT_MAX_EDITABLE_SEATS = 180
+export const LAYOUT_VIEWPORT_MARGIN = 32
+export const LAYOUT_ZOOM_LIMITS = Object.freeze({
+  minWidth: 140,
+  minHeight: 120,
+  maxWidth: 1800,
+  maxHeight: 2200
+})
+export const LAYOUT_MAX_EDITABLE_SEATS = 360
 export const LAYOUT_MAX_DOORS = 4
 export const LAYOUT_ITEM_GAP = 2
 
@@ -79,13 +87,46 @@ export function normalizeSeatCount(value, upper = LAYOUT_MAX_EDITABLE_SEATS) {
 
 export function floorBoundsForLayout(layout) {
   const floor = sanitizeFloorSize(layout?.floor || layout)
-  const x = (LAYOUT_VIEWBOX.width - floor.width) / 2
-  const y = (LAYOUT_VIEWBOX.height - floor.height) / 2
   return {
-    x,
-    y,
-    right: x + floor.width,
-    bottom: y + floor.height
+    x: floor.x,
+    y: floor.y,
+    right: floor.x + floor.width,
+    bottom: floor.y + floor.height
+  }
+}
+
+export function fitViewBoxForLayout(layout, margin = LAYOUT_VIEWPORT_MARGIN) {
+  const bounds = floorBoundsForLayout(layout)
+  const floorWidth = bounds.right - bounds.x
+  const floorHeight = bounds.bottom - bounds.y
+  const width = Math.max(LAYOUT_VIEWBOX.width, floorWidth + margin * 2)
+  const height = Math.max(LAYOUT_VIEWBOX.height, floorHeight + margin * 2)
+  const centerX = bounds.x + floorWidth / 2
+  const centerY = bounds.y + floorHeight / 2
+  return {
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height
+  }
+}
+
+export function zoomViewBox(viewBox, factor, focusPoint) {
+  const current = sanitizeViewBox(viewBox)
+  const safeFactor = Math.max(0.2, Math.min(5, Number(factor) || 1))
+  const width = Math.min(LAYOUT_ZOOM_LIMITS.maxWidth, Math.max(LAYOUT_ZOOM_LIMITS.minWidth, current.width * safeFactor))
+  const height = Math.min(LAYOUT_ZOOM_LIMITS.maxHeight, Math.max(LAYOUT_ZOOM_LIMITS.minHeight, current.height * safeFactor))
+  const focus = focusPoint || {
+    x: current.x + current.width / 2,
+    y: current.y + current.height / 2
+  }
+  const ratioX = (focus.x - current.x) / current.width
+  const ratioY = (focus.y - current.y) / current.height
+  return {
+    x: focus.x - ratioX * width,
+    y: focus.y - ratioY * height,
+    width,
+    height
   }
 }
 
@@ -450,7 +491,45 @@ export function resizeLayoutFloor(layout, floorSize) {
     })
   })
   draft = { ...draft, windows }
-  return rebuildLayoutTablesForSeats(draft, Math.min(totalLayoutSeats(layout), calculateLayoutSeatLimit(draft)))
+  const tables = []
+  ;(layout?.tables || []).forEach((table, index) => {
+    const id = table.id || `T${index + 1}`
+    const point = snapAndClampPoint(table.x, table.y, 'table', table, floorBoundsForLayout(draft))
+    const moved = {
+      ...table,
+      id,
+      ...point
+    }
+    const candidate = { ...draft, tables }
+    if (!itemOverlapsLayout(candidate, 'table', id, moved.x, moved.y, moved)) {
+      tables.push(moved)
+    }
+  })
+  const resized = { ...draft, tables }
+  if (totalLayoutSeats(resized) === totalLayoutSeats(layout)) {
+    return resized
+  }
+  return rebuildLayoutTablesForSeats(resized, Math.min(totalLayoutSeats(layout), calculateLayoutSeatLimit(resized)))
+}
+
+export function resizeLayoutFloorFromHandle(layout, handle, pointerX, pointerY) {
+  const bounds = floorBoundsForLayout(layout)
+  const floor = sanitizeFloorSize(layout?.floor)
+  const handleName = String(handle || 'corner')
+  let width = floor.width
+  let height = floor.height
+  if (handleName === 'right' || handleName === 'corner' || handleName === 'bottom-right') {
+    width = snapFloorExtent(pointerX - bounds.x, LAYOUT_SIZE_LIMITS.width.min, LAYOUT_SIZE_LIMITS.width.max)
+  }
+  if (handleName === 'bottom' || handleName === 'corner' || handleName === 'bottom-right') {
+    height = snapFloorExtent(pointerY - bounds.y, LAYOUT_SIZE_LIMITS.height.min, LAYOUT_SIZE_LIMITS.height.max)
+  }
+  return resizeLayoutFloor(layout, {
+    x: bounds.x,
+    y: bounds.y,
+    width,
+    height
+  })
 }
 
 export function setItemPosition(layout, kind, id, x, y, options = {}) {
@@ -472,9 +551,10 @@ export function setItemPosition(layout, kind, id, x, y, options = {}) {
 
 export function setTableCapacity(layout, id, capacity) {
   const sanitized = sanitizeCapacity(capacity)
+  const bounds = floorBoundsForLayout(layout)
   const tables = (layout?.tables || []).map((table) => {
     if (table.id !== id) return table
-    const point = snapAndClampPoint(table.x, table.y, 'table', { ...table, capacity: sanitized })
+    const point = snapAndClampPoint(table.x, table.y, 'table', { ...table, capacity: sanitized }, bounds)
     if (itemOverlapsLayout(layout, 'table', id, point.x, point.y, { ...table, capacity: sanitized })) {
       return table
     }
@@ -547,17 +627,66 @@ function floorSizeFromConfig(config) {
 }
 
 function sanitizeFloorSize(floor = {}) {
+  const width = sanitizeFloorDimension(
+    floor.width,
+    LAYOUT_SIZE_LIMITS.width.min,
+    LAYOUT_SIZE_LIMITS.width.max,
+    LAYOUT_SIZE_LIMITS.step,
+    LAYOUT_DEFAULT_FLOOR.width
+  )
+  const height = sanitizeFloorDimension(
+    floor.height,
+    LAYOUT_SIZE_LIMITS.height.min,
+    LAYOUT_SIZE_LIMITS.height.max,
+    LAYOUT_SIZE_LIMITS.step,
+    LAYOUT_DEFAULT_FLOOR.height
+  )
   return {
-    width: clampToStep(floor.width, LAYOUT_SIZE_LIMITS.width.min, LAYOUT_SIZE_LIMITS.width.max, LAYOUT_SIZE_LIMITS.step),
-    height: clampToStep(floor.height, LAYOUT_SIZE_LIMITS.height.min, LAYOUT_SIZE_LIMITS.height.max, LAYOUT_SIZE_LIMITS.step)
+    x: snapOptional(floor.x, (LAYOUT_VIEWBOX.width - width) / 2),
+    y: snapOptional(floor.y, (LAYOUT_VIEWBOX.height - height) / 2),
+    width,
+    height
   }
 }
 
-function clampToStep(value, lower, upper, step) {
-  const fallback = upper
+function sanitizeViewBox(viewBox = {}) {
+  const width = Math.min(
+    LAYOUT_ZOOM_LIMITS.maxWidth,
+    Math.max(LAYOUT_ZOOM_LIMITS.minWidth, Number(viewBox.width) || LAYOUT_VIEWBOX.width)
+  )
+  const height = Math.min(
+    LAYOUT_ZOOM_LIMITS.maxHeight,
+    Math.max(LAYOUT_ZOOM_LIMITS.minHeight, Number(viewBox.height) || LAYOUT_VIEWBOX.height)
+  )
+  return {
+    x: Number.isFinite(Number(viewBox.x)) ? Number(viewBox.x) : 0,
+    y: Number.isFinite(Number(viewBox.y)) ? Number(viewBox.y) : 0,
+    width,
+    height
+  }
+}
+
+function clampToStep(value, lower, upper, step, fallback = upper) {
   const raw = Number.isFinite(Number(value)) ? Number(value) : fallback
   const bounded = Math.min(upper, Math.max(lower, raw))
   return Math.min(upper, Math.max(lower, Math.round(bounded / step) * step))
+}
+
+function sanitizeFloorDimension(value, lower, upper, step, fallback) {
+  const raw = Number(value)
+  if (!Number.isFinite(raw)) return fallback
+  if (raw === fallback) return fallback
+  return clampToStep(raw, lower, upper, step, fallback)
+}
+
+function snapFloorExtent(value, lower, upper) {
+  return clampToStep(value, lower, upper, LAYOUT_SIZE_LIMITS.step)
+}
+
+function snapOptional(value, fallback) {
+  const raw = Number(value)
+  if (!Number.isFinite(raw)) return fallback
+  return raw
 }
 
 function toEven(value) {
@@ -618,13 +747,13 @@ function snapWallItemPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   if (wallSide === 'top') {
     return {
       x: snapInsideRange(x, bounds.x + halfW, bounds.right - halfW),
-      y: bounds.y + halfH,
+      y: snapToGrid(bounds.y + halfH),
       wall_side: wallSide
     }
   }
   if (wallSide === 'right') {
     return {
-      x: bounds.right - halfW,
+      x: snapToGrid(bounds.right - halfW),
       y: snapInsideRange(y, bounds.y + halfH, bounds.bottom - halfH),
       wall_side: wallSide
     }
@@ -632,12 +761,12 @@ function snapWallItemPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   if (wallSide === 'bottom') {
     return {
       x: snapInsideRange(x, bounds.x + halfW, bounds.right - halfW),
-      y: bounds.bottom - halfH,
+      y: snapToGrid(bounds.bottom - halfH),
       wall_side: wallSide
     }
   }
   return {
-    x: bounds.x + halfW,
+    x: snapToGrid(bounds.x + halfW),
     y: snapInsideRange(y, bounds.y + halfH, bounds.bottom - halfH),
     wall_side: wallSide
   }

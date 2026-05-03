@@ -3,9 +3,11 @@ import test from 'node:test'
 
 import {
   LAYOUT_BOUNDS,
+  LAYOUT_DEFAULT_FLOOR,
   LAYOUT_GRID_STEP,
   LAYOUT_SIZE_LIMITS,
   LAYOUT_VIEWBOX,
+  LAYOUT_VIEWPORT_MARGIN,
   TABLE_CAPACITY_OPTIONS,
   LAYOUT_MAX_EDITABLE_SEATS,
   adjustLayoutDoorCount,
@@ -14,6 +16,7 @@ import {
   calculateLayoutSeatLimit,
   clampToBounds,
   createDefaultLayout,
+  fitViewBoxForLayout,
   floorBoundsForLayout,
   findItem,
   getItemFootprint,
@@ -22,12 +25,14 @@ import {
   itemOverlapsLayout,
   rebuildLayoutTablesForSeats,
   resizeLayoutFloor,
+  resizeLayoutFloorFromHandle,
   setItemPosition,
   setTableCapacity,
   snapAndClampPoint,
   snapToGrid,
   tableTypeForCapacity,
-  totalLayoutSeats
+  totalLayoutSeats,
+  zoomViewBox
 } from '../src/layoutEditor.js'
 import { buildSimulationConfigPayload } from '../src/layout.js'
 
@@ -133,9 +138,12 @@ test('setItemPosition forces extreme drags back into the floor bounds', () => {
   const next = setItemPosition(layout, 'window', layout.windows[0].id, -500, -500)
   const moved = findItem(next, 'window', layout.windows[0].id)
   const fp = getItemFootprint('window', moved)
+  const bounds = floorBoundsForLayout(next)
 
-  assert.ok(moved.x >= LAYOUT_BOUNDS.x + fp.width / 2)
-  assert.ok(moved.y >= LAYOUT_BOUNDS.y + fp.height / 2)
+  assert.equal(moved.x % LAYOUT_GRID_STEP, 0)
+  assert.equal(moved.y % LAYOUT_GRID_STEP, 0)
+  assert.ok(moved.x >= bounds.x - fp.width / 2)
+  assert.ok(moved.y >= bounds.y - fp.height / 2)
 })
 
 test('setItemPosition rejects moves that overlap existing layout items', () => {
@@ -268,15 +276,12 @@ test('rebuildLayoutTablesForSeats produces capacities that match the requested s
 })
 
 test('default layout avoids table overlap at the editable seat limit', () => {
-  const layout = createDefaultLayout({ num_windows: 4, num_seats: LAYOUT_MAX_EDITABLE_SEATS })
-  const boxes = layout.tables.map((table) => tableBox(table))
+  const seedLayout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
+  const seatLimit = calculateLayoutSeatLimit(seedLayout)
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: seatLimit })
 
-  assert.equal(totalLayoutSeats(layout), LAYOUT_MAX_EDITABLE_SEATS)
-  for (let i = 0; i < boxes.length; i += 1) {
-    for (let j = i + 1; j < boxes.length; j += 1) {
-      assert.equal(boxesOverlap(boxes[i], boxes[j]), false, `${layout.tables[i].id} overlaps ${layout.tables[j].id}`)
-    }
-  }
+  assert.equal(totalLayoutSeats(layout), seatLimit)
+  assertNoLayoutOverlaps(layout)
 })
 
 test('default layout avoids collisions between doors windows and tables', () => {
@@ -303,6 +308,48 @@ test('layout floor can be resized and updates the active bounds', () => {
   assert.equal(resized.floor.height, 380)
   assert.equal(bounds.x, (LAYOUT_VIEWBOX.width - 240) / 2)
   assert.equal(bounds.y, (LAYOUT_VIEWBOX.height - 380) / 2)
+})
+
+test('floor resize handles can grow the cafeteria beyond the default viewport frame', () => {
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
+  const before = floorBoundsForLayout(layout)
+
+  const resized = resizeLayoutFloorFromHandle(layout, 'corner', before.right + 188, before.bottom + 128)
+  const after = floorBoundsForLayout(resized)
+
+  assert.ok(resized.floor.width > LAYOUT_DEFAULT_FLOOR.width)
+  assert.ok(resized.floor.height > LAYOUT_DEFAULT_FLOOR.height)
+  assert.ok(resized.floor.width > LAYOUT_VIEWBOX.width)
+  assert.equal(after.x, before.x)
+  assert.equal(after.y, before.y)
+  assert.equal(resized.floor.width % LAYOUT_SIZE_LIMITS.step, 0)
+  assert.equal(resized.floor.height % LAYOUT_SIZE_LIMITS.step, 0)
+})
+
+test('fit viewBox includes an oversized cafeteria without relying on a fixed border', () => {
+  const layout = resizeLayoutFloorFromHandle(
+    createDefaultLayout({ num_windows: 2, num_seats: 32 }),
+    'corner',
+    LAYOUT_VIEWBOX.width + 300,
+    LAYOUT_VIEWBOX.height + 200
+  )
+  const bounds = floorBoundsForLayout(layout)
+  const viewBox = fitViewBoxForLayout(layout)
+
+  assert.ok(viewBox.x <= bounds.x - LAYOUT_VIEWPORT_MARGIN)
+  assert.ok(viewBox.y <= bounds.y - LAYOUT_VIEWPORT_MARGIN)
+  assert.ok(viewBox.x + viewBox.width >= bounds.right + LAYOUT_VIEWPORT_MARGIN)
+  assert.ok(viewBox.y + viewBox.height >= bounds.bottom + LAYOUT_VIEWPORT_MARGIN)
+})
+
+test('zoomViewBox scales around the requested focal point', () => {
+  const initial = { x: 0, y: 0, width: 400, height: 300 }
+  const zoomed = zoomViewBox(initial, 0.5, { x: 100, y: 75 })
+
+  assert.equal(zoomed.width, 200)
+  assert.equal(zoomed.height, 150)
+  assert.equal(zoomed.x, 50)
+  assert.equal(zoomed.y, 37.5)
 })
 
 test('seat limit is computed from floor size and wall openings', () => {
@@ -378,16 +425,6 @@ test('LAYOUT_VIEWBOX is the agreed 360x640 frame', () => {
   assert.equal(LAYOUT_VIEWBOX.width, 360)
   assert.equal(LAYOUT_VIEWBOX.height, 640)
 })
-
-function tableBox(table) {
-  const fp = getItemFootprint('table', table)
-  return {
-    left: table.x - fp.width / 2,
-    right: table.x + fp.width / 2,
-    top: table.y - fp.height / 2,
-    bottom: table.y + fp.height / 2
-  }
-}
 
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top

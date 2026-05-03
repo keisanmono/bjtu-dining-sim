@@ -45,10 +45,9 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(appSource.includes('layoutSeatLimit'), true)
   assert.equal(appSource.includes(':step="2"'), true)
 
-  // The LayoutEditor itself renders the SVG floor plan with the agreed viewBox.
+  // The LayoutEditor itself renders the SVG floor plan with a zoomable viewBox.
   assert.equal(editorSource.includes('class="dining-floor-plan"'), true)
-  assert.equal(editorSource.includes('LAYOUT_VIEWBOX.width'), true)
-  assert.equal(editorSource.includes('LAYOUT_VIEWBOX.height'), true)
+  assert.equal(editorSource.includes(':viewBox="viewBoxString"'), true)
   assert.equal(editorSource.includes('layout-window'), true)
   assert.equal(editorSource.includes('layout-table'), true)
   assert.equal(editorSource.includes('layout-door'), true)
@@ -66,6 +65,12 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(editorSource.includes('食堂宽度'), true)
   assert.equal(editorSource.includes('食堂深度'), true)
   assert.equal(editorSource.includes('resizeLayoutFloor'), true)
+  assert.equal(editorSource.includes('resizeLayoutFloorFromHandle'), true)
+  assert.equal(editorSource.includes('layout-resize-handle'), true)
+  assert.equal(editorSource.includes('viewBoxString'), true)
+  assert.equal(editorSource.includes('@wheel.prevent="onWheelZoom"'), true)
+  assert.equal(editorSource.includes('fitViewportToLayout'), true)
+  assert.equal(editorSource.includes('zoomViewBox'), true)
   assert.equal(editorSource.includes('seatLimit'), true)
   assert.equal(editorSource.includes('adjustLayoutDoorCount'), true)
   assert.equal(editorSource.includes('入口 +'), true)
@@ -81,10 +86,12 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
 
   // Stylesheet keeps the floor-plan look-and-feel and adds editor primitives.
   assert.equal(styleSource.includes('.dining-floor-plan'), true)
-  assert.equal(styleSource.includes('aspect-ratio: 360 / 640'), true)
+  assert.equal(styleSource.includes('height: min(72vh, 760px)'), true)
   assert.equal(styleSource.includes('.layout-page'), true)
   assert.equal(styleSource.includes('.layout-page-panel'), true)
   assert.equal(styleSource.includes('.layout-editor'), true)
+  assert.equal(styleSource.includes('.layout-viewport-controls'), true)
+  assert.equal(styleSource.includes('.layout-resize-handle'), true)
   assert.equal(styleSource.includes('.layout-window'), true)
   assert.equal(styleSource.includes('.layout-table'), true)
   assert.equal(styleSource.includes('.layout-door'), true)

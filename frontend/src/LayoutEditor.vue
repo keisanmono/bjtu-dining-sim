@@ -1,5 +1,5 @@
 <template>
-  <div class="layout-editor" :class="{ 'is-dragging': dragState !== null }">
+  <div class="layout-editor" :class="{ 'is-dragging': isInteracting }">
     <div class="layout-editor-toolbar">
       <div class="layout-editor-status">
         <el-tag size="small" :type="selection ? 'primary' : 'info'" effect="plain">
@@ -37,6 +37,11 @@
           <el-button size="small" :disabled="layout.doors.length <= 1" @click="changeDoorCount(-1)">入口 -</el-button>
           <el-button size="small" :disabled="layout.doors.length >= LAYOUT_MAX_DOORS" @click="changeDoorCount(1)">入口 +</el-button>
         </div>
+        <div class="layout-viewport-controls" aria-label="视野缩放">
+          <el-button size="small" circle :icon="ZoomOut" @click="zoomViewport(1.2)" />
+          <el-button size="small" circle :icon="ZoomIn" @click="zoomViewport(0.82)" />
+          <el-button size="small" :icon="FullScreen" @click="fitViewportToLayout">适应视野</el-button>
+        </div>
         <el-select
           v-if="selectedTable"
           :model-value="selectedTable.capacity"
@@ -58,7 +63,7 @@
     <svg
       ref="svgRef"
       class="dining-floor-plan"
-      :viewBox="`0 0 ${LAYOUT_VIEWBOX.width} ${LAYOUT_VIEWBOX.height}`"
+      :viewBox="viewBoxString"
       role="img"
       aria-label="食堂俯视布局编辑器"
       @pointerdown="onSvgPointerDown"
@@ -66,6 +71,7 @@
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
       @pointerleave="onPointerLeave"
+      @wheel.prevent="onWheelZoom"
     >
       <defs>
         <pattern
@@ -78,7 +84,14 @@
         </pattern>
       </defs>
 
-      <rect class="floor-fill" x="10" y="10" width="340" height="620" rx="10" />
+      <rect
+        class="floor-fill"
+        :x="floorBounds.x"
+        :y="floorBounds.y"
+        :width="floorBounds.right - floorBounds.x"
+        :height="floorBounds.bottom - floorBounds.y"
+        rx="10"
+      />
       <rect
         class="floor-grid"
         :x="floorBounds.x"
@@ -94,6 +107,36 @@
         :width="floorBounds.right - floorBounds.x"
         :height="floorBounds.bottom - floorBounds.y"
       />
+
+      <g class="layout-resize-handles">
+        <rect
+          class="layout-resize-handle is-right"
+          :x="floorBounds.right - 5"
+          :y="(floorBounds.y + floorBounds.bottom) / 2 - 28"
+          width="10"
+          height="56"
+          rx="4"
+          @pointerdown.stop="onResizePointerDown($event, 'right')"
+        />
+        <rect
+          class="layout-resize-handle is-bottom"
+          :x="(floorBounds.x + floorBounds.right) / 2 - 28"
+          :y="floorBounds.bottom - 5"
+          width="56"
+          height="10"
+          rx="4"
+          @pointerdown.stop="onResizePointerDown($event, 'bottom')"
+        />
+        <rect
+          class="layout-resize-handle is-corner"
+          :x="floorBounds.right - 9"
+          :y="floorBounds.bottom - 9"
+          width="18"
+          height="18"
+          rx="4"
+          @pointerdown.stop="onResizePointerDown($event, 'corner')"
+        />
+      </g>
 
       <!-- Doors -->
       <g
@@ -177,33 +220,32 @@
       </g>
     </svg>
 
-    <p class="layout-editor-hint">
-      点击对象进行选择，按住拖动以网格步长 {{ LAYOUT_GRID_STEP }} 调整位置；选中餐桌后可在右上角切换桌型。
-    </p>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { computed, ref, watch } from 'vue'
+import { FullScreen, Refresh, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import {
   LAYOUT_DEFAULT_FLOOR,
   LAYOUT_GRID_STEP,
   LAYOUT_MAX_DOORS,
   LAYOUT_SIZE_LIMITS,
-  LAYOUT_VIEWBOX,
   TABLE_CAPACITY_OPTIONS,
   adjustLayoutDoorCount,
+  fitViewBoxForLayout,
   findItem,
   floorBoundsForLayout,
   getItemFootprint,
   itemOverlapsLayout,
   resizeLayoutFloor,
+  resizeLayoutFloorFromHandle,
   setItemPosition,
   setTableCapacity,
   tableChairRectsForCapacity,
   tableTopForCapacity,
-  totalLayoutSeats
+  totalLayoutSeats,
+  zoomViewBox
 } from './layoutEditor.js'
 
 const props = defineProps({
@@ -222,12 +264,20 @@ const emit = defineEmits(['update:layout', 'reset'])
 const svgRef = ref(null)
 const selection = ref(null)
 const dragState = ref(null)
+const resizeState = ref(null)
+const panState = ref(null)
+const viewBox = ref(fitViewBoxForLayout(props.layout))
+const keepViewportFitted = ref(true)
 
 const capacityOptions = TABLE_CAPACITY_OPTIONS
 
 const totalSeats = computed(() => totalLayoutSeats(props.layout))
 const floorSize = computed(() => props.layout.floor || LAYOUT_DEFAULT_FLOOR)
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
+const isInteracting = computed(() => Boolean(dragState.value || resizeState.value || panState.value))
+const viewBoxString = computed(() => (
+  `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`
+))
 
 const selectedTable = computed(() => {
   if (!selection.value || selection.value.kind !== 'table') return null
@@ -249,6 +299,16 @@ const selectionLabel = computed(() => {
   }
   return '未选中对象'
 })
+
+watch(
+  () => props.layout.floor,
+  () => {
+    if (keepViewportFitted.value) {
+      viewBox.value = fitViewBoxForLayout(props.layout)
+    }
+  },
+  { deep: true }
+)
 
 function isSelected(kind, id) {
   return selection.value?.kind === kind && selection.value?.id === id
@@ -322,9 +382,21 @@ function clientToSvgPoint(clientX, clientY) {
   if (!svg) return { x: 0, y: 0 }
   const rect = svg.getBoundingClientRect()
   if (!rect.width || !rect.height) return { x: 0, y: 0 }
+  const current = viewBox.value
   return {
-    x: ((clientX - rect.left) / rect.width) * LAYOUT_VIEWBOX.width,
-    y: ((clientY - rect.top) / rect.height) * LAYOUT_VIEWBOX.height
+    x: current.x + ((clientX - rect.left) / rect.width) * current.width,
+    y: current.y + ((clientY - rect.top) / rect.height) * current.height
+  }
+}
+
+function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
+  const svg = svgRef.value
+  if (!svg) return { x: 0, y: 0 }
+  const rect = svg.getBoundingClientRect()
+  if (!rect.width || !rect.height) return { x: 0, y: 0 }
+  return {
+    x: (deltaX / rect.width) * sourceViewBox.width,
+    y: (deltaY / rect.height) * sourceViewBox.height
   }
 }
 
@@ -349,14 +421,64 @@ function onItemPointerDown(event, kind, id) {
   event.preventDefault()
 }
 
+function onResizePointerDown(event, handle) {
+  const point = clientToSvgPoint(event.clientX, event.clientY)
+  const bounds = floorBounds.value
+  resizeState.value = {
+    handle,
+    offsetX: point.x - bounds.right,
+    offsetY: point.y - bounds.bottom,
+    pointerId: event.pointerId
+  }
+  if (event.target?.setPointerCapture) {
+    try { event.target.setPointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
+  }
+  event.preventDefault()
+}
+
 function onSvgPointerDown(event) {
   // Clicking on background clears selection (only if we didn't start a drag).
   if (event.target === svgRef.value || event.target?.classList?.contains('floor-grid') || event.target?.classList?.contains('floor-fill')) {
     selection.value = null
+    panState.value = {
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startViewBox: { ...viewBox.value },
+      pointerId: event.pointerId
+    }
+    keepViewportFitted.value = false
+    if (svgRef.value?.setPointerCapture) {
+      try { svgRef.value.setPointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
+    }
+    event.preventDefault()
   }
 }
 
 function onPointerMove(event) {
+  if (resizeState.value) {
+    const state = resizeState.value
+    const point = clientToSvgPoint(event.clientX, event.clientY)
+    const next = resizeLayoutFloorFromHandle(
+      props.layout,
+      state.handle,
+      point.x - state.offsetX,
+      point.y - state.offsetY
+    )
+    emit('update:layout', next)
+    event.preventDefault()
+    return
+  }
+  if (panState.value) {
+    const state = panState.value
+    const delta = clientDeltaToSvg(event.clientX - state.startClientX, event.clientY - state.startClientY, state.startViewBox)
+    viewBox.value = {
+      ...state.startViewBox,
+      x: state.startViewBox.x - delta.x,
+      y: state.startViewBox.y - delta.y
+    }
+    event.preventDefault()
+    return
+  }
   const state = dragState.value
   if (!state) return
   const point = clientToSvgPoint(event.clientX, event.clientY)
@@ -369,6 +491,20 @@ function onPointerMove(event) {
 }
 
 function onPointerUp(event) {
+  if (resizeState.value) {
+    if (event.target?.releasePointerCapture && event.pointerId) {
+      try { event.target.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
+    }
+    resizeState.value = null
+    return
+  }
+  if (panState.value) {
+    if (svgRef.value?.releasePointerCapture && event.pointerId) {
+      try { svgRef.value.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
+    }
+    panState.value = null
+    return
+  }
   const state = dragState.value
   if (!state) return
   if (event.target?.releasePointerCapture && event.pointerId) {
@@ -385,6 +521,21 @@ function onPointerLeave() {
   if (dragState.value && !document?.elementFromPoint) {
     dragState.value = null
   }
+}
+
+function onWheelZoom(event) {
+  const point = clientToSvgPoint(event.clientX, event.clientY)
+  zoomViewport(event.deltaY < 0 ? 0.86 : 1.16, point)
+}
+
+function zoomViewport(factor, focusPoint = null) {
+  keepViewportFitted.value = false
+  viewBox.value = zoomViewBox(viewBox.value, factor, focusPoint)
+}
+
+function fitViewportToLayout() {
+  keepViewportFitted.value = true
+  viewBox.value = fitViewBoxForLayout(props.layout)
 }
 
 function onSelectedCapacityChange(value) {
