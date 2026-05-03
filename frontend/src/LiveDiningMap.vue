@@ -217,9 +217,11 @@ const snapshot = computed(() => props.state || {})
 const tables = computed(() => props.layout?.tables || [])
 const windows = computed(() => props.layout?.windows || [])
 const doors = computed(() => props.layout?.doors || [])
+const snapshotTableOccupancy = computed(() => snapshot.value.table_occupancy || [])
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
+const displayedTableOccupancy = ref([])
 const livePartyTargets = computed(() => buildLivePartyTargets({
   snapshot: snapshot.value,
   layout: props.layout
@@ -294,7 +296,7 @@ const queueGroupsByWindow = computed(() => {
 
 const tableOccupancyById = computed(() => {
   const map = new Map()
-  ;(snapshot.value.table_occupancy || []).forEach((entry, idx) => {
+  ;(displayedTableOccupancy.value || []).forEach((entry, idx) => {
     if (!entry) return
     if (entry.id) map.set(entry.id, entry)
     map.set(idx, entry)
@@ -372,10 +374,14 @@ function startPartyTransition(nextTargets) {
     next: nextTargets,
     layout: props.layout
   })
+  if (!transitions.length) {
+    settleTableOccupancy()
+  }
 
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
     animatedPartyMarkers.value = settledMarkers(nextTargets)
     lastSettledPartyTargets = nextTargets
+    settleTableOccupancy()
     return
   }
 
@@ -394,6 +400,7 @@ function startPartyTransition(nextTargets) {
     partyAnimationFrame = 0
     lastSettledPartyTargets = nextTargets
     animatedPartyMarkers.value = settledMarkers(nextTargets)
+    settleTableOccupancy()
   }
 
   animatedPartyMarkers.value = interpolateLivePartyMarkers({
@@ -402,6 +409,10 @@ function startPartyTransition(nextTargets) {
     layout: props.layout
   })
   partyAnimationFrame = window.requestAnimationFrame(render)
+}
+
+function settleTableOccupancy() {
+  displayedTableOccupancy.value = snapshotTableOccupancy.value.map((entry) => ({ ...entry }))
 }
 
 function settledMarkers(targets) {

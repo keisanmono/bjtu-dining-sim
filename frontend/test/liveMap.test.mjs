@@ -34,6 +34,15 @@ test('LiveDiningMap consumes the structured snapshot fields from the backend', (
   assert.equal(mapSource.includes('waiting_parties'), false)
 })
 
+test('LiveDiningMap delays table occupancy changes until party movement settles', () => {
+  assert.equal(mapSource.includes('displayedTableOccupancy'), true)
+  assert.equal(mapSource.includes('settleTableOccupancy'), true)
+  assert.equal(mapSource.includes('snapshotTableOccupancy'), true)
+  assert.equal(mapSource.includes('tableOccupancyById = computed(() => {'), true)
+  assert.equal(mapSource.includes('displayedTableOccupancy.value'), true)
+  assert.equal(mapSource.includes('snapshot.value.table_occupancy'), true)
+})
+
 test('LiveDiningMap interpolates party positions between minute snapshots', () => {
   assert.equal(mapSource.includes('animatedPartyMarkers'), true)
   assert.equal(mapSource.includes('requestAnimationFrame'), true)
