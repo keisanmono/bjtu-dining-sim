@@ -2,11 +2,21 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildLivePartyTargets,
   QUEUE_VISIBLE_LIMIT,
-  buildQueueRows
+  buildQueueRows,
+  interpolateLivePartyMarkers
 } from '../src/liveMapModel.js'
 
 const topWindow = { id: 'W1', x: 120, y: 24, wall_side: 'top' }
+const baseLayout = {
+  doors: [{ id: 'D1', x: 24, y: 120, wall_side: 'left' }],
+  windows: [
+    { id: 'W1', x: 120, y: 24, wall_side: 'top' },
+    { id: 'W2', x: 160, y: 24, wall_side: 'top' }
+  ],
+  tables: [{ id: 'T1', x: 220, y: 180, capacity: 4, table_type: 'four_seat' }]
+}
 
 test('buildQueueRows caps visible queue parties and aggregates hidden people', () => {
   const queueGroups = Array.from({ length: 50 }, (_item, index) => ({
@@ -75,4 +85,110 @@ test('buildQueueRows scales the overflow tail with hidden queue size', () => {
   assert.ok(shortTail.overflow.width < longTail.overflow.width)
   assert.equal(shortTail.overflow.hiddenPeople, 2)
   assert.equal(longTail.overflow.hiddenPeople, 70)
+})
+
+test('buildLivePartyTargets aggregates active services by party id', () => {
+  const targets = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [
+        { party_id: 7, size: 2, member_count: 1, window_index: 0, door_index: 0 },
+        { party_id: 7, size: 2, member_count: 1, window_index: 1, door_index: 0 }
+      ],
+      seated_parties: []
+    }
+  })
+
+  assert.equal(targets.length, 1)
+  assert.equal(targets[0].key, 'party-7')
+  assert.equal(targets[0].role, 'service')
+  assert.equal(targets[0].member_count, 2)
+  assert.equal(targets[0].door_index, 0)
+  assert.ok(targets[0].x > baseLayout.windows[0].x)
+  assert.ok(targets[0].x < baseLayout.windows[1].x)
+})
+
+test('interpolateLivePartyMarkers moves the same party between minute snapshots', () => {
+  const [serviceTarget] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [{ party_id: 7, size: 2, member_count: 1, window_index: 0, door_index: 0 }],
+      seated_parties: []
+    }
+  })
+  const [seatedTarget] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [],
+      seated_parties: [{ party_id: 7, size: 2, member_count: 2, table_index: 0, table_id: 'T1', door_index: 0 }]
+    }
+  })
+
+  const [halfway] = interpolateLivePartyMarkers({
+    previous: [serviceTarget],
+    next: [seatedTarget],
+    progress: 0.5,
+    layout: baseLayout
+  })
+
+  assert.equal(halfway.key, 'party-7')
+  assert.equal(halfway.role, 'seated')
+  assert.equal(halfway.opacity, 1)
+  assert.ok(halfway.x > Math.min(serviceTarget.x, seatedTarget.x))
+  assert.ok(halfway.x < Math.max(serviceTarget.x, seatedTarget.x))
+  assert.ok(halfway.y > Math.min(serviceTarget.y, seatedTarget.y))
+  assert.ok(halfway.y < Math.max(serviceTarget.y, seatedTarget.y))
+})
+
+test('interpolateLivePartyMarkers fades new parties in from their door', () => {
+  const [target] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [{ party_id: 11, size: 1, member_count: 1, window_index: 0, door_index: 0 }],
+      seated_parties: []
+    }
+  })
+
+  const [start] = interpolateLivePartyMarkers({
+    previous: [],
+    next: [target],
+    progress: 0,
+    layout: baseLayout
+  })
+  const [end] = interpolateLivePartyMarkers({
+    previous: [],
+    next: [target],
+    progress: 1,
+    layout: baseLayout
+  })
+
+  assert.equal(start.key, target.key)
+  assert.equal(start.opacity, 0)
+  assert.notEqual(start.x, target.x)
+  assert.notEqual(start.y, target.y)
+  assert.equal(end.x, target.x)
+  assert.equal(end.y, target.y)
+  assert.equal(end.opacity, 1)
+})
+
+test('interpolateLivePartyMarkers fades removed parties back toward their door', () => {
+  const [target] = buildLivePartyTargets({
+    layout: baseLayout,
+    snapshot: {
+      window_services: [],
+      seated_parties: [{ party_id: 13, size: 1, member_count: 1, table_index: 0, table_id: 'T1', door_index: 0 }]
+    }
+  })
+
+  const [end] = interpolateLivePartyMarkers({
+    previous: [target],
+    next: [],
+    progress: 1,
+    layout: baseLayout
+  })
+
+  assert.equal(end.key, target.key)
+  assert.equal(end.opacity, 0)
+  assert.notEqual(end.x, target.x)
+  assert.notEqual(end.y, target.y)
 })

@@ -1,4 +1,7 @@
-import { getItemFootprint } from './layoutEditor.js'
+import {
+  getItemFootprint,
+  tableTopForCapacity
+} from './layoutEditor.js'
 
 export const PALETTE = ['#4d7ea8', '#cf8b3e', '#5e9c5e', '#9b6a8e', '#4f8b8d', '#a25b5b']
 
@@ -10,6 +13,7 @@ export const QUEUE_LONG_INCREMENT = 1.4
 export const QUEUE_SHORT = 5
 export const QUEUE_OVERFLOW_LONG = 12
 export const QUEUE_OVERFLOW_SHORT = 7
+export const LIVE_TRANSITION_MS = 320
 
 export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = [] } = {}) {
   const rows = []
@@ -117,6 +121,170 @@ export function wallNormal(item) {
 
 export function clamp(value, lower, upper) {
   return Math.max(lower, Math.min(upper, value))
+}
+
+export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
+  const windows = Array.isArray(layout?.windows) ? layout.windows : []
+  const tables = Array.isArray(layout?.tables) ? layout.tables : []
+  const targetsByKey = new Map()
+
+  for (const target of buildServiceTargets(snapshot.window_services || [], windows)) {
+    targetsByKey.set(target.key, target)
+  }
+
+  const slotsByTable = new Map()
+  for (const rawGroup of snapshot.seated_parties || []) {
+    const group = normalizeGroup(rawGroup)
+    const table = (group.table_id && tables.find((entry) => entry.id === group.table_id))
+      || (Number.isFinite(group.table_index) ? tables[group.table_index] : null)
+    if (!table) continue
+    const tableKey = group.table_id ?? group.table_index ?? table.id
+    const slot = slotsByTable.get(tableKey) || 0
+    slotsByTable.set(tableKey, slot + 1)
+    const offset = seatedSlotOffset(table, slot)
+    const key = livePartyKey(group)
+    targetsByKey.set(key, {
+      ...group,
+      key,
+      role: 'seated',
+      x: table.x + offset.x,
+      y: table.y + offset.y,
+      color: partyColor(group)
+    })
+  }
+
+  return Array.from(targetsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)))
+}
+
+export function interpolateLivePartyMarkers({ previous = [], next = [], progress = 1, layout = {} } = {}) {
+  const amount = clamp(Number(progress) || 0, 0, 1)
+  const previousByKey = keyedTargets(previous)
+  const nextByKey = keyedTargets(next)
+  const keys = new Set([...previousByKey.keys(), ...nextByKey.keys()])
+
+  return Array.from(keys)
+    .sort((a, b) => String(a).localeCompare(String(b)))
+    .map((key) => {
+      const previousTarget = previousByKey.get(key)
+      const nextTarget = nextByKey.get(key)
+      const from = previousTarget || entryPointForTarget(nextTarget, layout)
+      const to = nextTarget || entryPointForTarget(previousTarget, layout)
+      const basis = nextTarget || previousTarget
+      const appearing = !previousTarget && Boolean(nextTarget)
+      const leaving = Boolean(previousTarget) && !nextTarget
+      const opacity = appearing
+        ? amount
+        : leaving
+          ? 1 - amount
+          : 1
+
+      return {
+        ...basis,
+        key,
+        x: round1(lerp(from.x, to.x, amount)),
+        y: round1(lerp(from.y, to.y, amount)),
+        opacity: round2(opacity),
+        color: basis.color || partyColor(basis)
+      }
+    })
+}
+
+function buildServiceTargets(services, windows) {
+  const parties = new Map()
+  for (const rawService of services) {
+    const group = normalizeGroup(rawService)
+    const windowItem = windows[group.window_index] || windows[0]
+    if (!windowItem) continue
+    const point = servicePointForWindow(windowItem)
+    const key = livePartyKey(group)
+    const existing = parties.get(key) || {
+      ...group,
+      key,
+      role: 'service',
+      x: 0,
+      y: 0,
+      pointCount: 0,
+      member_count: 0,
+      color: partyColor(group)
+    }
+    existing.x += point.x
+    existing.y += point.y
+    existing.pointCount += 1
+    existing.member_count = Math.max(existing.member_count, group.size, group.member_count)
+    existing.window_index = group.window_index
+    existing.door_index = group.door_index
+    parties.set(key, existing)
+  }
+
+  return Array.from(parties.values()).map((target) => ({
+    ...target,
+    x: round1(target.x / Math.max(1, target.pointCount)),
+    y: round1(target.y / Math.max(1, target.pointCount))
+  }))
+}
+
+function servicePointForWindow(windowItem) {
+  const normal = wallNormal(windowItem)
+  const footprint = getItemFootprint('window', windowItem)
+  const half = (windowItem.wall_side === 'left' || windowItem.wall_side === 'right')
+    ? footprint.width / 2
+    : footprint.height / 2
+  return {
+    x: windowItem.x + normal.x * (half + 6),
+    y: windowItem.y + normal.y * (half + 6)
+  }
+}
+
+function seatedSlotOffset(table, slot) {
+  const top = tableTopForCapacity(table.capacity)
+  const horizontalSpan = Math.max(0, top.width / 2 - 6)
+  const offsets = [
+    { x: 0, y: 0 },
+    { x: horizontalSpan, y: 0 },
+    { x: -horizontalSpan, y: 0 }
+  ]
+  return offsets[slot % offsets.length] || { x: 0, y: 0 }
+}
+
+function entryPointForTarget(target, layout) {
+  if (!target) return { x: 0, y: 0 }
+  const doors = Array.isArray(layout?.doors) ? layout.doors : []
+  const door = doors[target.door_index] || doors[0]
+  if (!door) return { x: target.x, y: target.y }
+  const normal = wallNormal(door)
+  const footprint = getItemFootprint('door', door)
+  const half = (door.wall_side === 'left' || door.wall_side === 'right')
+    ? footprint.width / 2
+    : footprint.height / 2
+  return {
+    x: door.x + normal.x * (half + 10),
+    y: door.y + normal.y * (half + 10)
+  }
+}
+
+function livePartyKey(group) {
+  return `party-${group?.party_id ?? 'solo'}`
+}
+
+function keyedTargets(targets) {
+  const map = new Map()
+  for (const target of targets || []) {
+    if (!target) continue
+    map.set(target.key || livePartyKey(target), target)
+  }
+  return map
+}
+
+function lerp(start, end, amount) {
+  return Number(start || 0) + (Number(end || 0) - Number(start || 0)) * amount
+}
+
+function round1(value) {
+  return Math.round(Number(value || 0) * 10) / 10
+}
+
+function round2(value) {
+  return Math.round(Number(value || 0) * 100) / 100
 }
 
 function bucketFor(buckets, windowIndex) {

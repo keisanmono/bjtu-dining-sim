@@ -107,10 +107,10 @@
             v-for="dot in serviceMarkers"
             :key="dot.key"
             class="service-mark service-party"
-            :cx="dot.cx"
-            :cy="dot.cy"
+            :cx="dot.x"
+            :cy="dot.y"
             r="3.2"
-            :style="{ fill: dot.color }"
+            :style="{ fill: dot.color, opacity: dot.opacity }"
           />
         </g>
 
@@ -118,8 +118,9 @@
           <g
             v-for="cluster in seatedClusters"
             :key="cluster.key"
-            class="seated-party seated-cluster"
+            class="seated-party seated-cluster moving-party"
             :transform="`translate(${cluster.cx}, ${cluster.cy})`"
+            :style="{ opacity: cluster.opacity }"
           >
             <line
               v-for="link in cluster.links"
@@ -178,7 +179,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   LAYOUT_GRID_STEP,
   fitViewBoxForLayout,
@@ -189,11 +190,13 @@ import {
   tableTopForCapacity
 } from './layoutEditor.js'
 import {
+  LIVE_TRANSITION_MS,
   QUEUE_VISIBLE_LIMIT,
+  buildLivePartyTargets,
   clamp,
+  interpolateLivePartyMarkers,
   normalizeGroup,
-  partyColor,
-  wallNormal
+  partyColor
 } from './liveMapModel.js'
 
 const props = defineProps({
@@ -215,6 +218,13 @@ const windows = computed(() => props.layout?.windows || [])
 const doors = computed(() => props.layout?.doors || [])
 
 const selectedWindowIndex = ref(null)
+const animatedPartyMarkers = ref([])
+const livePartyTargets = computed(() => buildLivePartyTargets({
+  snapshot: snapshot.value,
+  layout: props.layout
+}))
+let lastSettledPartyTargets = []
+let partyAnimationFrame = 0
 
 watch(
   () => windows.value.length,
@@ -224,6 +234,18 @@ watch(
     }
   }
 )
+
+watch(
+  livePartyTargets,
+  (targets) => {
+    startPartyTransition(targets)
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  cancelPartyAnimation()
+})
 
 function toggleWindowSelection(idx) {
   selectedWindowIndex.value = selectedWindowIndex.value === idx ? null : idx
@@ -322,61 +344,80 @@ const selectedWindowDetail = computed(() => {
   }
 })
 
-const serviceMarkers = computed(() => {
-  let services = []
-  if (Array.isArray(snapshot.value.window_services) && snapshot.value.window_services.length) {
-    services = snapshot.value.window_services.map(normalizeGroup)
-  } else {
-    services = Array.from(busyWindowIndexes.value).map((idx) => normalizeGroup({
-      party_id: `service-${idx}`,
-      size: 1,
-      member_count: 1,
-      window_index: idx
-    }))
-  }
-  return services
-    .map((service) => {
-      const windowItem = windows.value[service.window_index] || windows.value[0]
-      if (!windowItem) return null
-      const normal = wallNormal(windowItem)
-      const footprint = getItemFootprint('window', windowItem)
-      const half = (windowItem.wall_side === 'left' || windowItem.wall_side === 'right')
-        ? footprint.width / 2
-        : footprint.height / 2
-      return {
-        key: `service-${service.window_index}-${service.party_id}`,
-        cx: windowItem.x + normal.x * (half + 6),
-        cy: windowItem.y + normal.y * (half + 6),
-        color: partyColor(service)
-      }
-    })
-    .filter(Boolean)
-})
+const serviceMarkers = computed(() => (
+  animatedPartyMarkers.value.filter((marker) => marker.role === 'service' && marker.opacity > 0)
+))
 
 const seatedClusters = computed(() => {
-  const items = []
-  const slotByTable = new Map()
-  ;(snapshot.value.seated_parties || []).forEach((rawGroup) => {
-    const group = normalizeGroup(rawGroup)
-    const table = (group.table_id && tables.value.find((entry) => entry.id === group.table_id))
-      || (Number.isFinite(group.table_index) ? tables.value[group.table_index] : null)
-    if (!table) return
-    const tableKey = group.table_id ?? group.table_index ?? table.id
-    const slot = slotByTable.get(tableKey) || 0
-    slotByTable.set(tableKey, slot + 1)
-    const offset = seatedSlotOffset(table, slot)
-    const dots = clusterDots(group)
-    items.push({
-      key: `seat-${tableKey}-${group.party_id}-${slot}`,
-      cx: table.x + offset.x,
-      cy: table.y + offset.y,
-      color: partyColor(group),
-      dots,
-      links: clusterLinks(dots)
+  return animatedPartyMarkers.value
+    .filter((marker) => marker.role === 'seated' && marker.opacity > 0)
+    .map((marker) => {
+      const dots = clusterDots(marker)
+      return {
+        ...marker,
+        cx: marker.x,
+        cy: marker.y,
+        dots,
+        links: clusterLinks(dots)
+      }
     })
-  })
-  return items
 })
+
+function startPartyTransition(nextTargets) {
+  cancelPartyAnimation()
+  const previousTargets = animatedPartyMarkers.value.length
+    ? animatedPartyMarkers.value
+    : lastSettledPartyTargets
+
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    animatedPartyMarkers.value = settledMarkers(nextTargets)
+    lastSettledPartyTargets = nextTargets
+    return
+  }
+
+  const startedAt = now()
+  const render = (timestamp) => {
+    const progress = clamp((timestamp - startedAt) / LIVE_TRANSITION_MS, 0, 1)
+    animatedPartyMarkers.value = interpolateLivePartyMarkers({
+      previous: previousTargets,
+      next: nextTargets,
+      progress,
+      layout: props.layout
+    })
+    if (progress < 1) {
+      partyAnimationFrame = window.requestAnimationFrame(render)
+      return
+    }
+    partyAnimationFrame = 0
+    lastSettledPartyTargets = nextTargets
+    animatedPartyMarkers.value = settledMarkers(nextTargets)
+  }
+
+  animatedPartyMarkers.value = interpolateLivePartyMarkers({
+    previous: previousTargets,
+    next: nextTargets,
+    progress: 0,
+    layout: props.layout
+  })
+  partyAnimationFrame = window.requestAnimationFrame(render)
+}
+
+function settledMarkers(targets) {
+  return targets.map((target) => ({ ...target, opacity: 1 }))
+}
+
+function cancelPartyAnimation() {
+  if (partyAnimationFrame && typeof window !== 'undefined') {
+    window.cancelAnimationFrame(partyAnimationFrame)
+  }
+  partyAnimationFrame = 0
+}
+
+function now() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
+}
 
 function clusterDots(group) {
   const size = clamp(Number(group?.member_count) || Number(group?.size) || 1, 1, 4)
@@ -456,17 +497,6 @@ function tableOccupancyFor(table, index = 0) {
 function isChairOccupied(table, chairIndex, tableIndex = 0) {
   const occupied = Number(tableOccupancyFor(table, tableIndex).occupied) || 0
   return chairIndex < occupied
-}
-
-function seatedSlotOffset(table, slot) {
-  const top = tableTopForCapacity(table.capacity)
-  const horizontalSpan = Math.max(0, top.width / 2 - 6)
-  const offsets = [
-    { x: 0, y: 0 },
-    { x: horizontalSpan, y: 0 },
-    { x: -horizontalSpan, y: 0 }
-  ]
-  return offsets[slot % offsets.length] || { x: 0, y: 0 }
 }
 
 function windowStateClasses(idx) {

@@ -242,6 +242,7 @@ test('live run queue card shows current queue first and peak queue as context', 
 test('live run renders the editable layout as a live dining map with party groups', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const mapSource = readFileSync(new URL('../src/LiveDiningMap.vue', import.meta.url), 'utf8')
+  const modelSource = readFileSync(new URL('../src/liveMapModel.js', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
   assert.equal(appSource.includes("import LiveDiningMap from './LiveDiningMap.vue'"), true)
@@ -270,7 +271,11 @@ test('live run renders the editable layout as a live dining map with party group
   assert.equal(mapSource.includes('seated-party'), true)
   assert.equal(mapSource.includes('party-link'), true)
   assert.equal(mapSource.includes('queue_groups'), true)
-  assert.equal(mapSource.includes('seated_parties'), true)
+  assert.equal(mapSource.includes('buildLivePartyTargets'), true)
+  assert.equal(mapSource.includes('animatedPartyMarkers'), true)
+  assert.equal(modelSource.includes('window_services'), true)
+  assert.equal(modelSource.includes('seated_parties'), true)
+  assert.equal(modelSource.includes('interpolateLivePartyMarkers'), true)
   assert.equal(mapSource.includes('seat_matrix'), false)
   assert.equal(mapSource.includes('<text'), false)
 

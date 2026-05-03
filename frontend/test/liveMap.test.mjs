@@ -24,13 +24,23 @@ test('live run page no longer renders the legacy seat matrix or seat-grid', () =
 
 test('LiveDiningMap consumes the structured snapshot fields from the backend', () => {
   assert.equal(mapSource.includes('queue_groups'), true)
-  assert.equal(mapSource.includes('window_services'), true)
-  assert.equal(mapSource.includes('seated_parties'), true)
+  assert.equal(mapSource.includes('buildLivePartyTargets'), true)
+  assert.equal(modelSource.includes('window_services'), true)
+  assert.equal(modelSource.includes('seated_parties'), true)
   assert.equal(mapSource.includes('table_occupancy'), true)
   assert.equal(mapSource.includes('busy_windows'), true)
   // waiting_parties is intentionally not consumed: the metric card already
   // shows the waiting count, so the map does not render those parties.
   assert.equal(mapSource.includes('waiting_parties'), false)
+})
+
+test('LiveDiningMap interpolates party positions between minute snapshots', () => {
+  assert.equal(mapSource.includes('animatedPartyMarkers'), true)
+  assert.equal(mapSource.includes('requestAnimationFrame'), true)
+  assert.equal(mapSource.includes('LIVE_TRANSITION_MS'), true)
+  assert.equal(mapSource.includes('interpolateLivePartyMarkers'), true)
+  assert.equal(modelSource.includes('buildLivePartyTargets'), true)
+  assert.equal(modelSource.includes('interpolateLivePartyMarkers'), true)
 })
 
 test('LiveDiningMap is purely visual and never relies on <text> or seat matrix', () => {

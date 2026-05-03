@@ -563,6 +563,10 @@ input {
   pointer-events: none;
 }
 
+.moving-party {
+  will-change: transform, opacity;
+}
+
 .window-detail-bar {
   display: flex;
   flex-direction: column;
