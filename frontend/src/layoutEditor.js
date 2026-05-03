@@ -13,9 +13,12 @@ export const LAYOUT_DEFAULT_FLOOR = Object.freeze({
   width: LAYOUT_BOUNDS.right - LAYOUT_BOUNDS.x,
   height: LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y
 })
+export const LAYOUT_MAX_EDITABLE_SEATS = 2000
+export const LAYOUT_MAX_FLOOR_AREA = 2200 * 2600
 export const LAYOUT_SIZE_LIMITS = Object.freeze({
   width: Object.freeze({ min: 220, max: null }),
   height: Object.freeze({ min: 320, max: null }),
+  maxArea: LAYOUT_MAX_FLOOR_AREA,
   step: 20
 })
 export const LAYOUT_VIEWPORT_MARGIN = 32
@@ -25,7 +28,6 @@ export const LAYOUT_ZOOM_LIMITS = Object.freeze({
   maxWidth: null,
   maxHeight: null
 })
-export const LAYOUT_MAX_EDITABLE_SEATS = 2000
 export const LAYOUT_MAX_DOORS = 4
 export const LAYOUT_ITEM_GAP = 2
 
@@ -111,6 +113,14 @@ export function fitViewBoxForLayout(layout, margin = LAYOUT_VIEWPORT_MARGIN) {
     width,
     height
   }
+}
+
+export function maxFloorDimensionForArea(axis, floor = {}) {
+  const safeFloor = sanitizeFloorSize(floor)
+  if (axis === 'height') {
+    return snapFloorExtentDown(LAYOUT_SIZE_LIMITS.maxArea / safeFloor.width, LAYOUT_SIZE_LIMITS.height.min)
+  }
+  return snapFloorExtentDown(LAYOUT_SIZE_LIMITS.maxArea / safeFloor.height, LAYOUT_SIZE_LIMITS.width.min)
 }
 
 export function zoomViewBox(viewBox, factor, focusPoint) {
@@ -629,9 +639,9 @@ export function calculateLayoutSeatLimit(layout) {
 }
 
 export function resizeLayoutFloor(layout, floorSize, options = {}) {
-  const floor = sanitizeFloorSize(floorSize)
   const blockTableConflicts = Boolean(options.blockTableConflicts)
   const currentFloor = sanitizeFloorSize(layout?.floor)
+  const floor = sanitizeFloorSize(floorSize, currentFloor)
   const isShrink = floor.width < currentFloor.width || floor.height < currentFloor.height
   const doors = []
   let draft = { floor, doors, windows: [], tables: [] }
@@ -843,7 +853,7 @@ function floorSizeFromConfig(config) {
   })
 }
 
-function sanitizeFloorSize(floor = {}) {
+function sanitizeFloorSize(floor = {}, referenceFloor = null) {
   const width = sanitizeFloorDimension(
     floor.width,
     LAYOUT_SIZE_LIMITS.width.min,
@@ -858,12 +868,12 @@ function sanitizeFloorSize(floor = {}) {
     LAYOUT_SIZE_LIMITS.step,
     LAYOUT_DEFAULT_FLOOR.height
   )
-  return {
+  return constrainFloorArea({
     x: snapOptional(floor.x, (LAYOUT_VIEWBOX.width - width) / 2),
     y: snapOptional(floor.y, (LAYOUT_VIEWBOX.height - height) / 2),
     width,
     height
-  }
+  }, referenceFloor)
 }
 
 function sanitizeViewBox(viewBox = {}) {
@@ -910,6 +920,60 @@ function clampOptionalUpper(value, lower, upper) {
   return Number.isFinite(numericUpper)
     ? Math.min(numericUpper, boundedLower)
     : boundedLower
+}
+
+function constrainFloorArea(floor, referenceFloor = null) {
+  const maxArea = LAYOUT_SIZE_LIMITS.maxArea
+  if (!Number.isFinite(maxArea) || floor.width * floor.height <= maxArea) {
+    return floor
+  }
+  const reference = referenceFloor && Number.isFinite(referenceFloor.width) && Number.isFinite(referenceFloor.height)
+    ? referenceFloor
+    : null
+  const widthChanged = reference ? floor.width !== reference.width : true
+  const heightChanged = reference ? floor.height !== reference.height : true
+  let width = floor.width
+  let height = floor.height
+
+  if (widthChanged && !heightChanged) {
+    width = snapFloorExtentDown(maxArea / height, LAYOUT_SIZE_LIMITS.width.min)
+  } else if (heightChanged && !widthChanged) {
+    height = snapFloorExtentDown(maxArea / width, LAYOUT_SIZE_LIMITS.height.min)
+  } else {
+    const scale = Math.sqrt(maxArea / (width * height))
+    width = snapFloorExtentDown(width * scale, LAYOUT_SIZE_LIMITS.width.min)
+    height = snapFloorExtentDown(height * scale, LAYOUT_SIZE_LIMITS.height.min)
+  }
+
+  const adjusted = shrinkFloorAreaToLimit(width, height, widthChanged && !heightChanged ? 'width' : heightChanged && !widthChanged ? 'height' : null)
+  return {
+    ...floor,
+    width: adjusted.width,
+    height: adjusted.height
+  }
+}
+
+function shrinkFloorAreaToLimit(width, height, preferredAxis = null) {
+  let nextWidth = width
+  let nextHeight = height
+  while (nextWidth * nextHeight > LAYOUT_SIZE_LIMITS.maxArea) {
+    if (preferredAxis === 'width' && nextWidth > LAYOUT_SIZE_LIMITS.width.min) {
+      nextWidth -= LAYOUT_SIZE_LIMITS.step
+    } else if (preferredAxis === 'height' && nextHeight > LAYOUT_SIZE_LIMITS.height.min) {
+      nextHeight -= LAYOUT_SIZE_LIMITS.step
+    } else if (nextWidth / LAYOUT_SIZE_LIMITS.width.min >= nextHeight / LAYOUT_SIZE_LIMITS.height.min && nextWidth > LAYOUT_SIZE_LIMITS.width.min) {
+      nextWidth -= LAYOUT_SIZE_LIMITS.step
+    } else if (nextHeight > LAYOUT_SIZE_LIMITS.height.min) {
+      nextHeight -= LAYOUT_SIZE_LIMITS.step
+    } else {
+      break
+    }
+  }
+  return { width: nextWidth, height: nextHeight }
+}
+
+function snapFloorExtentDown(value, lower) {
+  return Math.max(lower, Math.floor(Number(value) / LAYOUT_SIZE_LIMITS.step) * LAYOUT_SIZE_LIMITS.step)
 }
 
 function sanitizeFloorDimension(value, lower, upper, step, fallback) {

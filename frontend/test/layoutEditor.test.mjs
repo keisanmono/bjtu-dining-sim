@@ -5,6 +5,7 @@ import {
   LAYOUT_BOUNDS,
   LAYOUT_DEFAULT_FLOOR,
   LAYOUT_GRID_STEP,
+  LAYOUT_MAX_FLOOR_AREA,
   LAYOUT_SIZE_LIMITS,
   LAYOUT_VIEWBOX,
   LAYOUT_VIEWPORT_MARGIN,
@@ -26,6 +27,7 @@ import {
   getItemCollisionBoxes,
   itemBounds,
   itemOverlapsLayout,
+  maxFloorDimensionForArea,
   rebuildLayoutTablesForSeats,
   resizeLayoutFloor,
   resizeLayoutFloorFromHandle,
@@ -341,26 +343,40 @@ test('floor resize handles can grow the cafeteria beyond the default viewport fr
   assert.equal(resized.floor.height % LAYOUT_SIZE_LIMITS.step, 0)
 })
 
-test('floor resize is not capped by a fixed maximum cafeteria size', () => {
+test('floor resize is capped by a generous 2000-seat cafeteria envelope', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
-  const oversized = resizeLayoutFloor(layout, {
+  const roomy = resizeLayoutFloor(layout, {
     width: 2200,
     height: 2600
   })
-  const before = floorBoundsForLayout(oversized)
-  const draggedLarger = resizeLayoutFloorFromHandle(
-    oversized,
+  const before = floorBoundsForLayout(roomy)
+  const capped = resizeLayoutFloorFromHandle(
+    roomy,
     'corner',
-    before.x + 2840,
-    before.y + 3120
+    before.x + 5000,
+    before.y + 5000
   )
 
   assert.equal(LAYOUT_SIZE_LIMITS.width.max, null)
   assert.equal(LAYOUT_SIZE_LIMITS.height.max, null)
-  assert.equal(oversized.floor.width, 2200)
-  assert.equal(oversized.floor.height, 2600)
-  assert.equal(draggedLarger.floor.width, 2840)
-  assert.equal(draggedLarger.floor.height, 3120)
+  assert.equal(LAYOUT_SIZE_LIMITS.maxArea, LAYOUT_MAX_FLOOR_AREA)
+  assert.equal(roomy.floor.width, 2200)
+  assert.equal(roomy.floor.height, 2600)
+  assert.equal(roomy.floor.width * roomy.floor.height, LAYOUT_MAX_FLOOR_AREA)
+  assert.ok(calculateLayoutSeatLimit(roomy) >= LAYOUT_MAX_EDITABLE_SEATS)
+  assert.ok(capped.floor.width * capped.floor.height <= LAYOUT_MAX_FLOOR_AREA)
+  assert.notEqual(capped.floor.width, 5000)
+  assert.notEqual(capped.floor.height, 5000)
+})
+
+test('floor dimension maxima are derived from the current area envelope', () => {
+  const roomy = { width: 2200, height: 2600 }
+  const shallow = { width: 1000, height: 500 }
+
+  assert.equal(maxFloorDimensionForArea('width', roomy), 2200)
+  assert.equal(maxFloorDimensionForArea('height', roomy), 2600)
+  assert.equal(maxFloorDimensionForArea('width', shallow), 11440)
+  assert.equal(maxFloorDimensionForArea('height', shallow), 5720)
 })
 
 test('zoomViewBox can zoom out past the old fixed viewport ceiling', () => {

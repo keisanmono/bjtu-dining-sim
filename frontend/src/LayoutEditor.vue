@@ -15,20 +15,22 @@
           <el-input-number
             :model-value="floorSize.width"
             :min="LAYOUT_SIZE_LIMITS.width.min"
+            :max="floorWidthMax"
             :step="LAYOUT_SIZE_LIMITS.step"
             size="small"
             controls-position="right"
-            data-size-policy="floor width has no fixed max"
+            data-size-policy="floor width is capped by max area"
             @change="changeFloorSize('width', $event)"
           />
           <span>食堂深度</span>
           <el-input-number
             :model-value="floorSize.height"
             :min="LAYOUT_SIZE_LIMITS.height.min"
+            :max="floorHeightMax"
             :step="LAYOUT_SIZE_LIMITS.step"
             size="small"
             controls-position="right"
-            data-size-policy="floor height has no fixed max"
+            data-size-policy="floor height is capped by max area"
             @change="changeFloorSize('height', $event)"
           />
           <el-tag size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
@@ -260,6 +262,7 @@ import {
   floorBoundsForLayout,
   getItemFootprint,
   itemOverlapsLayout,
+  maxFloorDimensionForArea,
   resizeLayoutFloor,
   resizeLayoutFloorFromHandle,
   setItemPosition,
@@ -295,6 +298,8 @@ const capacityOptions = TABLE_CAPACITY_OPTIONS
 
 const totalSeats = computed(() => totalLayoutSeats(props.layout))
 const floorSize = computed(() => props.layout.floor || LAYOUT_DEFAULT_FLOOR)
+const floorWidthMax = computed(() => maxFloorDimensionForArea('width', floorSize.value))
+const floorHeightMax = computed(() => maxFloorDimensionForArea('height', floorSize.value))
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
 const isInteracting = computed(() => Boolean(dragState.value || resizeState.value || panState.value))
 const viewBoxString = computed(() => (
