@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.main import (
+    campus_locations,
+    campus_occupancy,
     explain,
     get_run_metrics,
     get_run_records,
@@ -13,7 +15,7 @@ from app.main import (
     run_full_simulation,
     validate_simulation_config,
 )
-from app.schemas import ExplanationRequest, RecommendationRequest, SimulationConfig
+from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig
 
 
 class ApiTests(unittest.TestCase):
@@ -100,6 +102,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["final_state"]["table_occupancy"][1]["type"], "four_seat")
         self.assertIn("two_seat", body["metrics"]["table_utilization_by_type"])
         self.assertIn("avg_party_gather_wait", body["metrics"])
+
+    def test_campus_locations_expose_main_campus_buildings_and_cafeterias(self):
+        payload = campus_locations()
+
+        self.assertEqual(payload["campus_scope"], "main_campus_only")
+        self.assertGreaterEqual(len(payload["teaching_buildings"]), 9)
+        self.assertEqual({item["id"] for item in payload["cafeterias"]}, {"xuehuo", "minghu", "xuesi", "xueyuan"})
+        self.assertIn("walk_times", payload)
+
+    def test_random_campus_occupancy_returns_floor_rows(self):
+        payload = campus_occupancy(CampusOccupancyRequest(source_mode="random", buildings=["no9"], seed=7))
+
+        self.assertEqual(payload["warnings"], [])
+        self.assertEqual(payload["items"][0]["building_id"], "no9")
+        self.assertGreater(len(payload["items"][0]["floors"]), 1)
+        self.assertGreater(payload["items"][0]["total_used"], 0)
 
 
 if __name__ == "__main__":

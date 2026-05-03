@@ -7,6 +7,8 @@ const client = axios.create({
 
 export const api = {
   health: () => client.get('/health').then((res) => res.data),
+  campusLocations: () => client.get('/campus/locations').then((res) => res.data),
+  campusOccupancy: (payload) => client.post('/campus/occupancy', payload).then((res) => res.data),
   validateConfig: (config) => client.post('/config/validate', config).then((res) => res.data),
   runSimulation: (config) => client.post('/sim/run', config).then((res) => res.data),
   stepSimulation: (payload) => client.post('/sim/step', payload).then((res) => res.data),

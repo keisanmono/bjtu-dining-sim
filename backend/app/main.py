@@ -10,9 +10,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from .campus import campus_locations as build_campus_locations
+from .campus import campus_occupancy as build_campus_occupancy
 from .explanation import build_rule_based_explanation
 from .optimization import RecommendationRequestData, recommend_config
 from .schemas import (
+    CampusOccupancyRequest,
     ExplanationRequest,
     ExplanationResponse,
     RecommendationRequest,
@@ -50,6 +53,20 @@ def health() -> dict[str, str]:
 def validate_simulation_config(config: SimulationConfig) -> ValidationResponse:
     errors, warnings = validate_config(config.to_data())
     return ValidationResponse(valid=not errors, errors=errors, warnings=warnings)
+
+
+@app.get("/api/campus/locations")
+def campus_locations() -> dict[str, Any]:
+    return build_campus_locations()
+
+
+@app.post("/api/campus/occupancy")
+def campus_occupancy(request: CampusOccupancyRequest) -> dict[str, Any]:
+    try:
+        buildings = request.buildings or None
+        return build_campus_occupancy(request.source_mode, building_ids=buildings, seed=request.seed)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/sim/run", response_model=RunResponse)

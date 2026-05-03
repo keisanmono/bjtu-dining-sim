@@ -6,6 +6,15 @@ import uuid
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+from .campus import (
+    CampusBuildingDemandData,
+    CampusDemandConfigData,
+    CampusFloorDemandData,
+    build_campus_arrival_schedule,
+    known_building_ids,
+    known_cafeteria_ids,
+)
+
 WALKING_SPEED_UNITS_PER_SEC = 38.0
 MIN_WALKING_DURATION_SEC = 3
 MAX_WALKING_DURATION_SEC = 45
@@ -67,6 +76,7 @@ class SimulationConfigData:
     seat_columns: int = 12
     layout: DiningLayoutData | None = None
     party_size_distribution: dict[int, float] = field(default_factory=lambda: {1: 1.0})
+    campus_demand: CampusDemandConfigData | None = None
 
     def with_updates(self, **updates: Any) -> "SimulationConfigData":
         return replace(self, **updates)
@@ -214,6 +224,33 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
         warnings.append("座位数相对窗口数偏少，可能出现入座瓶颈。")
     if config.arrival_rate * config.service_time_mean > config.num_windows * 1.2:
         warnings.append("到达强度高于窗口服务能力，可能形成长队。")
+    if config.campus_demand and config.campus_demand.enabled:
+        campus = config.campus_demand
+        if campus.cafeteria_id not in known_cafeteria_ids():
+            errors.append("校园到达模式需要选择有效食堂。")
+        if campus.source_mode not in {"live", "random", "manual"}:
+            errors.append("校园人数来源必须是 live、random 或 manual。")
+        if not campus.buildings:
+            errors.append("校园到达模式至少需要一栋教学楼人数。")
+        valid_buildings = known_building_ids()
+        total_people = 0
+        for building in campus.buildings:
+            if building.building_id not in valid_buildings:
+                errors.append(f"未知教学楼：{building.building_id}。")
+            if building.release_ratio < 0 or building.release_ratio > 1:
+                errors.append("下课释放比例应在 0 到 1 之间。")
+            if building.dismissal_minute < 0:
+                errors.append("下课时间不能为负数。")
+            if not building.floors:
+                warnings.append(f"{building.building_id} 没有楼层人数。")
+            for floor in building.floors:
+                if floor.floor < 1:
+                    errors.append("楼层编号必须大于等于 1。")
+                if floor.count < 0:
+                    errors.append("楼层人数不能为负数。")
+                total_people += max(0, floor.count)
+        if total_people == 0:
+            warnings.append("校园到达模式当前楼层人数为 0，仿真可能没有到达学生。")
     party_distribution = _normalized_party_distribution(config.party_size_distribution)
     if not party_distribution:
         errors.append("结伴人数分布至少需要一个正权重。")
@@ -244,6 +281,8 @@ class DiningSimulationRunner:
         self.current_minute = 0
         self.next_student_id = 1
         self.next_party_id = 1
+        self.campus_arrival_schedule = self._build_campus_arrival_schedule()
+        self.arrival_horizon_minute = self._arrival_horizon_minute()
         self.queues: list[list[Student]] = [[] for _ in range(len(self.layout.windows))]
         self.windows: list[WindowService | None] = [None for _ in range(len(self.layout.windows))]
         self.waiting_for_seat: list[DiningParty] = []
@@ -270,7 +309,7 @@ class DiningSimulationRunner:
 
     @property
     def done(self) -> bool:
-        return self.current_minute >= self.config.duration_min and not self._has_active_students()
+        return self.current_minute >= self.arrival_horizon_minute and not self._has_active_students()
 
     def step(self) -> StepRecord:
         if self.done:
@@ -442,10 +481,28 @@ class DiningSimulationRunner:
         return arrived_count
 
     def _generate_arrivals(self, minute: int) -> list[Student]:
+        if self.config.campus_demand and self.config.campus_demand.enabled:
+            count = self.campus_arrival_schedule.get(minute, 0)
+            return self._create_party_students(minute=minute, person_count=count)
         if minute >= self.config.duration_min:
             return []
         count = self._poisson(self._arrival_rate_for_minute(minute))
         return self._create_party_students(minute=minute, person_count=count)
+
+    def _build_campus_arrival_schedule(self) -> dict[int, int]:
+        campus = self.config.campus_demand
+        if campus is None or not campus.enabled or campus.cafeteria_id is None:
+            return {}
+        return build_campus_arrival_schedule(
+            cafeteria_id=campus.cafeteria_id,
+            buildings=campus.buildings,
+            seed=self.config.seed,
+        )
+
+    def _arrival_horizon_minute(self) -> int:
+        if not self.campus_arrival_schedule:
+            return self.config.duration_min
+        return max(self.config.duration_min, max(self.campus_arrival_schedule) + 1)
 
     def _create_party_students(self, minute: int, person_count: int) -> list[Student]:
         arrivals = []

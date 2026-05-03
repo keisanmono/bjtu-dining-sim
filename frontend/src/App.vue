@@ -78,6 +78,88 @@
           />
         </el-card>
 
+        <el-card class="panel campus-panel">
+          <template #header>
+            <div class="panel-title">
+              <el-icon><Grid /></el-icon>
+              <span>校园到达</span>
+            </div>
+          </template>
+          <el-form label-position="top" class="campus-form">
+            <el-form-item label="到达模式">
+              <el-radio-group v-model="arrivalMode">
+                <el-radio-button label="manual">手动平均</el-radio-button>
+                <el-radio-button label="campus">校园人数</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+
+            <template v-if="arrivalMode === 'campus'">
+              <div class="form-pair">
+                <el-form-item label="目标食堂">
+                  <el-select v-model="selectedCafeteriaId" placeholder="选择食堂">
+                    <el-option
+                      v-for="cafeteria in campusCafeterias"
+                      :key="cafeteria.id"
+                      :label="cafeteria.name"
+                      :value="cafeteria.id"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="人数来源">
+                  <el-tag effect="light">{{ campusSourceLabel }}</el-tag>
+                </el-form-item>
+              </div>
+
+              <div class="button-row compact campus-actions">
+                <el-button :icon="Refresh" :loading="campusLoading" @click="loadCampusOccupancy('live')">获取实时数据</el-button>
+                <el-button :icon="MagicStick" :loading="campusLoading" @click="loadCampusOccupancy('random')">随机生成</el-button>
+              </div>
+
+              <el-alert
+                v-if="campusWarning"
+                class="validation-alert"
+                type="warning"
+                :title="campusWarning"
+                show-icon
+                :closable="false"
+              />
+
+              <el-table :data="campusRows" class="campus-table" size="small" height="360">
+                <el-table-column prop="building_name" label="教学楼" width="112" />
+                <el-table-column label="下课" width="104">
+                  <template #default="{ row }">
+                    <el-input-number v-model="row.dismissal_minute" :min="0" :max="240" size="small" controls-position="right" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="释放" width="104">
+                  <template #default="{ row }">
+                    <el-input-number v-model="row.release_ratio" :min="0" :max="1" :step="0.05" size="small" controls-position="right" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="选择概率" width="92">
+                  <template #default="{ row }">{{ formatPercent(campusChoiceProbability(row)) }}</template>
+                </el-table-column>
+                <el-table-column label="路程" width="78">
+                  <template #default="{ row }">{{ campusWalkMinutes(row) }} min</template>
+                </el-table-column>
+                <el-table-column label="楼层人数（可手动填写）" min-width="280">
+                  <template #default="{ row }">
+                    <div class="floor-inputs">
+                      <label v-for="floor in row.floors" :key="`${row.building_id}-${floor.floor}`" class="floor-input">
+                        <span>{{ floor.floor }}F</span>
+                        <el-input-number v-model="floor.count" :min="0" :max="999" size="small" controls-position="right" />
+                      </label>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="合计" width="78">
+                  <template #default="{ row }">{{ campusRowTotal(row) }}</template>
+                </el-table-column>
+              </el-table>
+            </template>
+          </el-form>
+        </el-card>
+
         <el-card class="panel recommendation-panel">
           <template #header>
             <div class="panel-title">
@@ -364,6 +446,7 @@ const defaultConfig = {
   peak_multiplier: 1.4,
   stagger_minutes: 0,
   seat_columns: 12,
+  campus_demand: null,
   floor_width: LAYOUT_DEFAULT_FLOOR.width,
   floor_height: LAYOUT_DEFAULT_FLOOR.height
 }
@@ -392,6 +475,13 @@ const timer = ref(null)
 const isRecommending = ref(false)
 const recommendation = ref(null)
 const explanation = ref(null)
+const arrivalMode = ref('manual')
+const campusLocations = ref({ cafeterias: [], teaching_buildings: [], walk_times: {} })
+const selectedCafeteriaId = ref('')
+const campusRows = ref([])
+const campusSourceMode = ref('manual')
+const campusLoading = ref(false)
+const campusWarning = ref('')
 
 const queueChartEl = ref(null)
 const trendChartEl = ref(null)
@@ -437,9 +527,16 @@ const analysisCards = computed(() => {
   ]
 })
 const recentRecords = computed(() => records.value.slice(-80).reverse())
+const campusCafeterias = computed(() => campusLocations.value.cafeterias || [])
+const campusSourceLabel = computed(() => {
+  if (campusSourceMode.value === 'live') return '实时数据'
+  if (campusSourceMode.value === 'random') return '随机生成'
+  return '手动填写'
+})
 
 onMounted(() => {
   checkHealth()
+  loadCampusLocations()
   window.addEventListener('resize', resizeCharts)
 })
 
@@ -498,9 +595,94 @@ async function checkHealth() {
   }
 }
 
+async function loadCampusLocations() {
+  try {
+    const payload = await api.campusLocations()
+    campusLocations.value = payload
+    if (!selectedCafeteriaId.value && payload.cafeterias?.length) {
+      selectedCafeteriaId.value = payload.cafeterias[0].id
+    }
+    if (!campusRows.value.length) {
+      campusRows.value = buildEmptyCampusRows(payload.teaching_buildings || [])
+    }
+  } catch {
+    campusWarning.value = '校园位置数据加载失败。'
+  }
+}
+
+function buildEmptyCampusRows(buildings) {
+  return buildings.map((building) => ({
+    building_id: building.id,
+    building_name: building.name,
+    dismissal_minute: config.peak_start_min,
+    release_ratio: 1,
+    source: 'manual',
+    floors: Array.from({ length: Math.max(1, Number(building.default_floor_count || 5)) }, (_, index) => ({
+      floor: index + 1,
+      count: 0,
+      capacity: 0
+    }))
+  }))
+}
+
+async function loadCampusOccupancy(sourceMode) {
+  try {
+    campusLoading.value = true
+    campusWarning.value = ''
+    const buildings = campusRows.value.length
+      ? campusRows.value.map((row) => row.building_id)
+      : (campusLocations.value.teaching_buildings || []).map((item) => item.id)
+    const payload = await api.campusOccupancy({
+      source_mode: sourceMode,
+      buildings,
+      seed: config.seed
+    })
+    applyCampusOccupancyItems(payload.items || [], sourceMode)
+    campusSourceMode.value = sourceMode
+    campusWarning.value = (payload.warnings || []).join(' ')
+    arrivalMode.value = 'campus'
+    ElMessage.success(sourceMode === 'live' ? '已获取校园实时人数' : '已随机生成校园人数')
+  } catch (error) {
+    campusWarning.value = error?.response?.data?.detail || '校园人数加载失败'
+  } finally {
+    campusLoading.value = false
+  }
+}
+
+function applyCampusOccupancyItems(items, sourceMode) {
+  const byId = new Map(items.map((item) => [item.building_id, item]))
+  const baseRows = campusRows.value.length
+    ? campusRows.value
+    : items.map((item) => ({
+      building_id: item.building_id,
+      building_name: item.building_name,
+      dismissal_minute: config.peak_start_min,
+      release_ratio: 1,
+      source: sourceMode,
+      floors: []
+    }))
+  campusRows.value = baseRows.map((row) => {
+    const item = byId.get(row.building_id)
+    if (!item) return row
+    return {
+      ...row,
+      source: item.source || sourceMode,
+      floors: (item.floors || []).map((floor) => ({
+        floor: Number(floor.floor) || 1,
+        count: Number(floor.count) || 0,
+        capacity: Number(floor.capacity) || 0
+      }))
+    }
+  })
+}
+
 function loadDefault() {
   isSyncingLayout.value = true
   Object.assign(config, defaultConfig)
+  arrivalMode.value = 'manual'
+  campusSourceMode.value = 'manual'
+  campusWarning.value = ''
+  campusRows.value = buildEmptyCampusRows(campusLocations.value.teaching_buildings || [])
   layout.value = createDefaultLayout(defaultConfig)
   layoutSeatLimit.value = calculateLayoutSeatLimit(layout.value)
   resetCandidateSettings()
@@ -567,6 +749,7 @@ function resetCandidateSettings() {
 }
 
 async function validateConfig() {
+  refreshCampusDemandConfig()
   const result = await api.validateConfig(buildSimulationConfigPayload(config, layout.value))
   validationType.value = result.valid ? (result.warnings.length ? 'warning' : 'success') : 'error'
   validationMessage.value = result.valid
@@ -660,6 +843,7 @@ async function singleStep(reset = false, options = {}) {
   if (stepInFlight) return null
   stepInFlight = true
   try {
+    refreshCampusDemandConfig()
     const payload = shouldResetStepRun(reset, runId.value)
       ? { config: buildSimulationConfigPayload(config, layout.value), reset: true }
       : { run_id: runId.value }
@@ -689,6 +873,7 @@ async function singleStep(reset = false, options = {}) {
 async function runFullSimulation() {
   try {
     pauseRun()
+    refreshCampusDemandConfig()
     const response = await api.runSimulation(buildSimulationConfigPayload(config, layout.value))
     applyRunResponse(response)
     activeView.value = 'analysis'
@@ -711,6 +896,7 @@ function applyRunResponse(response) {
 async function generateRecommendation() {
   try {
     isRecommending.value = true
+    refreshCampusDemandConfig()
     const payload = {
       base_config: buildSimulationConfigPayload(config, layout.value),
       window_options: windowCandidates.value,
@@ -734,6 +920,51 @@ async function generateRecommendation() {
   } finally {
     isRecommending.value = false
   }
+}
+
+function refreshCampusDemandConfig() {
+  config.campus_demand = buildCampusDemandPayload()
+}
+
+function buildCampusDemandPayload() {
+  if (arrivalMode.value !== 'campus') return null
+  return {
+    enabled: true,
+    cafeteria_id: selectedCafeteriaId.value,
+    source_mode: campusSourceMode.value,
+    buildings: campusRows.value.map((row) => ({
+      building_id: row.building_id,
+      dismissal_minute: Math.max(0, Math.round(Number(row.dismissal_minute) || 0)),
+      release_ratio: Math.min(1, Math.max(0, Number(row.release_ratio) || 0)),
+      floors: (row.floors || []).map((floor) => ({
+        floor: Math.max(1, Math.round(Number(floor.floor) || 1)),
+        count: Math.max(0, Math.round(Number(floor.count) || 0))
+      }))
+    }))
+  }
+}
+
+function campusRowTotal(row) {
+  return (row.floors || []).reduce((sum, floor) => sum + (Number(floor.count) || 0), 0)
+}
+
+function campusWalkMinutes(row) {
+  const route = campusLocations.value.walk_times?.[row.building_id]?.[selectedCafeteriaId.value]
+  return route?.duration_min ?? '-'
+}
+
+function campusChoiceProbability(row) {
+  const routes = campusLocations.value.walk_times?.[row.building_id]
+  if (!routes || !selectedCafeteriaId.value || !routes[selectedCafeteriaId.value]) return 0
+  const durations = Object.fromEntries(
+    Object.entries(routes).map(([cafeteriaId, route]) => [cafeteriaId, Math.max(1, Number(route.duration_s) || 1)])
+  )
+  const nearest = Math.min(...Object.values(durations))
+  const weights = Object.fromEntries(
+    Object.entries(durations).map(([cafeteriaId, duration]) => [cafeteriaId, Math.pow(nearest / duration, 2.4)])
+  )
+  const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
+  return total > 0 ? weights[selectedCafeteriaId.value] / total : 0
 }
 
 function applyRecommendationConfig(recommendedConfig) {

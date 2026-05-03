@@ -216,6 +216,39 @@ input {
   justify-content: space-between;
 }
 
+.campus-form {
+  display: grid;
+  gap: 10px;
+}
+
+.campus-actions {
+  justify-content: flex-start;
+}
+
+.campus-table {
+  width: 100%;
+}
+
+.floor-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.floor-input {
+  display: inline-grid;
+  grid-template-columns: 28px 86px;
+  align-items: center;
+  gap: 4px;
+  color: #36536f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.floor-input .el-input-number {
+  width: 86px;
+}
+
 .dining-floor-plan {
   display: block;
   width: 100%;

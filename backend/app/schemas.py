@@ -4,6 +4,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .campus import (
+    CampusBuildingDemandData,
+    CampusDemandConfigData,
+    CampusFloorDemandData,
+)
 from .simulation import (
     DiningLayoutData,
     LayoutDoorData,
@@ -44,6 +49,25 @@ class DiningLayout(BaseModel):
     tables: list[LayoutTable]
 
 
+class CampusFloorDemand(BaseModel):
+    floor: int = Field(ge=1)
+    count: int = Field(ge=0)
+
+
+class CampusBuildingDemand(BaseModel):
+    building_id: str
+    dismissal_minute: int = Field(default=0, ge=0)
+    release_ratio: float = Field(default=1.0, ge=0, le=1)
+    floors: list[CampusFloorDemand] = Field(default_factory=list)
+
+
+class CampusDemandConfig(BaseModel):
+    enabled: bool = False
+    cafeteria_id: str | None = None
+    source_mode: str = "manual"
+    buildings: list[CampusBuildingDemand] = Field(default_factory=list)
+
+
 class SimulationConfig(BaseModel):
     num_windows: int = Field(default=4, ge=1, le=30)
     num_seats: int = Field(default=120, ge=1, le=2000)
@@ -59,15 +83,35 @@ class SimulationConfig(BaseModel):
     seat_columns: int = Field(default=12, ge=4, le=40)
     layout: DiningLayout | None = None
     party_size_distribution: dict[int, float] = Field(default_factory=lambda: {1: 1.0})
+    campus_demand: CampusDemandConfig | None = None
 
     def to_data(self) -> SimulationConfigData:
         payload = self.model_dump()
         layout = payload.pop("layout")
+        campus_demand = payload.pop("campus_demand")
         if layout is not None:
             payload["layout"] = DiningLayoutData(
                 doors=[LayoutDoorData(**door) for door in layout["doors"]],
                 windows=[LayoutWindowData(**window) for window in layout["windows"]],
                 tables=[LayoutTableData(**table) for table in layout["tables"]],
+            )
+        if campus_demand is not None:
+            payload["campus_demand"] = CampusDemandConfigData(
+                enabled=campus_demand["enabled"],
+                cafeteria_id=campus_demand["cafeteria_id"],
+                source_mode=campus_demand["source_mode"],
+                buildings=[
+                    CampusBuildingDemandData(
+                        building_id=building["building_id"],
+                        dismissal_minute=building["dismissal_minute"],
+                        release_ratio=building["release_ratio"],
+                        floors=[
+                            CampusFloorDemandData(floor=floor["floor"], count=floor["count"])
+                            for floor in building["floors"]
+                        ],
+                    )
+                    for building in campus_demand["buildings"]
+                ],
             )
         return SimulationConfigData(**payload)
 
@@ -98,6 +142,12 @@ class StepResponse(BaseModel):
     record: dict[str, Any]
     state: dict[str, Any]
     metrics: dict[str, Any] | None = None
+
+
+class CampusOccupancyRequest(BaseModel):
+    source_mode: str = "random"
+    buildings: list[str] = Field(default_factory=list)
+    seed: int = 20
 
 
 class RecommendationRequest(BaseModel):

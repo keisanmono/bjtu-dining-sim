@@ -210,6 +210,17 @@ test('config form uses a clear arrival volume label', () => {
   assert.equal(source.includes('label="到达率"'), false)
 })
 
+test('config form exposes campus demand controls with live and random buttons', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('校园到达'), true)
+  assert.equal(source.includes('获取实时数据'), true)
+  assert.equal(source.includes('随机生成'), true)
+  assert.equal(source.includes('campusRows'), true)
+  assert.equal(source.includes('selectedCafeteriaId'), true)
+  assert.equal(source.includes('loadCampusOccupancy'), true)
+})
+
 test('analysis cards explain secondary metrics without jargon', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
