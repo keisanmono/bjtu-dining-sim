@@ -107,6 +107,13 @@ input {
   width: 100%;
 }
 
+.field-hint {
+  margin: 6px 0 0;
+  color: #6b7b8f;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .candidate-actions .el-button + .el-button {
   margin-left: 0;
 }
@@ -250,6 +257,19 @@ input {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.layout-size-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: #66768a;
+  font-size: 12px;
+}
+
+.layout-size-controls .el-input-number {
+  width: 96px;
 }
 
 .layout-count-controls {

@@ -26,6 +26,8 @@ export function buildSimulationConfigPayload(config, layout = null) {
     : buildLayoutFromConfig(config)
   return {
     ...config,
+    num_seats: totalLayoutSeats(effectiveLayout),
+    num_windows: effectiveLayout.windows.length,
     layout: effectiveLayout,
     party_size_distribution: partyDistributionForLayout(effectiveLayout)
   }

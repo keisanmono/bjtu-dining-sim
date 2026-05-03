@@ -44,6 +44,21 @@ test('candidate settings build actual recommendation payload options', () => {
   assert.deepEqual(candidates.staggers, [0, 5, 10, 15])
 })
 
+test('seat candidates are even because editable tables are 2/4/6 seats', () => {
+  const candidates = buildCandidatesFromSettings({
+    windowMin: 2,
+    windowMax: 2,
+    seatMin: 81,
+    seatMax: 125,
+    seatStep: 15,
+    staggerMin: 0,
+    staggerMax: 0,
+    staggerStep: 5
+  })
+
+  assert.deepEqual(candidates.seats, [80, 94, 108, 122, 124])
+})
+
 test('seat candidates stay within the editable layout capacity', () => {
   const candidates = buildCandidatesFromSettings({
     windowMin: 2,

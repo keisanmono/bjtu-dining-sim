@@ -4,20 +4,24 @@ import test from 'node:test'
 import {
   LAYOUT_BOUNDS,
   LAYOUT_GRID_STEP,
+  LAYOUT_SIZE_LIMITS,
   LAYOUT_VIEWBOX,
   TABLE_CAPACITY_OPTIONS,
   LAYOUT_MAX_EDITABLE_SEATS,
   adjustLayoutDoorCount,
   adjustLayoutWindowCount,
   buildTableCapacities,
+  calculateLayoutSeatLimit,
   clampToBounds,
   createDefaultLayout,
+  floorBoundsForLayout,
   findItem,
   getItemFootprint,
   getItemCollisionBoxes,
   itemBounds,
   itemOverlapsLayout,
   rebuildLayoutTablesForSeats,
+  resizeLayoutFloor,
   setItemPosition,
   setTableCapacity,
   snapAndClampPoint,
@@ -95,6 +99,15 @@ test('createDefaultLayout produces in-bounds, on-grid items for the given config
     assert.ok(TABLE_CAPACITY_OPTIONS.includes(table.capacity) || table.capacity <= 6)
     assert.equal(table.table_type, tableTypeForCapacity(table.capacity))
   }
+})
+
+test('seat counts are normalized to even table capacity totals', () => {
+  assert.equal(buildTableCapacities(121).reduce((sum, value) => sum + value, 0), 120)
+
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: 121 })
+
+  assert.equal(totalLayoutSeats(layout), 120)
+  assert.equal(layout.tables.some((table) => table.capacity % 2 !== 0), false)
 })
 
 test('setItemPosition snaps and clamps the target item without touching others', () => {
@@ -277,6 +290,47 @@ test('rebuilt tables avoid existing doors and windows', () => {
 
   const rebuilt = rebuildLayoutTablesForSeats(layout, LAYOUT_MAX_EDITABLE_SEATS)
 
+  assertNoLayoutOverlaps(rebuilt)
+})
+
+test('layout floor can be resized and updates the active bounds', () => {
+  const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
+
+  const resized = resizeLayoutFloor(layout, { width: 240, height: 380 })
+  const bounds = floorBoundsForLayout(resized)
+
+  assert.equal(resized.floor.width, 240)
+  assert.equal(resized.floor.height, 380)
+  assert.equal(bounds.x, (LAYOUT_VIEWBOX.width - 240) / 2)
+  assert.equal(bounds.y, (LAYOUT_VIEWBOX.height - 380) / 2)
+})
+
+test('seat limit is computed from floor size and wall openings', () => {
+  const roomy = createDefaultLayout({ num_windows: 1, num_seats: 120 })
+  const compact = resizeLayoutFloor(roomy, {
+    width: LAYOUT_SIZE_LIMITS.width.min,
+    height: LAYOUT_SIZE_LIMITS.height.min
+  })
+  const compactWithManyOpenings = resizeLayoutFloor(createDefaultLayout({ num_windows: 30, num_seats: 120 }), {
+    width: LAYOUT_SIZE_LIMITS.width.min,
+    height: LAYOUT_SIZE_LIMITS.height.min
+  })
+
+  assert.ok(calculateLayoutSeatLimit(roomy) > calculateLayoutSeatLimit(compact))
+  assert.ok(calculateLayoutSeatLimit(compact) > calculateLayoutSeatLimit(compactWithManyOpenings))
+  assert.equal(calculateLayoutSeatLimit(roomy) % 2, 0)
+})
+
+test('rebuilt table count is clamped to the computed floor capacity', () => {
+  const layout = resizeLayoutFloor(createDefaultLayout({ num_windows: 30, num_seats: 120 }), {
+    width: LAYOUT_SIZE_LIMITS.width.min,
+    height: LAYOUT_SIZE_LIMITS.height.min
+  })
+  const limit = calculateLayoutSeatLimit(layout)
+
+  const rebuilt = rebuildLayoutTablesForSeats(layout, limit + 101)
+
+  assert.equal(totalLayoutSeats(rebuilt), limit)
   assertNoLayoutOverlaps(rebuilt)
 })
 

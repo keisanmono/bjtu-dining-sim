@@ -8,6 +8,15 @@
 export const LAYOUT_VIEWBOX = Object.freeze({ width: 360, height: 640 })
 export const LAYOUT_GRID_STEP = 10
 export const LAYOUT_BOUNDS = Object.freeze({ x: 24, y: 24, right: 336, bottom: 616 })
+export const LAYOUT_DEFAULT_FLOOR = Object.freeze({
+  width: LAYOUT_BOUNDS.right - LAYOUT_BOUNDS.x,
+  height: LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y
+})
+export const LAYOUT_SIZE_LIMITS = Object.freeze({
+  width: Object.freeze({ min: 220, max: LAYOUT_DEFAULT_FLOOR.width }),
+  height: Object.freeze({ min: 320, max: LAYOUT_DEFAULT_FLOOR.height }),
+  step: 20
+})
 export const LAYOUT_MAX_EDITABLE_SEATS = 180
 export const LAYOUT_MAX_DOORS = 4
 export const LAYOUT_ITEM_GAP = 2
@@ -42,7 +51,7 @@ export function tableTypeForCapacity(capacity) {
 }
 
 export function buildTableCapacities(numSeats) {
-  let remaining = clampInteger(numSeats, 1, LAYOUT_MAX_EDITABLE_SEATS)
+  let remaining = normalizeSeatCount(numSeats, LAYOUT_MAX_EDITABLE_SEATS)
   const capacities = []
   let index = 0
   if (remaining > DENSE_TABLE_THRESHOLD_SEATS) {
@@ -60,6 +69,24 @@ export function buildTableCapacities(numSeats) {
     index += 1
   }
   return capacities
+}
+
+export function normalizeSeatCount(value, upper = LAYOUT_MAX_EDITABLE_SEATS) {
+  const boundedUpper = Math.max(2, toEven(Math.min(LAYOUT_MAX_EDITABLE_SEATS, Number(upper) || LAYOUT_MAX_EDITABLE_SEATS)))
+  const bounded = Math.min(boundedUpper, Math.max(2, Math.floor(Number(value) || 2)))
+  return Math.max(2, toEven(bounded))
+}
+
+export function floorBoundsForLayout(layout) {
+  const floor = sanitizeFloorSize(layout?.floor || layout)
+  const x = (LAYOUT_VIEWBOX.width - floor.width) / 2
+  const y = (LAYOUT_VIEWBOX.height - floor.height) / 2
+  return {
+    x,
+    y,
+    right: x + floor.width,
+    bottom: y + floor.height
+  }
 }
 
 export function getItemFootprint(kind, item) {
@@ -138,16 +165,16 @@ function snapInsideRange(value, lower, upper, step = LAYOUT_GRID_STEP) {
   return snapped
 }
 
-export function snapAndClampPoint(x, y, kind, item) {
+export function snapAndClampPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   if (kind === 'door' || kind === 'window') {
-    return snapWallItemPoint(x, y, kind, item)
+    return snapWallItemPoint(x, y, kind, item, bounds)
   }
   const footprint = getItemFootprint(kind, item)
   const halfW = footprint.width / 2
   const halfH = footprint.height / 2
   return {
-    x: snapInsideRange(x, LAYOUT_BOUNDS.x + halfW, LAYOUT_BOUNDS.right - halfW),
-    y: snapInsideRange(y, LAYOUT_BOUNDS.y + halfH, LAYOUT_BOUNDS.bottom - halfH)
+    x: snapInsideRange(x, bounds.x + halfW, bounds.right - halfW),
+    y: snapInsideRange(y, bounds.y + halfH, bounds.bottom - halfH)
   }
 }
 
@@ -160,95 +187,149 @@ function clampInteger(value, lower, upper) {
 }
 
 function defaultDoorPosition(index, layout = null, id = `D${index + 1}`) {
+  const bounds = floorBoundsForLayout(layout)
   const positions = [
-    { wall_side: 'left', x: LAYOUT_BOUNDS.x, y: 100 },
-    { wall_side: 'right', x: LAYOUT_BOUNDS.right, y: 100 },
-    { wall_side: 'top', x: 310, y: LAYOUT_BOUNDS.y },
-    { wall_side: 'left', x: LAYOUT_BOUNDS.x, y: 170 }
+    { wall_side: 'left', x: bounds.x, y: bounds.y + 76 },
+    { wall_side: 'right', x: bounds.right, y: bounds.y + 76 },
+    { wall_side: 'top', x: bounds.right - 26, y: bounds.y },
+    { wall_side: 'left', x: bounds.x, y: bounds.y + 146 }
   ]
   const position = positions[index] || positions[positions.length - 1]
-  const preferred = snapAndClampPoint(position.x, position.y, 'door', position)
+  const preferred = snapAndClampPoint(position.x, position.y, 'door', position, bounds)
   return firstAvailableWallPosition(layout, 'door', id, index, preferred)
 }
 
 function defaultWindowPosition(index, layout = null, id = `W${index + 1}`) {
+  const bounds = floorBoundsForLayout(layout)
   // Windows are service openings on walls, so defaults occupy wall slots.
-  const topSlots = [70, 130, 190, 250, 310]
+  const topSlots = [bounds.x + 46, bounds.x + 106, bounds.x + 166, bounds.x + 226, bounds.right - 26]
   if (index < topSlots.length) {
-    const preferred = snapAndClampPoint(topSlots[index], LAYOUT_BOUNDS.y, 'window', { wall_side: 'top' })
+    const preferred = snapAndClampPoint(topSlots[index], bounds.y, 'window', { wall_side: 'top' }, bounds)
     return firstAvailableWallPosition(layout, 'window', id, index, preferred)
   }
-  const rightSlots = [100, 170]
+  const rightSlots = [bounds.y + 76, bounds.y + 146]
   const rightIndex = index - topSlots.length
   if (rightIndex < rightSlots.length) {
-    const preferred = snapAndClampPoint(LAYOUT_BOUNDS.right, rightSlots[rightIndex], 'window', { wall_side: 'right' })
+    const preferred = snapAndClampPoint(bounds.right, rightSlots[rightIndex], 'window', { wall_side: 'right' }, bounds)
     return firstAvailableWallPosition(layout, 'window', id, index, preferred)
   }
-  const leftSlots = [170, 100]
+  const leftSlots = [bounds.y + 146, bounds.y + 76]
   const leftIndex = rightIndex - rightSlots.length
   if (leftIndex < leftSlots.length) {
-    const preferred = snapAndClampPoint(LAYOUT_BOUNDS.x, leftSlots[leftIndex], 'window', { wall_side: 'left' })
+    const preferred = snapAndClampPoint(bounds.x, leftSlots[leftIndex], 'window', { wall_side: 'left' }, bounds)
     return firstAvailableWallPosition(layout, 'window', id, index, preferred)
   }
   const bottomIndex = leftIndex - leftSlots.length
-  const preferred = snapAndClampPoint(70 + (bottomIndex % 5) * 60, LAYOUT_BOUNDS.bottom, 'window', { wall_side: 'bottom' })
+  const preferred = snapAndClampPoint(bounds.x + 46 + (bottomIndex % 5) * 60, bounds.bottom, 'window', { wall_side: 'bottom' }, bounds)
   return firstAvailableWallPosition(layout, 'window', id, index, preferred)
 }
 
-function defaultTablePosition(index, capacity) {
+function defaultTablePosition(index, capacity, layout = null) {
+  const bounds = floorBoundsForLayout(layout)
   // Keep tables away from wall-mounted doors/windows so default generation
   // starts from a collision-free editable layout.
   const cols = 3
   const col = index % cols
   const row = Math.floor(index / cols)
-  return snapAndClampPoint(100 + col * 80, 100 + row * 50, 'table', { capacity })
+  return snapAndClampPoint(bounds.x + 76 + col * 80, bounds.y + 76 + row * 50, 'table', { capacity }, bounds)
 }
 
 function firstAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
+  return findAvailableWallPosition(layout, kind, id, seedIndex, preferred) || preferred
+}
+
+function findAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
   if (!layout) return preferred
   if (!itemOverlapsLayout(layout, kind, id, preferred.x, preferred.y, { id, ...preferred })) {
     return preferred
   }
-  const candidates = wallCandidatePoints()
+  const candidates = wallCandidatePoints(layout)
   const start = candidates.length ? seedIndex % candidates.length : 0
   for (let offset = 0; offset < candidates.length; offset += 1) {
     const candidate = candidates[(start + offset) % candidates.length]
-    const point = snapAndClampPoint(candidate.x, candidate.y, kind, candidate)
+    const point = snapAndClampPoint(candidate.x, candidate.y, kind, candidate, floorBoundsForLayout(layout))
     if (!itemOverlapsLayout(layout, kind, id, point.x, point.y, { id, ...point })) {
       return point
     }
   }
-  return preferred
+  return null
 }
 
-function wallCandidatePoints() {
+function firstAvailableTablePosition(layout, id, seedIndex, capacity) {
+  return findAvailableTablePosition(layout, id, seedIndex, capacity) || defaultTablePosition(seedIndex, capacity, layout)
+}
+
+function findAvailableTablePosition(layout, id, seedIndex, capacity) {
+  const preferred = defaultTablePosition(seedIndex, capacity, layout)
+  if (!layout || !itemOverlapsLayout(layout, 'table', id, preferred.x, preferred.y, { id, capacity, ...preferred })) {
+    return preferred
+  }
+  const candidates = tableCandidatePoints(layout, capacity)
+  const start = candidates.length ? seedIndex % candidates.length : 0
+  for (let offset = 0; offset < candidates.length; offset += 1) {
+    const point = candidates[(start + offset) % candidates.length]
+    if (!itemOverlapsLayout(layout, 'table', id, point.x, point.y, { id, capacity, ...point })) {
+      return point
+    }
+  }
+  return null
+}
+
+function wallCandidatePoints(layout) {
+  const bounds = floorBoundsForLayout(layout)
   const points = []
-  for (let x = 50; x <= 310; x += 40) {
-    points.push({ wall_side: 'top', x, y: LAYOUT_BOUNDS.y })
+  for (let x = bounds.x + 26; x <= bounds.right - 26; x += 40) {
+    points.push({ wall_side: 'top', x, y: bounds.y })
   }
-  for (let y = 70; y <= 570; y += 40) {
-    points.push({ wall_side: 'right', x: LAYOUT_BOUNDS.right, y })
+  for (let y = bounds.y + 46; y <= bounds.bottom - 46; y += 40) {
+    points.push({ wall_side: 'right', x: bounds.right, y })
   }
-  for (let x = 310; x >= 50; x -= 40) {
-    points.push({ wall_side: 'bottom', x, y: LAYOUT_BOUNDS.bottom })
+  for (let x = bounds.right - 26; x >= bounds.x + 26; x -= 40) {
+    points.push({ wall_side: 'bottom', x, y: bounds.bottom })
   }
-  for (let y = 570; y >= 70; y -= 40) {
-    points.push({ wall_side: 'left', x: LAYOUT_BOUNDS.x, y })
+  for (let y = bounds.bottom - 46; y >= bounds.y + 46; y -= 40) {
+    points.push({ wall_side: 'left', x: bounds.x, y })
   }
   return points
 }
 
+function tableCandidatePoints(layout, capacity) {
+  const bounds = floorBoundsForLayout(layout)
+  const fp = getItemFootprint('table', { capacity })
+  const startX = snapInsideRange(bounds.x + 76, bounds.x + fp.width / 2, bounds.right - fp.width / 2)
+  const startY = snapInsideRange(bounds.y + 76, bounds.y + fp.height / 2, bounds.bottom - fp.height / 2)
+  const endX = bounds.right - fp.width / 2
+  const endY = bounds.bottom - fp.height / 2
+  const points = []
+  for (let y = startY; y <= endY; y += 50) {
+    for (let x = startX; x <= endX; x += 80) {
+      points.push({ x, y })
+    }
+  }
+  return points
+}
+
+function placeTablesForSeats(layout, numSeats) {
+  const tables = []
+  for (const [index, capacity] of buildTableCapacities(numSeats).entries()) {
+    const id = `T${index + 1}`
+    const point = findAvailableTablePosition({ ...layout, tables }, id, index, capacity)
+    if (!point) return null
+    tables.push({
+      id,
+      capacity,
+      table_type: tableTypeForCapacity(capacity),
+      ...point
+    })
+  }
+  return tables
+}
+
 export function createDefaultLayout(config) {
   const numWindows = clampInteger(config?.num_windows, 1, 30)
-  const numSeats = clampInteger(config?.num_seats, 1, LAYOUT_MAX_EDITABLE_SEATS)
-  const tables = buildTableCapacities(numSeats).map((capacity, index) => ({
-    id: `T${index + 1}`,
-    capacity,
-    table_type: tableTypeForCapacity(capacity),
-    ...defaultTablePosition(index, capacity)
-  }))
+  const floor = floorSizeFromConfig(config)
   const doors = []
-  let draft = { doors, windows: [], tables }
+  let draft = { floor, doors, windows: [], tables: [] }
   doors.push({
     id: 'D1',
     arrival_share: 1,
@@ -264,7 +345,10 @@ export function createDefaultLayout(config) {
       ...defaultWindowPosition(index, { ...draft, windows }, id)
     })
   }
-  return { doors, windows, tables }
+  draft = { ...draft, windows }
+  const numSeats = normalizeSeatCount(config?.num_seats, calculateLayoutSeatLimit(draft))
+  const tables = placeTablesForSeats(draft, numSeats) || []
+  return { floor, doors, windows, tables }
 }
 
 export function adjustLayoutWindowCount(layout, desiredCount) {
@@ -279,10 +363,13 @@ export function adjustLayoutWindowCount(layout, desiredCount) {
   const additional = []
   for (let index = current.length; index < target; index += 1) {
     const id = nextWindowId(current.concat(additional))
+    const draft = { ...layout, windows: [...current, ...additional] }
+    const point = findAvailableWallPosition(draft, 'window', id, index, defaultWindowPosition(index, draft, id))
+    if (!point) break
     additional.push({
       id,
       service_rate_factor: 1,
-      ...defaultWindowPosition(index, { ...layout, windows: [...current, ...additional] }, id)
+      ...point
     })
   }
   return { ...layout, windows: [...current, ...additional] }
@@ -300,33 +387,80 @@ export function adjustLayoutDoorCount(layout, desiredCount) {
   const additional = []
   for (let index = current.length; index < target; index += 1) {
     const id = nextDoorId(current.concat(additional))
+    const draft = { ...layout, doors: [...current, ...additional] }
+    const point = findAvailableWallPosition(draft, 'door', id, index, defaultDoorPosition(index, draft, id))
+    if (!point) break
     additional.push({
       id,
       arrival_share: 1,
-      ...defaultDoorPosition(index, { ...layout, doors: [...current, ...additional] }, id)
+      ...point
     })
   }
   return { ...layout, doors: [...current, ...additional] }
 }
 
 export function rebuildLayoutTablesForSeats(layout, numSeats) {
-  const capacities = buildTableCapacities(numSeats)
-  const tables = capacities.map((capacity, index) => ({
-    id: `T${index + 1}`,
-    capacity,
-    table_type: tableTypeForCapacity(capacity),
-    ...defaultTablePosition(index, capacity)
-  }))
+  const baseLayout = { ...layout, floor: sanitizeFloorSize(layout?.floor), tables: [] }
+  const tables = placeTablesForSeats(baseLayout, normalizeSeatCount(numSeats, calculateLayoutSeatLimit(baseLayout))) || []
   return { ...layout, tables }
+}
+
+export function calculateLayoutSeatLimit(layout) {
+  const baseLayout = {
+    floor: sanitizeFloorSize(layout?.floor),
+    doors: layout?.doors || [],
+    windows: layout?.windows || [],
+    tables: []
+  }
+  let best = 2
+  for (let seats = 2; seats <= LAYOUT_MAX_EDITABLE_SEATS; seats += 2) {
+    if (placeTablesForSeats(baseLayout, seats)) {
+      best = seats
+    }
+  }
+  return best
+}
+
+export function resizeLayoutFloor(layout, floorSize) {
+  const floor = sanitizeFloorSize(floorSize)
+  const doors = []
+  let draft = { floor, doors, windows: [], tables: [] }
+  ;(layout?.doors || []).forEach((door, index) => {
+    const id = door.id || `D${index + 1}`
+    const preferred = snapAndClampPoint(door.x, door.y, 'door', door, floorBoundsForLayout(draft))
+    const point = findAvailableWallPosition({ ...draft, doors }, 'door', id, index, preferred)
+    if (!point) return
+    doors.push({
+      ...door,
+      id,
+      ...point
+    })
+  })
+  draft = { ...draft, doors }
+  const windows = []
+  ;(layout?.windows || []).forEach((window, index) => {
+    const id = window.id || `W${index + 1}`
+    const preferred = snapAndClampPoint(window.x, window.y, 'window', window, floorBoundsForLayout(draft))
+    const point = findAvailableWallPosition({ ...draft, windows }, 'window', id, index, preferred)
+    if (!point) return
+    windows.push({
+      ...window,
+      id,
+      ...point
+    })
+  })
+  draft = { ...draft, windows }
+  return rebuildLayoutTablesForSeats(draft, Math.min(totalLayoutSeats(layout), calculateLayoutSeatLimit(draft)))
 }
 
 export function setItemPosition(layout, kind, id, x, y, options = {}) {
   const collection = collectionKeyForKind(kind)
   if (!collection) return layout
   const allowOverlap = Boolean(options.allowOverlap)
+  const bounds = floorBoundsForLayout(layout)
   const items = layout[collection].map((item) => {
     if (item.id !== id) return item
-    const point = snapAndClampPoint(x, y, kind, item)
+    const point = snapAndClampPoint(x, y, kind, item, bounds)
     const movedItem = { ...item, x: point.x, y: point.y, ...wallSidePatch(kind, point) }
     if (!allowOverlap && itemOverlapsLayout(layout, kind, id, point.x, point.y, movedItem)) {
       return item
@@ -405,6 +539,31 @@ function sanitizeCapacity(capacity) {
   return 6
 }
 
+function floorSizeFromConfig(config) {
+  return sanitizeFloorSize(config?.floor || {
+    width: config?.floor_width,
+    height: config?.floor_height
+  })
+}
+
+function sanitizeFloorSize(floor = {}) {
+  return {
+    width: clampToStep(floor.width, LAYOUT_SIZE_LIMITS.width.min, LAYOUT_SIZE_LIMITS.width.max, LAYOUT_SIZE_LIMITS.step),
+    height: clampToStep(floor.height, LAYOUT_SIZE_LIMITS.height.min, LAYOUT_SIZE_LIMITS.height.max, LAYOUT_SIZE_LIMITS.step)
+  }
+}
+
+function clampToStep(value, lower, upper, step) {
+  const fallback = upper
+  const raw = Number.isFinite(Number(value)) ? Number(value) : fallback
+  const bounded = Math.min(upper, Math.max(lower, raw))
+  return Math.min(upper, Math.max(lower, Math.round(bounded / step) * step))
+}
+
+function toEven(value) {
+  return Math.floor(value / 2) * 2
+}
+
 function collectionKeyForKind(kind) {
   if (kind === 'door') return 'doors'
   if (kind === 'window') return 'windows'
@@ -451,45 +610,45 @@ function localRectToBox(item, rect) {
   }
 }
 
-function snapWallItemPoint(x, y, kind, item) {
-  const wallSide = nearestWallSide(x, y)
+function snapWallItemPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
+  const wallSide = nearestWallSide(x, y, bounds)
   const footprint = getItemFootprint(kind, { ...item, wall_side: wallSide })
   const halfW = footprint.width / 2
   const halfH = footprint.height / 2
   if (wallSide === 'top') {
     return {
-      x: snapInsideRange(x, LAYOUT_BOUNDS.x + halfW, LAYOUT_BOUNDS.right - halfW),
-      y: LAYOUT_BOUNDS.y + halfH,
+      x: snapInsideRange(x, bounds.x + halfW, bounds.right - halfW),
+      y: bounds.y + halfH,
       wall_side: wallSide
     }
   }
   if (wallSide === 'right') {
     return {
-      x: LAYOUT_BOUNDS.right - halfW,
-      y: snapInsideRange(y, LAYOUT_BOUNDS.y + halfH, LAYOUT_BOUNDS.bottom - halfH),
+      x: bounds.right - halfW,
+      y: snapInsideRange(y, bounds.y + halfH, bounds.bottom - halfH),
       wall_side: wallSide
     }
   }
   if (wallSide === 'bottom') {
     return {
-      x: snapInsideRange(x, LAYOUT_BOUNDS.x + halfW, LAYOUT_BOUNDS.right - halfW),
-      y: LAYOUT_BOUNDS.bottom - halfH,
+      x: snapInsideRange(x, bounds.x + halfW, bounds.right - halfW),
+      y: bounds.bottom - halfH,
       wall_side: wallSide
     }
   }
   return {
-    x: LAYOUT_BOUNDS.x + halfW,
-    y: snapInsideRange(y, LAYOUT_BOUNDS.y + halfH, LAYOUT_BOUNDS.bottom - halfH),
+    x: bounds.x + halfW,
+    y: snapInsideRange(y, bounds.y + halfH, bounds.bottom - halfH),
     wall_side: wallSide
   }
 }
 
-function nearestWallSide(x, y) {
+function nearestWallSide(x, y, bounds = LAYOUT_BOUNDS) {
   const distances = [
-    { wall_side: 'top', value: Math.abs(y - LAYOUT_BOUNDS.y) },
-    { wall_side: 'right', value: Math.abs(x - LAYOUT_BOUNDS.right) },
-    { wall_side: 'bottom', value: Math.abs(y - LAYOUT_BOUNDS.bottom) },
-    { wall_side: 'left', value: Math.abs(x - LAYOUT_BOUNDS.x) }
+    { wall_side: 'top', value: Math.abs(y - bounds.y) },
+    { wall_side: 'right', value: Math.abs(x - bounds.right) },
+    { wall_side: 'bottom', value: Math.abs(y - bounds.bottom) },
+    { wall_side: 'left', value: Math.abs(x - bounds.x) }
   ]
   return distances.reduce((nearest, candidate) => (
     candidate.value < nearest.value ? candidate : nearest

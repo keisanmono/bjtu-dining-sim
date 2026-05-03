@@ -36,6 +36,9 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(appSource.includes(':layout="layout"'), true)
   assert.equal(appSource.includes('@update:layout="onLayoutUpdate"'), true)
   assert.equal(appSource.includes('@reset="resetLayout"'), true)
+  assert.equal(appSource.includes(':seat-limit="layoutSeatLimit"'), true)
+  assert.equal(appSource.includes('layoutSeatLimit'), true)
+  assert.equal(appSource.includes(':step="2"'), true)
 
   // The LayoutEditor itself renders the SVG floor plan with the agreed viewBox.
   assert.equal(editorSource.includes('class="dining-floor-plan"'), true)
@@ -55,6 +58,10 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(editorSource.includes('revertInvalidDrag'), true)
   assert.equal(editorSource.includes('is-overlapping'), true)
   assert.equal(editorSource.includes('isCollisionHighlighted'), true)
+  assert.equal(editorSource.includes('食堂宽度'), true)
+  assert.equal(editorSource.includes('食堂深度'), true)
+  assert.equal(editorSource.includes('resizeLayoutFloor'), true)
+  assert.equal(editorSource.includes('seatLimit'), true)
   assert.equal(editorSource.includes('adjustLayoutDoorCount'), true)
   assert.equal(editorSource.includes('入口 +'), true)
 

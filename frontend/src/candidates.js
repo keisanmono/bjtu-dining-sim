@@ -43,11 +43,31 @@ export function buildIntegerRange(minValue, maxValue, stepValue = 1, lower = 1, 
 export function buildCandidatesFromSettings(settings) {
   return {
     windows: buildIntegerRange(settings.windowMin, settings.windowMax, 1, 1, 30),
-    seats: buildIntegerRange(settings.seatMin, settings.seatMax, settings.seatStep, 1, LAYOUT_MAX_EDITABLE_SEATS),
+    seats: buildEvenSeatRange(settings.seatMin, settings.seatMax, settings.seatStep, 2, LAYOUT_MAX_EDITABLE_SEATS),
     staggers: buildIntegerRange(settings.staggerMin, settings.staggerMax, settings.staggerStep, 0, 120)
   }
 }
 
+function buildEvenSeatRange(minValue, maxValue, stepValue, lower, upper) {
+  const step = Math.max(2, roundEven(Number(stepValue) || 2))
+  const first = clamp(roundEven(Number(minValue) || lower), lower, upper)
+  const last = clamp(roundEven(Number(maxValue) || lower), lower, upper)
+  const start = Math.min(first, last)
+  const end = Math.max(first, last)
+  const values = []
+  for (let value = start; value <= end; value += step) {
+    values.push(value)
+  }
+  if (values.at(-1) !== end) {
+    values.push(end)
+  }
+  return [...new Set(values)]
+}
+
 function clamp(value, lower, upper) {
   return Math.min(upper, Math.max(lower, value))
+}
+
+function roundEven(value) {
+  return Math.floor(value / 2) * 2
 }

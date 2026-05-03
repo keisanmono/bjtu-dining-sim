@@ -32,7 +32,8 @@
                 <el-input-number v-model="config.num_windows" :min="1" :max="30" controls-position="right" />
               </el-form-item>
               <el-form-item label="座位数">
-                <el-input-number v-model="config.num_seats" :min="1" :max="LAYOUT_MAX_EDITABLE_SEATS" controls-position="right" />
+                <el-input-number v-model="config.num_seats" :min="2" :max="layoutSeatLimit" :step="2" controls-position="right" />
+                <p class="field-hint">当前布局最多 {{ layoutSeatLimit }} 座</p>
               </el-form-item>
             </div>
             <div class="form-pair">
@@ -102,13 +103,13 @@
               </div>
               <div class="candidate-editor-row">
                 <span>座位</span>
-                <el-input-number v-model="candidateSettings.seatMin" :min="1" :max="LAYOUT_MAX_EDITABLE_SEATS" :step="10" size="small" controls-position="right" />
+                <el-input-number v-model="candidateSettings.seatMin" :min="2" :max="layoutSeatLimit" :step="2" size="small" controls-position="right" />
                 <span class="range-separator">至</span>
-                <el-input-number v-model="candidateSettings.seatMax" :min="1" :max="LAYOUT_MAX_EDITABLE_SEATS" :step="10" size="small" controls-position="right" />
+                <el-input-number v-model="candidateSettings.seatMax" :min="2" :max="layoutSeatLimit" :step="2" size="small" controls-position="right" />
               </div>
               <div class="candidate-editor-row">
                 <span>步长</span>
-                <el-input-number v-model="candidateSettings.seatStep" :min="1" :max="200" :step="5" size="small" controls-position="right" />
+                <el-input-number v-model="candidateSettings.seatStep" :min="2" :max="200" :step="2" size="small" controls-position="right" />
                 <span class="range-hint">座位候选间隔</span>
               </div>
               <div class="candidate-editor-row">
@@ -199,6 +200,7 @@
           </template>
           <LayoutEditor
             :layout="layout"
+            :seat-limit="layoutSeatLimit"
             @update:layout="onLayoutUpdate"
             @reset="resetLayout"
           />
@@ -344,8 +346,10 @@ import { canRenderChartElement } from './chartUtils'
 import { buildSimulationConfigPayload } from './layout'
 import {
   adjustLayoutWindowCount,
+  calculateLayoutSeatLimit,
   createDefaultLayout,
-  LAYOUT_MAX_EDITABLE_SEATS,
+  LAYOUT_DEFAULT_FLOOR,
+  normalizeSeatCount,
   rebuildLayoutTablesForSeats,
   totalLayoutSeats
 } from './layoutEditor'
@@ -365,7 +369,9 @@ const defaultConfig = {
   peak_end_min: 40,
   peak_multiplier: 1.4,
   stagger_minutes: 0,
-  seat_columns: 12
+  seat_columns: 12,
+  floor_width: LAYOUT_DEFAULT_FLOOR.width,
+  floor_height: LAYOUT_DEFAULT_FLOOR.height
 }
 
 const activeView = ref('config')
@@ -411,8 +417,12 @@ const visibleSeatMatrix = computed(() => {
 })
 const recommendationCandidates = computed(() => buildCandidatesFromSettings(candidateSettings))
 const windowCandidates = computed(() => recommendationCandidates.value.windows)
-const seatCandidates = computed(() => recommendationCandidates.value.seats)
+const seatCandidates = computed(() => {
+  const seats = recommendationCandidates.value.seats.filter((value) => value <= layoutSeatLimit.value)
+  return seats.length ? seats : [config.num_seats]
+})
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
+const layoutSeatLimit = computed(() => calculateLayoutSeatLimit(layout.value))
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
@@ -461,7 +471,7 @@ watch(
     if (isSyncingLayout.value) return
     if (!Number.isFinite(newCount) || newCount < 1) return
     if (layout.value.windows.length === newCount) return
-    layout.value = adjustLayoutWindowCount(layout.value, newCount)
+    onLayoutUpdate(adjustLayoutWindowCount(layout.value, newCount))
   }
 )
 
@@ -469,9 +479,16 @@ watch(
   () => config.num_seats,
   (newCount) => {
     if (isSyncingLayout.value) return
-    if (!Number.isFinite(newCount) || newCount < 1) return
-    if (totalLayoutSeats(layout.value) === newCount) return
-    layout.value = rebuildLayoutTablesForSeats(layout.value, newCount)
+    if (!Number.isFinite(newCount) || newCount < 2) return
+    const safeCount = normalizeSeatCount(newCount, layoutSeatLimit.value)
+    if (safeCount !== newCount) {
+      isSyncingLayout.value = true
+      config.num_seats = safeCount
+      nextTick(() => { isSyncingLayout.value = false })
+      return
+    }
+    if (totalLayoutSeats(layout.value) === safeCount) return
+    onLayoutUpdate(rebuildLayoutTablesForSeats(layout.value, safeCount))
   }
 )
 
@@ -505,12 +522,25 @@ function resetLayout() {
 }
 
 function onLayoutUpdate(nextLayout) {
-  layout.value = nextLayout
-  const total = totalLayoutSeats(nextLayout)
+  const limit = calculateLayoutSeatLimit(nextLayout)
+  const boundedLayout = totalLayoutSeats(nextLayout) > limit
+    ? rebuildLayoutTablesForSeats(nextLayout, limit)
+    : nextLayout
+  layout.value = boundedLayout
+  const total = totalLayoutSeats(boundedLayout)
   if (config.num_seats !== total) {
     isSyncingLayout.value = true
     config.num_seats = total
     nextTick(() => { isSyncingLayout.value = false })
+  }
+  if (config.num_windows !== boundedLayout.windows.length) {
+    isSyncingLayout.value = true
+    config.num_windows = boundedLayout.windows.length
+    nextTick(() => { isSyncingLayout.value = false })
+  }
+  if (boundedLayout.floor) {
+    config.floor_width = boundedLayout.floor.width
+    config.floor_height = boundedLayout.floor.height
   }
 }
 

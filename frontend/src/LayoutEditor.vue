@@ -10,6 +10,29 @@
         </span>
       </div>
       <div class="layout-editor-actions">
+        <div class="layout-size-controls" aria-label="食堂尺寸">
+          <span>食堂宽度</span>
+          <el-input-number
+            :model-value="floorSize.width"
+            :min="LAYOUT_SIZE_LIMITS.width.min"
+            :max="LAYOUT_SIZE_LIMITS.width.max"
+            :step="LAYOUT_SIZE_LIMITS.step"
+            size="small"
+            controls-position="right"
+            @change="changeFloorSize('width', $event)"
+          />
+          <span>食堂深度</span>
+          <el-input-number
+            :model-value="floorSize.height"
+            :min="LAYOUT_SIZE_LIMITS.height.min"
+            :max="LAYOUT_SIZE_LIMITS.height.max"
+            :step="LAYOUT_SIZE_LIMITS.step"
+            size="small"
+            controls-position="right"
+            @change="changeFloorSize('height', $event)"
+          />
+          <el-tag size="small" effect="plain">最多 {{ seatLimit }} 座</el-tag>
+        </div>
         <div class="layout-count-controls" aria-label="入口数量">
           <el-button size="small" :disabled="layout.doors.length <= 1" @click="changeDoorCount(-1)">入口 -</el-button>
           <el-button size="small" :disabled="layout.doors.length >= LAYOUT_MAX_DOORS" @click="changeDoorCount(1)">入口 +</el-button>
@@ -58,18 +81,18 @@
       <rect class="floor-fill" x="10" y="10" width="340" height="620" rx="10" />
       <rect
         class="floor-grid"
-        :x="LAYOUT_BOUNDS.x"
-        :y="LAYOUT_BOUNDS.y"
-        :width="LAYOUT_BOUNDS.right - LAYOUT_BOUNDS.x"
-        :height="LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y"
+        :x="floorBounds.x"
+        :y="floorBounds.y"
+        :width="floorBounds.right - floorBounds.x"
+        :height="floorBounds.bottom - floorBounds.y"
         fill="url(#layout-editor-grid)"
       />
       <rect
         class="wall-line"
-        :x="LAYOUT_BOUNDS.x"
-        :y="LAYOUT_BOUNDS.y"
-        :width="LAYOUT_BOUNDS.right - LAYOUT_BOUNDS.x"
-        :height="LAYOUT_BOUNDS.bottom - LAYOUT_BOUNDS.y"
+        :x="floorBounds.x"
+        :y="floorBounds.y"
+        :width="floorBounds.right - floorBounds.x"
+        :height="floorBounds.bottom - floorBounds.y"
       />
 
       <!-- Doors -->
@@ -164,15 +187,18 @@
 import { computed, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import {
-  LAYOUT_BOUNDS,
+  LAYOUT_DEFAULT_FLOOR,
   LAYOUT_GRID_STEP,
   LAYOUT_MAX_DOORS,
+  LAYOUT_SIZE_LIMITS,
   LAYOUT_VIEWBOX,
   TABLE_CAPACITY_OPTIONS,
   adjustLayoutDoorCount,
   findItem,
+  floorBoundsForLayout,
   getItemFootprint,
   itemOverlapsLayout,
+  resizeLayoutFloor,
   setItemPosition,
   setTableCapacity,
   tableChairRectsForCapacity,
@@ -184,6 +210,10 @@ const props = defineProps({
   layout: {
     type: Object,
     required: true
+  },
+  seatLimit: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -196,6 +226,8 @@ const dragState = ref(null)
 const capacityOptions = TABLE_CAPACITY_OPTIONS
 
 const totalSeats = computed(() => totalLayoutSeats(props.layout))
+const floorSize = computed(() => props.layout.floor || LAYOUT_DEFAULT_FLOOR)
+const floorBounds = computed(() => floorBoundsForLayout(props.layout))
 
 const selectedTable = computed(() => {
   if (!selection.value || selection.value.kind !== 'table') return null
@@ -364,6 +396,14 @@ function onSelectedCapacityChange(value) {
 function changeDoorCount(delta) {
   const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
+}
+
+function changeFloorSize(axis, value) {
+  const nextSize = {
+    ...floorSize.value,
+    [axis]: Number(value)
+  }
+  emit('update:layout', resizeLayoutFloor(props.layout, nextSize))
 }
 
 function revertInvalidDrag(state) {

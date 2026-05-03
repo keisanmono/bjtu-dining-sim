@@ -37,3 +37,23 @@ test('simulation config payload sends layout and party distribution to backend',
   assert.equal(payload.layout.tables.reduce((sum, table) => sum + table.capacity, 0), 20)
   assert.deepEqual(payload.party_size_distribution, defaultPartySizeDistribution)
 })
+
+test('simulation config payload normalizes odd seat counts to the editable layout total', () => {
+  const payload = buildSimulationConfigPayload({
+    num_windows: 4,
+    num_seats: 121,
+    arrival_rate: 8,
+    service_time_mean: 3,
+    dining_time_mean: 20,
+    duration_min: 60,
+    seed: 20,
+    peak_start_min: 15,
+    peak_end_min: 40,
+    peak_multiplier: 1.4,
+    stagger_minutes: 0,
+    seat_columns: 12
+  })
+
+  assert.equal(payload.num_seats, 120)
+  assert.equal(payload.layout.tables.reduce((sum, table) => sum + table.capacity, 0), 120)
+})
