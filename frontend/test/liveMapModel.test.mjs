@@ -1,3 +1,5 @@
+// 文件说明：前端源码文件。
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -28,6 +30,7 @@ const blockingLayout = {
   tables: [{ id: 'T1', x: 120, y: 110, capacity: 4, table_type: 'four_seat', rotation: 0 }]
 }
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildQueueRows caps visible queue parties and aggregates hidden people', () => {
   const queueGroups = Array.from({ length: 50 }, (_item, index) => ({
     party_id: index + 1,
@@ -48,6 +51,7 @@ test('buildQueueRows caps visible queue parties and aggregates hidden people', (
   assert.equal(row.overflow.hiddenGroups, 40)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildQueueRows stops reading queue groups after the visible window quota is filled', () => {
   const queueGroups = Array.from({ length: 50 }, (_item, index) => ({
     party_id: index + 1,
@@ -72,6 +76,7 @@ test('buildQueueRows stops reading queue groups after the visible window quota i
   assert.equal(row.overflow.hiddenPeople, 40)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildQueueRows scales the overflow tail with hidden queue size', () => {
   const groups = Array.from({ length: QUEUE_VISIBLE_LIMIT }, (_item, index) => ({
     party_id: index + 1,
@@ -97,6 +102,7 @@ test('buildQueueRows scales the overflow tail with hidden queue size', () => {
   assert.equal(longTail.overflow.hiddenPeople, 70)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildLivePartyTargets keeps split party services anchored to their actual windows', () => {
   const targets = buildLivePartyTargets({
     layout: baseLayout,
@@ -117,6 +123,7 @@ test('buildLivePartyTargets keeps split party services anchored to their actual 
   assert.ok(targets.every((target) => target.y > baseLayout.windows[0].y))
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildLivePartyTransitions moves newly seated parties from a same-party service window', () => {
   const [serviceTarget] = buildLivePartyTargets({
     layout: baseLayout,
@@ -145,6 +152,7 @@ test('buildLivePartyTransitions moves newly seated parties from a same-party ser
   assert.equal(seatedTransition.from.y, serviceTarget.y)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildLivePartyTargets keeps waiting parties as hidden motion anchors near their window', () => {
   const targets = buildLivePartyTargets({
     layout: baseLayout,
@@ -162,6 +170,7 @@ test('buildLivePartyTargets keeps waiting parties as hidden motion anchors near 
   assert.ok(targets[0].y > baseLayout.windows[1].y)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildLivePartyTransitions starts seating movement from the waiting anchor when available', () => {
   const [waitingTarget] = buildLivePartyTargets({
     layout: baseLayout,
@@ -190,6 +199,7 @@ test('buildLivePartyTransitions starts seating movement from the waiting anchor 
   assert.equal(transition.from.y, waitingTarget.y)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('transitionDurationForSnapshotGap keeps animation inside the observed snapshot cadence', () => {
   assert.equal(transitionDurationForSnapshotGap(undefined), 320)
   assert.equal(transitionDurationForSnapshotGap(1000), 320)
@@ -197,6 +207,7 @@ test('transitionDurationForSnapshotGap keeps animation inside the observed snaps
   assert.equal(transitionDurationForSnapshotGap(80), 120)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('interpolateLivePartyMarkers moves the same party between minute snapshots', () => {
   const [serviceTarget] = buildLivePartyTargets({
     layout: baseLayout,
@@ -229,6 +240,7 @@ test('interpolateLivePartyMarkers moves the same party between minute snapshots'
   assert.ok(halfway.y < Math.max(serviceTarget.y, seatedTarget.y))
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildBackendWalkingMarkers samples backend timeline frames instead of inventing targets', () => {
   const timeline = {
     playback_ms: 600,
@@ -263,6 +275,7 @@ test('buildBackendWalkingMarkers samples backend timeline frames instead of inve
   assert.equal(backendTimelinePlaybackMs(timeline), 600)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('interpolateLivePartyMarkers fades new parties in from their door', () => {
   const [target] = buildLivePartyTargets({
     layout: baseLayout,
@@ -294,6 +307,7 @@ test('interpolateLivePartyMarkers fades new parties in from their door', () => {
   assert.equal(end.opacity, 1)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('interpolateLivePartyMarkers fades removed parties back toward their door', () => {
   const [target] = buildLivePartyTargets({
     layout: baseLayout,
@@ -316,6 +330,7 @@ test('interpolateLivePartyMarkers fades removed parties back toward their door',
   assert.notEqual(end.y, target.y)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('interpolateLivePartyMarkers follows walkable routes around table obstacles', () => {
   const [marker] = interpolateLivePartyMarkers({
     previous: [{ key: 'party-21', party_id: 21, role: 'service', member_count: 1, x: 36, y: 110, door_index: 0 }],
@@ -329,6 +344,7 @@ test('interpolateLivePartyMarkers follows walkable routes around table obstacles
   assert.notEqual(marker.y, 110)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildLivePartyTransitions skips stable seated parties after they settle', () => {
   const seated = {
     key: 'party-31',
@@ -349,6 +365,7 @@ test('buildLivePartyTransitions skips stable seated parties after they settle', 
   assert.equal(transitions.length, 0)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('buildLivePartyTransitions keeps stable service markers visible', () => {
   const service = {
     key: 'party-32',

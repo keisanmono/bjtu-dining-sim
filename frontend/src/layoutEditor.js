@@ -1,3 +1,5 @@
+// 文件说明：布局纯函数工具：计算默认布局、拖拽吸附、碰撞检测和座位排布。
+
 // Pure helpers for the editable cafeteria floor plan.
 //
 // Coordinates live in the cafeteria world space. LAYOUT_VIEWBOX is only the
@@ -55,6 +57,7 @@ const FOOTPRINTS = Object.freeze({
   })
 })
 
+// 讲解注释：tableTypeForCapacity() 处理餐桌容量、位置或占用状态。
 export function tableTypeForCapacity(capacity) {
   const value = Math.max(1, Number(capacity) || 1)
   if (value <= 1) return 'single_seat'
@@ -63,6 +66,7 @@ export function tableTypeForCapacity(capacity) {
   return 'six_seat'
 }
 
+// 讲解注释：buildTableCapacities() 处理餐桌容量、位置或占用状态。
 export function buildTableCapacities(numSeats) {
   let remaining = normalizeSeatCount(numSeats, LAYOUT_MAX_EDITABLE_SEATS)
   const capacities = []
@@ -84,12 +88,14 @@ export function buildTableCapacities(numSeats) {
   return capacities
 }
 
+// 讲解注释：normalizeSeatCount() 处理座位、等座或入座相关状态。
 export function normalizeSeatCount(value, upper = LAYOUT_MAX_EDITABLE_SEATS) {
   const boundedUpper = Math.max(2, toEven(Math.min(LAYOUT_MAX_EDITABLE_SEATS, Number(upper) || LAYOUT_MAX_EDITABLE_SEATS)))
   const bounded = Math.min(boundedUpper, Math.max(2, Math.floor(Number(value) || 2)))
   return Math.max(2, toEven(bounded))
 }
 
+// 讲解注释：floorBoundsForLayout() 处理前端布局或后端布局数据。
 export function floorBoundsForLayout(layout) {
   const floor = sanitizeFloorSize(layout?.floor || layout)
   return {
@@ -100,6 +106,7 @@ export function floorBoundsForLayout(layout) {
   }
 }
 
+// 讲解注释：fitViewBoxForLayout() 处理前端布局或后端布局数据。
 export function fitViewBoxForLayout(layout, margin = LAYOUT_VIEWPORT_MARGIN) {
   const bounds = floorBoundsForLayout(layout)
   const floorWidth = bounds.right - bounds.x
@@ -116,6 +123,7 @@ export function fitViewBoxForLayout(layout, margin = LAYOUT_VIEWPORT_MARGIN) {
   }
 }
 
+// 讲解注释：maxFloorDimensionForArea() 封装本文件中的一个独立处理步骤。
 export function maxFloorDimensionForArea(axis, floor = {}) {
   const safeFloor = sanitizeFloorSize(floor)
   if (axis === 'height') {
@@ -124,6 +132,7 @@ export function maxFloorDimensionForArea(axis, floor = {}) {
   return snapFloorExtentDown(LAYOUT_SIZE_LIMITS.maxArea / safeFloor.height, LAYOUT_SIZE_LIMITS.width.min)
 }
 
+// 讲解注释：zoomViewBox() 处理 SVG 视野缩放。
 export function zoomViewBox(viewBox, factor, focusPoint) {
   const current = sanitizeViewBox(viewBox)
   const safeFactor = Math.max(0.2, Math.min(5, Number(factor) || 1))
@@ -143,6 +152,7 @@ export function zoomViewBox(viewBox, factor, focusPoint) {
   }
 }
 
+// 讲解注释：clientPointToViewBoxPoint() 封装本文件中的一个独立处理步骤。
 export function clientPointToViewBoxPoint(clientX, clientY, rect, viewBox) {
   const current = sanitizeViewBox(viewBox)
   const safeRect = sanitizeClientRect(rect)
@@ -160,6 +170,7 @@ export function clientPointToViewBoxPoint(clientX, clientY, rect, viewBox) {
   }
 }
 
+// 讲解注释：clientDeltaToViewBoxDelta() 封装本文件中的一个独立处理步骤。
 export function clientDeltaToViewBoxDelta(deltaX, deltaY, rect, viewBox) {
   const current = sanitizeViewBox(viewBox)
   const safeRect = sanitizeClientRect(rect)
@@ -173,6 +184,7 @@ export function clientDeltaToViewBoxDelta(deltaX, deltaY, rect, viewBox) {
   }
 }
 
+// 讲解注释：getItemFootprint() 封装本文件中的一个独立处理步骤。
 export function getItemFootprint(kind, item) {
   if (kind === 'window') return wallFootprintFor('window', item)
   if (kind === 'door') return wallFootprintFor('door', item)
@@ -185,11 +197,13 @@ export function getItemFootprint(kind, item) {
   return { width: 20, height: 20 }
 }
 
+// 讲解注释：normalizeTableRotation() 处理餐桌容量、位置或占用状态。
 export function normalizeTableRotation(rotation) {
   const normalized = ((Math.round(Number(rotation) || 0) % 180) + 180) % 180
   return normalized >= 45 && normalized < 135 ? 90 : 0
 }
 
+// 讲解注释：tableTopForCapacity() 处理餐桌容量、位置或占用状态。
 export function tableTopForCapacity(capacity) {
   const value = Math.max(1, Number(capacity) || 1)
   if (value <= 2) return { width: 28, height: 18 }
@@ -197,6 +211,7 @@ export function tableTopForCapacity(capacity) {
   return { width: 52, height: 26 }
 }
 
+// 讲解注释：tableChairRectsForCapacity() 处理餐桌容量、位置或占用状态。
 export function tableChairRectsForCapacity(capacity) {
   const value = Math.max(1, Number(capacity) || 1)
   const top = tableTopForCapacity(value)
@@ -229,11 +244,13 @@ export function tableChairRectsForCapacity(capacity) {
   ]
 }
 
+// 讲解注释：snapToGrid() 把坐标或尺寸吸附到网格/范围内。
 export function snapToGrid(value, step = LAYOUT_GRID_STEP) {
   const safeStep = Math.max(1, Number(step) || LAYOUT_GRID_STEP)
   return Math.round(Number(value) / safeStep) * safeStep
 }
 
+// 讲解注释：clampToBounds() 把数值限制在允许范围内。
 export function clampToBounds(x, y, footprint, bounds = LAYOUT_BOUNDS) {
   const halfW = (footprint?.width || 20) / 2
   const halfH = (footprint?.height || 20) / 2
@@ -243,6 +260,7 @@ export function clampToBounds(x, y, footprint, bounds = LAYOUT_BOUNDS) {
   }
 }
 
+// 讲解注释：snapInsideRange() 把坐标或尺寸吸附到网格/范围内。
 function snapInsideRange(value, lower, upper, step = LAYOUT_GRID_STEP) {
   const snapped = snapToGrid(value, step)
   if (snapped < lower) {
@@ -254,6 +272,7 @@ function snapInsideRange(value, lower, upper, step = LAYOUT_GRID_STEP) {
   return snapped
 }
 
+// 讲解注释：snapAndClampPoint() 把数值限制在允许范围内。
 export function snapAndClampPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   if (kind === 'door' || kind === 'window') {
     return snapWallItemPoint(x, y, kind, item, bounds)
@@ -267,14 +286,17 @@ export function snapAndClampPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   }
 }
 
+// 讲解注释：totalLayoutSeats() 处理座位、等座或入座相关状态。
 export function totalLayoutSeats(layout) {
   return (layout?.tables || []).reduce((sum, table) => sum + (Number(table.capacity) || 0), 0)
 }
 
+// 讲解注释：clampInteger() 把数值限制在允许范围内。
 function clampInteger(value, lower, upper) {
   return Math.min(upper, Math.max(lower, Math.round(Number(value) || lower)))
 }
 
+// 讲解注释：defaultDoorPosition() 封装本文件中的一个独立处理步骤。
 function defaultDoorPosition(index, layout = null, id = `D${index + 1}`) {
   const bounds = floorBoundsForLayout(layout)
   const positions = [
@@ -288,6 +310,7 @@ function defaultDoorPosition(index, layout = null, id = `D${index + 1}`) {
   return firstAvailableWallPosition(layout, 'door', id, index, preferred)
 }
 
+// 讲解注释：defaultWindowPosition() 处理取餐窗口相关状态或位置。
 function defaultWindowPosition(index, layout = null, id = `W${index + 1}`) {
   const bounds = floorBoundsForLayout(layout)
   // Windows are service openings on walls, so defaults occupy wall slots.
@@ -313,6 +336,7 @@ function defaultWindowPosition(index, layout = null, id = `W${index + 1}`) {
   return firstAvailableWallPosition(layout, 'window', id, index, preferred)
 }
 
+// 讲解注释：defaultTablePosition() 处理餐桌容量、位置或占用状态。
 function defaultTablePosition(index, capacity, layout = null) {
   const bounds = floorBoundsForLayout(layout)
   // Keep tables away from wall-mounted doors/windows so default generation
@@ -323,10 +347,12 @@ function defaultTablePosition(index, capacity, layout = null) {
   return snapAndClampPoint(bounds.x + 76 + col * 80, bounds.y + 76 + row * 50, 'table', { capacity }, bounds)
 }
 
+// 讲解注释：firstAvailableWallPosition() 封装本文件中的一个独立处理步骤。
 function firstAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
   return findAvailableWallPosition(layout, kind, id, seedIndex, preferred) || preferred
 }
 
+// 讲解注释：findAvailableWallPosition() 封装本文件中的一个独立处理步骤。
 function findAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
   if (!layout) return preferred
   if (!itemOverlapsLayout(layout, kind, id, preferred.x, preferred.y, { id, ...preferred })) {
@@ -344,10 +370,12 @@ function findAvailableWallPosition(layout, kind, id, seedIndex, preferred) {
   return null
 }
 
+// 讲解注释：firstAvailableTablePosition() 处理餐桌容量、位置或占用状态。
 function firstAvailableTablePosition(layout, id, seedIndex, capacity) {
   return findAvailableTablePosition(layout, id, seedIndex, capacity) || defaultTablePosition(seedIndex, capacity, layout)
 }
 
+// 讲解注释：findAvailableTablePosition() 处理餐桌容量、位置或占用状态。
 function findAvailableTablePosition(layout, id, seedIndex, capacity) {
   const preferred = defaultTablePosition(seedIndex, capacity, layout)
   if (!layout || !itemOverlapsLayout(layout, 'table', id, preferred.x, preferred.y, { id, capacity, ...preferred })) {
@@ -364,6 +392,7 @@ function findAvailableTablePosition(layout, id, seedIndex, capacity) {
   return null
 }
 
+// 讲解注释：wallCandidatePoints() 封装本文件中的一个独立处理步骤。
 function wallCandidatePoints(layout) {
   const bounds = floorBoundsForLayout(layout)
   const points = []
@@ -382,6 +411,7 @@ function wallCandidatePoints(layout) {
   return points
 }
 
+// 讲解注释：tableCandidatePoints() 处理餐桌容量、位置或占用状态。
 function tableCandidatePoints(layout, capacity) {
   const bounds = floorBoundsForLayout(layout)
   const fp = getItemFootprint('table', { capacity })
@@ -398,6 +428,7 @@ function tableCandidatePoints(layout, capacity) {
   return points
 }
 
+// 讲解注释：arrangeTablesCompact() 处理餐桌容量、位置或占用状态。
 function arrangeTablesCompact(baseLayout, tables) {
   const arranged = []
   for (const table of tables) {
@@ -409,6 +440,7 @@ function arrangeTablesCompact(baseLayout, tables) {
   return arranged
 }
 
+// 讲解注释：arrangeTablesSpread() 处理餐桌容量、位置或占用状态。
 function arrangeTablesSpread(baseLayout, tables) {
   const arranged = []
   const bounds = floorBoundsForLayout(baseLayout)
@@ -434,6 +466,7 @@ function arrangeTablesSpread(baseLayout, tables) {
   return arranged
 }
 
+// 讲解注释：firstAvailableTableCandidate() 处理餐桌容量、位置或占用状态。
 function firstAvailableTableCandidate(layout, table, candidates) {
   const bounds = floorBoundsForLayout(layout)
   for (const candidate of candidates) {
@@ -450,6 +483,7 @@ function firstAvailableTableCandidate(layout, table, candidates) {
   return null
 }
 
+// 讲解注释：compactTableCandidatePoints() 处理餐桌容量、位置或占用状态。
 function compactTableCandidatePoints(layout, table) {
   const bounds = floorBoundsForLayout(layout)
   const fp = getItemFootprint('table', table)
@@ -466,6 +500,7 @@ function compactTableCandidatePoints(layout, table) {
   return points
 }
 
+// 讲解注释：spreadTableCandidatePoints() 处理餐桌容量、位置或占用状态。
 function spreadTableCandidatePoints(layout, table, ideal, cellW, cellH) {
   const bounds = floorBoundsForLayout(layout)
   const fp = getItemFootprint('table', table)
@@ -495,6 +530,7 @@ function spreadTableCandidatePoints(layout, table, ideal, cellW, cellH) {
   ))
 }
 
+// 讲解注释：placeTablesForSeats() 处理餐桌容量、位置或占用状态。
 function placeTablesForSeats(layout, numSeats) {
   const capacities = buildTableCapacities(numSeats)
   if (numSeats > DENSE_TABLE_THRESHOLD_SEATS) {
@@ -516,6 +552,7 @@ function placeTablesForSeats(layout, numSeats) {
   return tables.length === capacities.length ? tables : placeTablesGreedy(layout, capacities)
 }
 
+// 讲解注释：placeTablesGreedy() 处理餐桌容量、位置或占用状态。
 function placeTablesGreedy(layout, capacities) {
   const tables = []
   const candidateCache = new Map()
@@ -534,6 +571,7 @@ function placeTablesGreedy(layout, capacities) {
   return tables
 }
 
+// 讲解注释：placeSameCapacityTablesGreedy() 处理餐桌容量、位置或占用状态。
 function placeSameCapacityTablesGreedy(layout, capacity, maxTables) {
   const tables = []
   const candidates = tableCandidatePoints(layout, capacity)
@@ -549,6 +587,7 @@ function placeSameCapacityTablesGreedy(layout, capacity, maxTables) {
   return tables
 }
 
+// 讲解注释：findGreedyTableCandidate() 处理餐桌容量、位置或占用状态。
 function findGreedyTableCandidate(layout, tables, id, capacity, startIndex = 0, candidates = null) {
   const points = candidates || tableCandidatePoints(layout, capacity)
   for (let candidateIndex = startIndex; candidateIndex < points.length; candidateIndex += 1) {
@@ -568,6 +607,7 @@ function findGreedyTableCandidate(layout, tables, id, capacity, startIndex = 0, 
   return null
 }
 
+// 讲解注释：calculateCandidateSlotSeatLimit() 处理座位、等座或入座相关状态。
 function calculateCandidateSlotSeatLimit(baseLayout) {
   const sixTables = placeSameCapacityTablesGreedy(
     baseLayout,
@@ -595,6 +635,7 @@ function calculateCandidateSlotSeatLimit(baseLayout) {
   return 2
 }
 
+// 讲解注释：createDefaultLayout() 处理前端布局或后端布局数据。
 export function createDefaultLayout(config) {
   const numWindows = clampInteger(config?.num_windows, 1, 30)
   const floor = floorSizeFromConfig(config)
@@ -621,6 +662,7 @@ export function createDefaultLayout(config) {
   return { floor, doors, windows, tables }
 }
 
+// 讲解注释：adjustLayoutWindowCount() 处理取餐窗口相关状态或位置。
 export function adjustLayoutWindowCount(layout, desiredCount) {
   const target = clampInteger(desiredCount, 1, 30)
   const current = layout?.windows || []
@@ -645,6 +687,7 @@ export function adjustLayoutWindowCount(layout, desiredCount) {
   return { ...layout, windows: [...current, ...additional] }
 }
 
+// 讲解注释：adjustLayoutDoorCount() 处理前端布局或后端布局数据。
 export function adjustLayoutDoorCount(layout, desiredCount) {
   const target = clampInteger(desiredCount, 1, LAYOUT_MAX_DOORS)
   const current = layout?.doors || []
@@ -669,6 +712,7 @@ export function adjustLayoutDoorCount(layout, desiredCount) {
   return { ...layout, doors: [...current, ...additional] }
 }
 
+// 讲解注释：arrangeLayoutTables() 处理餐桌容量、位置或占用状态。
 export function arrangeLayoutTables(layout, mode = 'spread') {
   const tables = (layout?.tables || []).map((table, index) => ({
     ...table,
@@ -692,6 +736,7 @@ export function arrangeLayoutTables(layout, mode = 'spread') {
   return { ...layout, floor: baseLayout.floor, tables: arranged }
 }
 
+// 讲解注释：rebuildLayoutTablesForSeats() 处理餐桌容量、位置或占用状态。
 export function rebuildLayoutTablesForSeats(layout, numSeats) {
   const baseLayout = { ...layout, floor: sanitizeFloorSize(layout?.floor), tables: [] }
   const target = normalizeSeatCount(numSeats, calculateLayoutSeatLimit(baseLayout))
@@ -706,6 +751,7 @@ export function rebuildLayoutTablesForSeats(layout, numSeats) {
   return { ...layout, tables }
 }
 
+// 讲解注释：calculateLayoutSeatLimit() 处理座位、等座或入座相关状态。
 export function calculateLayoutSeatLimit(layout) {
   const baseLayout = {
     floor: sanitizeFloorSize(layout?.floor),
@@ -716,6 +762,7 @@ export function calculateLayoutSeatLimit(layout) {
   return Math.max(2, normalizeSeatCount(calculateCandidateSlotSeatLimit(baseLayout), LAYOUT_MAX_EDITABLE_SEATS))
 }
 
+// 讲解注释：resizeLayoutFloor() 处理前端布局或后端布局数据。
 export function resizeLayoutFloor(layout, floorSize, options = {}) {
   const blockTableConflicts = Boolean(options.blockTableConflicts)
   const currentFloor = sanitizeFloorSize(layout?.floor)
@@ -768,6 +815,7 @@ export function resizeLayoutFloor(layout, floorSize, options = {}) {
   return { ...draft, tables }
 }
 
+// 讲解注释：resizeLayoutFloorFromHandle() 处理前端布局或后端布局数据。
 export function resizeLayoutFloorFromHandle(layout, handle, pointerX, pointerY) {
   const bounds = floorBoundsForLayout(layout)
   const floor = sanitizeFloorSize(layout?.floor)
@@ -792,6 +840,7 @@ export function resizeLayoutFloorFromHandle(layout, handle, pointerX, pointerY) 
   )
 }
 
+// 讲解注释：setItemPosition() 封装本文件中的一个独立处理步骤。
 export function setItemPosition(layout, kind, id, x, y, options = {}) {
   const collection = collectionKeyForKind(kind)
   if (!collection) return layout
@@ -809,6 +858,7 @@ export function setItemPosition(layout, kind, id, x, y, options = {}) {
   return { ...layout, [collection]: items }
 }
 
+// 讲解注释：setTableCapacity() 处理餐桌容量、位置或占用状态。
 export function setTableCapacity(layout, id, capacity) {
   const sanitized = sanitizeCapacity(capacity)
   const bounds = floorBoundsForLayout(layout)
@@ -831,6 +881,7 @@ export function setTableCapacity(layout, id, capacity) {
   return { ...layout, tables }
 }
 
+// 讲解注释：setTableRotation() 处理餐桌容量、位置或占用状态。
 export function setTableRotation(layout, id, rotation) {
   const sanitized = normalizeTableRotation(rotation)
   const bounds = floorBoundsForLayout(layout)
@@ -851,6 +902,7 @@ export function setTableRotation(layout, id, rotation) {
   return { ...layout, tables }
 }
 
+// 讲解注释：itemOverlapsLayout() 处理前端布局或后端布局数据。
 export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) {
   const movingItem = itemOverride || findItem(layout, kind, id)
   if (!movingItem) return false
@@ -861,6 +913,7 @@ export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) 
   })
 }
 
+// 讲解注释：floorResizeConflictsWithTables() 处理餐桌容量、位置或占用状态。
 function floorResizeConflictsWithTables(layout, changedSides = ['left', 'right', 'top', 'bottom'], previousLayout = null) {
   const tables = layout?.tables || []
   if (!tables.length) return false
@@ -874,6 +927,7 @@ function floorResizeConflictsWithTables(layout, changedSides = ['left', 'right',
   ].some(({ kind, item }) => openingChanged(previousLayout, kind, item) && itemOverlapsTables(layout, kind, item))
 }
 
+// 讲解注释：tableTouchesFloorWall() 处理餐桌容量、位置或占用状态。
 function tableTouchesFloorWall(table, bounds, changedSides) {
   const clearance = LAYOUT_ITEM_GAP
   return getItemCollisionBoxes('table', table).some((box) => (
@@ -884,6 +938,7 @@ function tableTouchesFloorWall(table, bounds, changedSides) {
   ))
 }
 
+// 讲解注释：changedFloorSides() 封装本文件中的一个独立处理步骤。
 function changedFloorSides(previousFloor, nextFloor) {
   const sides = []
   if (nextFloor.x > previousFloor.x) sides.push('left')
@@ -893,6 +948,7 @@ function changedFloorSides(previousFloor, nextFloor) {
   return sides
 }
 
+// 讲解注释：openingChanged() 封装本文件中的一个独立处理步骤。
 function openingChanged(previousLayout, kind, item) {
   if (!previousLayout) return true
   const previous = findItem(previousLayout, kind, item.id)
@@ -900,6 +956,7 @@ function openingChanged(previousLayout, kind, item) {
   return previous.x !== item.x || previous.y !== item.y || previous.wall_side !== item.wall_side
 }
 
+// 讲解注释：itemOverlapsTables() 处理餐桌容量、位置或占用状态。
 function itemOverlapsTables(layout, kind, item) {
   const movingBoxes = getItemCollisionBoxes(kind, item)
   return (layout?.tables || []).some((table) => (
@@ -907,6 +964,7 @@ function itemOverlapsTables(layout, kind, item) {
   ))
 }
 
+// 讲解注释：getItemCollisionBoxes() 封装本文件中的一个独立处理步骤。
 export function getItemCollisionBoxes(kind, item) {
   if (kind === 'table') {
     return tableShapeRects(item).map((rect) => localRectToBox(item, rect))
@@ -914,6 +972,7 @@ export function getItemCollisionBoxes(kind, item) {
   return [itemBounds(kind, item)]
 }
 
+// 讲解注释：itemBounds() 封装本文件中的一个独立处理步骤。
 export function itemBounds(kind, item) {
   const footprint = getItemFootprint(kind, item)
   const gap = LAYOUT_ITEM_GAP / 2
@@ -925,12 +984,14 @@ export function itemBounds(kind, item) {
   }
 }
 
+// 讲解注释：findItem() 封装本文件中的一个独立处理步骤。
 export function findItem(layout, kind, id) {
   const collection = collectionKeyForKind(kind)
   if (!collection) return null
   return (layout?.[collection] || []).find((item) => item.id === id) || null
 }
 
+// 讲解注释：reorderTableIds() 处理餐桌容量、位置或占用状态。
 export function reorderTableIds(layout) {
   const tables = (layout?.tables || []).map((table, index) => ({
     ...table,
@@ -939,6 +1000,7 @@ export function reorderTableIds(layout) {
   return { ...layout, tables }
 }
 
+// 讲解注释：sanitizeCapacity() 清洗输入并提供安全默认值。
 function sanitizeCapacity(capacity) {
   const value = clampInteger(capacity, 1, 12)
   if (TABLE_CAPACITY_OPTIONS.includes(value)) return value
@@ -947,6 +1009,7 @@ function sanitizeCapacity(capacity) {
   return 6
 }
 
+// 讲解注释：floorSizeFromConfig() 封装本文件中的一个独立处理步骤。
 function floorSizeFromConfig(config) {
   return sanitizeFloorSize(config?.floor || {
     width: config?.floor_width,
@@ -954,6 +1017,7 @@ function floorSizeFromConfig(config) {
   })
 }
 
+// 讲解注释：sanitizeFloorSize() 清洗输入并提供安全默认值。
 function sanitizeFloorSize(floor = {}, referenceFloor = null) {
   const width = sanitizeFloorDimension(
     floor.width,
@@ -977,6 +1041,7 @@ function sanitizeFloorSize(floor = {}, referenceFloor = null) {
   }, referenceFloor)
 }
 
+// 讲解注释：sanitizeViewBox() 清洗输入并提供安全默认值。
 function sanitizeViewBox(viewBox = {}) {
   const width = clampOptionalUpper(
     Number(viewBox.width) || LAYOUT_VIEWBOX.width,
@@ -996,6 +1061,7 @@ function sanitizeViewBox(viewBox = {}) {
   }
 }
 
+// 讲解注释：sanitizeClientRect() 清洗输入并提供安全默认值。
 function sanitizeClientRect(rect = {}) {
   return {
     left: Number(rect.left) || 0,
@@ -1005,16 +1071,19 @@ function sanitizeClientRect(rect = {}) {
   }
 }
 
+// 讲解注释：viewBoxScaleForClientRect() 封装本文件中的一个独立处理步骤。
 function viewBoxScaleForClientRect(rect, viewBox) {
   return Math.min(rect.width / viewBox.width, rect.height / viewBox.height) || 1
 }
 
+// 讲解注释：clampToStep() 把数值限制在允许范围内。
 function clampToStep(value, lower, upper, step, fallback = upper) {
   const raw = Number.isFinite(Number(value)) ? Number(value) : fallback
   const bounded = clampOptionalUpper(raw, lower, upper)
   return clampOptionalUpper(Math.round(bounded / step) * step, lower, upper)
 }
 
+// 讲解注释：clampOptionalUpper() 把数值限制在允许范围内。
 function clampOptionalUpper(value, lower, upper) {
   const boundedLower = Math.max(lower, Number(value) || lower)
   const numericUpper = upper === null || upper === undefined ? Number.NaN : Number(upper)
@@ -1023,6 +1092,7 @@ function clampOptionalUpper(value, lower, upper) {
     : boundedLower
 }
 
+// 讲解注释：constrainFloorArea() 封装本文件中的一个独立处理步骤。
 function constrainFloorArea(floor, referenceFloor = null) {
   const maxArea = LAYOUT_SIZE_LIMITS.maxArea
   if (!Number.isFinite(maxArea) || floor.width * floor.height <= maxArea) {
@@ -1054,6 +1124,7 @@ function constrainFloorArea(floor, referenceFloor = null) {
   }
 }
 
+// 讲解注释：shrinkFloorAreaToLimit() 封装本文件中的一个独立处理步骤。
 function shrinkFloorAreaToLimit(width, height, preferredAxis = null) {
   let nextWidth = width
   let nextHeight = height
@@ -1073,10 +1144,12 @@ function shrinkFloorAreaToLimit(width, height, preferredAxis = null) {
   return { width: nextWidth, height: nextHeight }
 }
 
+// 讲解注释：snapFloorExtentDown() 把坐标或尺寸吸附到网格/范围内。
 function snapFloorExtentDown(value, lower) {
   return Math.max(lower, Math.floor(Number(value) / LAYOUT_SIZE_LIMITS.step) * LAYOUT_SIZE_LIMITS.step)
 }
 
+// 讲解注释：sanitizeFloorDimension() 清洗输入并提供安全默认值。
 function sanitizeFloorDimension(value, lower, upper, step, fallback) {
   const raw = Number(value)
   if (!Number.isFinite(raw)) return fallback
@@ -1084,20 +1157,24 @@ function sanitizeFloorDimension(value, lower, upper, step, fallback) {
   return clampToStep(raw, lower, upper, step, fallback)
 }
 
+// 讲解注释：snapFloorExtent() 把坐标或尺寸吸附到网格/范围内。
 function snapFloorExtent(value, lower, upper) {
   return clampToStep(value, lower, upper, LAYOUT_SIZE_LIMITS.step)
 }
 
+// 讲解注释：snapOptional() 把坐标或尺寸吸附到网格/范围内。
 function snapOptional(value, fallback) {
   const raw = Number(value)
   if (!Number.isFinite(raw)) return fallback
   return raw
 }
 
+// 讲解注释：toEven() 封装本文件中的一个独立处理步骤。
 function toEven(value) {
   return Math.floor(value / 2) * 2
 }
 
+// 讲解注释：collectionKeyForKind() 封装本文件中的一个独立处理步骤。
 function collectionKeyForKind(kind) {
   if (kind === 'door') return 'doors'
   if (kind === 'window') return 'windows'
@@ -1105,6 +1182,7 @@ function collectionKeyForKind(kind) {
   return null
 }
 
+// 讲解注释：allLayoutItems() 处理前端布局或后端布局数据。
 function allLayoutItems(layout) {
   return [
     ...(layout?.doors || []).map((item) => ({ kind: 'door', item })),
@@ -1113,14 +1191,17 @@ function allLayoutItems(layout) {
   ]
 }
 
+// 讲解注释：boxesOverlap() 封装本文件中的一个独立处理步骤。
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 }
 
+// 讲解注释：boxesOverlapAny() 封装本文件中的一个独立处理步骤。
 function boxesOverlapAny(leftBoxes, rightBoxes) {
   return leftBoxes.some((left) => rightBoxes.some((right) => boxesOverlap(left, right)))
 }
 
+// 讲解注释：tableShapeRects() 处理餐桌容量、位置或占用状态。
 function tableShapeRects(table) {
   const top = tableTopForCapacity(table?.capacity)
   const rects = [
@@ -1136,6 +1217,7 @@ function tableShapeRects(table) {
   return rects.map((rect) => rotateLocalRect(rect, normalizeTableRotation(table?.rotation)))
 }
 
+// 讲解注释：localRectToBox() 封装本文件中的一个独立处理步骤。
 function localRectToBox(item, rect) {
   return {
     left: item.x + rect.x,
@@ -1145,12 +1227,14 @@ function localRectToBox(item, rect) {
   }
 }
 
+// 讲解注释：rotatedFootprint() 封装本文件中的一个独立处理步骤。
 function rotatedFootprint(footprint, item) {
   return normalizeTableRotation(item?.rotation) === 90
     ? { width: footprint.height, height: footprint.width }
     : footprint
 }
 
+// 讲解注释：rotateLocalRect() 封装本文件中的一个独立处理步骤。
 function rotateLocalRect(rect, rotation) {
   if (rotation !== 90) return rect
   const corners = [
@@ -1170,10 +1254,12 @@ function rotateLocalRect(rect, rotation) {
   }
 }
 
+// 讲解注释：rotatePoint() 封装本文件中的一个独立处理步骤。
 function rotatePoint(x, y) {
   return { x: -y, y: x }
 }
 
+// 讲解注释：snapWallItemPoint() 把坐标或尺寸吸附到网格/范围内。
 function snapWallItemPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   const wallSide = nearestWallSide(x, y, bounds)
   const footprint = getItemFootprint(kind, { ...item, wall_side: wallSide })
@@ -1207,6 +1293,7 @@ function snapWallItemPoint(x, y, kind, item, bounds = LAYOUT_BOUNDS) {
   }
 }
 
+// 讲解注释：nearestWallSide() 封装本文件中的一个独立处理步骤。
 function nearestWallSide(x, y, bounds = LAYOUT_BOUNDS) {
   const distances = [
     { wall_side: 'top', value: Math.abs(y - bounds.y) },
@@ -1219,6 +1306,7 @@ function nearestWallSide(x, y, bounds = LAYOUT_BOUNDS) {
   )).wall_side
 }
 
+// 讲解注释：wallFootprintFor() 封装本文件中的一个独立处理步骤。
 function wallFootprintFor(kind, item) {
   const side = normalizeWallSide(item?.wall_side, kind === 'door' ? 'left' : 'top')
   return side === 'top' || side === 'bottom'
@@ -1226,15 +1314,18 @@ function wallFootprintFor(kind, item) {
     : FOOTPRINTS[kind].vertical
 }
 
+// 讲解注释：normalizeWallSide() 把输入值标准化为后续逻辑可使用的形式。
 function normalizeWallSide(side, fallback) {
   return ['top', 'right', 'bottom', 'left'].includes(side) ? side : fallback
 }
 
+// 讲解注释：wallSidePatch() 封装本文件中的一个独立处理步骤。
 function wallSidePatch(kind, point) {
   if (kind !== 'door' && kind !== 'window') return {}
   return { wall_side: point.wall_side }
 }
 
+// 讲解注释：nextDoorId() 封装本文件中的一个独立处理步骤。
 function nextDoorId(existing) {
   const usedIndices = new Set(
     existing
@@ -1246,6 +1337,7 @@ function nextDoorId(existing) {
   return `D${candidate}`
 }
 
+// 讲解注释：nextWindowId() 处理取餐窗口相关状态或位置。
 function nextWindowId(existing) {
   const usedIndices = new Set(
     existing

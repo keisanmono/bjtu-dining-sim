@@ -1,3 +1,5 @@
+// 文件说明：前端接口封装：统一通过 Vite proxy 调用后端 /api 路径。
+
 import axios from 'axios'
 
 const client = axios.create({

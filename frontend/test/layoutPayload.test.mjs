@@ -1,3 +1,5 @@
+// 文件说明：前端源码文件。
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -7,6 +9,7 @@ import {
   defaultPartySizeDistribution
 } from '../src/layout.js'
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('layout payload keeps resource counts and mixed table types in sync', () => {
   const layout = buildLayoutFromConfig({ num_windows: 5, num_seats: 16 })
 
@@ -17,6 +20,7 @@ test('layout payload keeps resource counts and mixed table types in sync', () =>
   assert.deepEqual([...new Set(layout.tables.map((table) => table.table_type))], ['two_seat', 'four_seat', 'six_seat'])
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('simulation config payload sends layout and party distribution to backend', () => {
   const payload = buildSimulationConfigPayload({
     num_windows: 4,
@@ -38,6 +42,7 @@ test('simulation config payload sends layout and party distribution to backend',
   assert.deepEqual(payload.party_size_distribution, defaultPartySizeDistribution)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('simulation config payload normalizes odd seat counts to the editable layout total', () => {
   const payload = buildSimulationConfigPayload({
     num_windows: 4,
@@ -58,6 +63,7 @@ test('simulation config payload normalizes odd seat counts to the editable layou
   assert.equal(payload.layout.tables.reduce((sum, table) => sum + table.capacity, 0), 120)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('simulation config payload includes campus demand when enabled', () => {
   const payload = buildSimulationConfigPayload({
     num_windows: 4,

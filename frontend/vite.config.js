@@ -1,3 +1,5 @@
+// 文件说明：Vite 配置文件：定义前端端口、构建分包和 /api 代理。
+
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 

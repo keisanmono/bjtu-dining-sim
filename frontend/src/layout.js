@@ -1,3 +1,5 @@
+// 文件说明：布局请求转换工具：把前端布局和基础参数整理成后端 SimulationConfig。
+
 import {
   buildTableCapacities,
   createDefaultLayout,
@@ -17,10 +19,12 @@ export const defaultPartySizeDistribution = {
 
 export { buildTableCapacities, tableTypeForCapacity }
 
+// 讲解注释：buildLayoutFromConfig() 处理前端布局或后端布局数据。
 export function buildLayoutFromConfig(config) {
   return createDefaultLayout(config)
 }
 
+// 讲解注释：buildSimulationConfigPayload() 把页面配置和布局整理为后端仿真接口请求体。
 export function buildSimulationConfigPayload(config, layout = null) {
   const effectiveLayout = isUsableLayout(layout)
     ? normalizeLayout(layout)
@@ -34,6 +38,7 @@ export function buildSimulationConfigPayload(config, layout = null) {
   }
 }
 
+// 讲解注释：isUsableLayout() 处理前端布局或后端布局数据。
 function isUsableLayout(layout) {
   return Boolean(
     layout &&
@@ -43,6 +48,7 @@ function isUsableLayout(layout) {
   )
 }
 
+// 讲解注释：normalizeLayout() 处理前端布局或后端布局数据。
 function normalizeLayout(layout) {
   const doors = layout.doors.map((door) => ({
     id: door.id,
@@ -72,6 +78,7 @@ function normalizeLayout(layout) {
   return { doors, windows, tables }
 }
 
+// 讲解注释：partyDistributionForLayout() 处理前端布局或后端布局数据。
 function partyDistributionForLayout(layout) {
   const maxCapacity = Math.max(1, ...layout.tables.map((table) => table.capacity))
   return Object.fromEntries(
@@ -81,12 +88,14 @@ function partyDistributionForLayout(layout) {
   )
 }
 
+// 讲解注释：round1() 对数值做取整或精度处理。
 function round1(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return 0
   return Math.round(number * 10) / 10
 }
 
+// 讲解注释：totalSeatsFromLayout() 处理座位、等座或入座相关状态。
 export function totalSeatsFromLayout(layout) {
   return totalLayoutSeats(layout)
 }

@@ -1,3 +1,5 @@
+<!-- 文件说明：实时地图组件：把后端状态快照渲染成窗口、队列、餐桌和学生动画。 -->
+
 <template>
   <div class="live-dining-map-shell">
     <svg
@@ -242,21 +244,29 @@ const emit = defineEmits(['transition-settled'])
 const DETAIL_CAPSULE_BASE_PX = 18
 const DETAIL_CAPSULE_INC_PX = 6
 
+// 讲解注释：floorBounds() 封装本文件中的一个独立处理步骤。
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
+// 讲解注释：viewBoxString() 封装本文件中的一个独立处理步骤。
 const viewBoxString = computed(() => {
   const viewBox = fitViewBoxForLayout(props.layout, 24)
   return `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`
 })
+// 讲解注释：snapshot() 把坐标或尺寸吸附到网格/范围内。
 const snapshot = computed(() => props.state || {})
+// 讲解注释：tables() 处理餐桌容量、位置或占用状态。
 const tables = computed(() => props.layout?.tables || [])
+// 讲解注释：windows() 处理取餐窗口相关状态或位置。
 const windows = computed(() => props.layout?.windows || [])
+// 讲解注释：doors() 封装本文件中的一个独立处理步骤。
 const doors = computed(() => props.layout?.doors || [])
+// 讲解注释：snapshotTableOccupancy() 处理楼层人数占用数据。
 const snapshotTableOccupancy = computed(() => snapshot.value.table_occupancy || [])
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
 const walkingPartyMarkers = ref([])
 const displayedTableOccupancy = ref([])
+// 讲解注释：livePartyTargets() 封装本文件中的一个独立处理步骤。
 const livePartyTargets = computed(() => buildLivePartyTargets({
   snapshot: snapshot.value,
   layout: props.layout
@@ -286,22 +296,26 @@ onBeforeUnmount(() => {
   cancelPartyAnimation()
 })
 
+// 讲解注释：toggleWindowSelection() 处理取餐窗口相关状态或位置。
 function toggleWindowSelection(idx) {
   selectedWindowIndex.value = selectedWindowIndex.value === idx ? null : idx
 }
 
+// 讲解注释：clearSelection() 封装本文件中的一个独立处理步骤。
 function clearSelection() {
   if (selectedWindowIndex.value !== null) {
     selectedWindowIndex.value = null
   }
 }
 
+// 讲解注释：busyWindowIndexes() 处理取餐窗口相关状态或位置。
 const busyWindowIndexes = computed(() => new Set(
   (snapshot.value.busy_windows || [])
     .map((busy, idx) => (busy ? idx : null))
     .filter((idx) => idx !== null)
 ))
 
+// 讲解注释：queueLengthByWindow() 处理取餐窗口相关状态或位置。
 const queueLengthByWindow = computed(() => {
   const map = new Map()
   ;(snapshot.value.queue_lengths || []).forEach((length, idx) => {
@@ -318,6 +332,7 @@ const queueLengthByWindow = computed(() => {
   return map
 })
 
+// 讲解注释：queueGroupsByWindow() 处理取餐窗口相关状态或位置。
 const queueGroupsByWindow = computed(() => {
   const map = new Map()
   for (const raw of snapshot.value.queue_groups || []) {
@@ -330,6 +345,7 @@ const queueGroupsByWindow = computed(() => {
   return map
 })
 
+// 讲解注释：tableOccupancyById() 处理楼层人数占用数据。
 const tableOccupancyById = computed(() => {
   const map = new Map()
   ;(displayedTableOccupancy.value || []).forEach((entry, idx) => {
@@ -340,6 +356,7 @@ const tableOccupancyById = computed(() => {
   return map
 })
 
+// 讲解注释：selectedWindowDetail() 处理取餐窗口相关状态或位置。
 const selectedWindowDetail = computed(() => {
   if (selectedWindowIndex.value === null) return null
   const idx = selectedWindowIndex.value
@@ -383,10 +400,12 @@ const selectedWindowDetail = computed(() => {
   }
 })
 
+// 讲解注释：serviceMarkers() 封装本文件中的一个独立处理步骤。
 const serviceMarkers = computed(() => (
   animatedPartyMarkers.value.filter((marker) => marker.role === 'service' && marker.opacity > 0)
 ))
 
+// 讲解注释：seatedClusters() 处理座位、等座或入座相关状态。
 const seatedClusters = computed(() => {
   return animatedPartyMarkers.value
     .filter((marker) => marker.role === 'seated' && marker.opacity > 0)
@@ -402,6 +421,7 @@ const seatedClusters = computed(() => {
     })
 })
 
+// 讲解注释：walkingClusters() 封装本文件中的一个独立处理步骤。
 const walkingClusters = computed(() => {
   return walkingPartyMarkers.value
     .filter((marker) => marker.opacity > 0)
@@ -417,6 +437,7 @@ const walkingClusters = computed(() => {
     })
 })
 
+// 讲解注释：startPartyTransition() 处理实时地图动画过渡。
 function startPartyTransition(nextTargets, timeline = null) {
   cancelPartyAnimation()
   walkingPartyMarkers.value = []
@@ -454,6 +475,7 @@ function startPartyTransition(nextTargets, timeline = null) {
   }
 
   const startedAt = snapshotArrivedAt
+  // 讲解注释：render() 封装本文件中的一个独立处理步骤。
   const render = (timestamp) => {
     const progress = clamp((timestamp - startedAt) / transitionDurationMs, 0, 1)
     animatedPartyMarkers.value = interpolateLivePartyMarkers({
@@ -480,6 +502,7 @@ function startPartyTransition(nextTargets, timeline = null) {
   partyAnimationFrame = window.requestAnimationFrame(render)
 }
 
+// 讲解注释：startBackendTimelineTransition() 处理实时地图动画过渡。
 function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   animatedPartyMarkers.value = settledMarkers(nextTargets)
 
@@ -492,6 +515,7 @@ function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   }
 
   let timelinePlaybackStartedAt = null
+  // 讲解注释：render() 封装本文件中的一个独立处理步骤。
   const render = (timestamp) => {
     if (timelinePlaybackStartedAt === null) {
       timelinePlaybackStartedAt = timestamp
@@ -517,16 +541,19 @@ function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   partyAnimationFrame = window.requestAnimationFrame(render)
 }
 
+// 讲解注释：settleTableOccupancy() 处理楼层人数占用数据。
 function settleTableOccupancy() {
   displayedTableOccupancy.value = snapshotTableOccupancy.value.map((entry) => ({ ...entry }))
 }
 
+// 讲解注释：settledMarkers() 封装本文件中的一个独立处理步骤。
 function settledMarkers(targets) {
   return targets
     .filter((target) => target.role === 'service')
     .map((target) => ({ ...target, opacity: 1, progress: 1 }))
 }
 
+// 讲解注释：transitionStartTargets() 处理实时地图动画过渡。
 function transitionStartTargets(settledTargets, visibleMarkers) {
   const targets = new Map()
   for (const target of settledTargets || []) {
@@ -538,6 +565,7 @@ function transitionStartTargets(settledTargets, visibleMarkers) {
   return Array.from(targets.values())
 }
 
+// 讲解注释：cancelPartyAnimation() 封装本文件中的一个独立处理步骤。
 function cancelPartyAnimation() {
   if (partyAnimationFrame && typeof window !== 'undefined') {
     window.cancelAnimationFrame(partyAnimationFrame)
@@ -545,12 +573,14 @@ function cancelPartyAnimation() {
   partyAnimationFrame = 0
 }
 
+// 讲解注释：now() 封装本文件中的一个独立处理步骤。
 function now() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now()
 }
 
+// 讲解注释：clusterDots() 封装本文件中的一个独立处理步骤。
 function clusterDots(group) {
   const size = clamp(Number(group?.member_count) || Number(group?.size) || 1, 1, 4)
   if (size === 1) return [{ key: 'p0', x: 0, y: 0 }]
@@ -571,6 +601,7 @@ function clusterDots(group) {
   ]
 }
 
+// 讲解注释：clusterLinks() 封装本文件中的一个独立处理步骤。
 function clusterLinks(dots) {
   if (!Array.isArray(dots) || dots.length < 2) return []
   return dots.slice(1).map((dot, idx) => ({
@@ -582,6 +613,7 @@ function clusterLinks(dots) {
   }))
 }
 
+// 讲解注释：itemRectFor() 封装本文件中的一个独立处理步骤。
 function itemRectFor(kind, item) {
   const footprint = getItemFootprint(kind, item)
   return {
@@ -592,6 +624,7 @@ function itemRectFor(kind, item) {
   }
 }
 
+// 讲解注释：doorMarkerFor() 封装本文件中的一个独立处理步骤。
 function doorMarkerFor(door) {
   const footprint = getItemFootprint('door', door)
   if (door.wall_side === 'top' || door.wall_side === 'bottom') {
@@ -600,6 +633,7 @@ function doorMarkerFor(door) {
   return { x: -3, y: -footprint.height / 2 + 8, width: 6, height: footprint.height - 16 }
 }
 
+// 讲解注释：windowMarkerFor() 处理取餐窗口相关状态或位置。
 function windowMarkerFor(window) {
   const footprint = getItemFootprint('window', window)
   if (window.wall_side === 'left' || window.wall_side === 'right') {
@@ -608,29 +642,35 @@ function windowMarkerFor(window) {
   return { x: -footprint.width / 2 + 6, y: -3, width: footprint.width - 12, height: 6 }
 }
 
+// 讲解注释：tableTopFor() 处理餐桌容量、位置或占用状态。
 function tableTopFor(table) {
   return tableTopForCapacity(table.capacity)
 }
 
+// 讲解注释：chairLayoutFor() 处理前端布局或后端布局数据。
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
 }
 
+// 讲解注释：tableTransformFor() 处理餐桌容量、位置或占用状态。
 function tableTransformFor(table) {
   return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
+// 讲解注释：tableOccupancyFor() 处理楼层人数占用数据。
 function tableOccupancyFor(table, index = 0) {
   return tableOccupancyById.value.get(table.id)
     || tableOccupancyById.value.get(index)
     || { capacity: table.capacity, occupied: 0 }
 }
 
+// 讲解注释：isChairOccupied() 封装本文件中的一个独立处理步骤。
 function isChairOccupied(table, chairIndex, tableIndex = 0) {
   const occupied = Number(tableOccupancyFor(table, tableIndex).occupied) || 0
   return chairIndex < occupied
 }
 
+// 讲解注释：windowStateClasses() 处理取餐窗口相关状态或位置。
 function windowStateClasses(idx) {
   return {
     'is-busy': busyWindowIndexes.value.has(idx),
@@ -639,6 +679,7 @@ function windowStateClasses(idx) {
   }
 }
 
+// 讲解注释：windowAriaLabel() 处理取餐窗口相关状态或位置。
 function windowAriaLabel(window, idx) {
   const total = queueLengthByWindow.value.get(idx) || 0
   return total > 0

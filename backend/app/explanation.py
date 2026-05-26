@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+# 文件说明：规则化解释模块：把推荐指标和瓶颈判断转换成检查时可读的说明文字。
+
 from typing import Any
 
 
 # 本文件只做本地规则化解释：根据瓶颈、基准指标和推荐指标拼接说明文本，
 # 不调用外部大模型，核心仿真和推荐逻辑也不依赖 LLM。
+# 讲解注释：build_rule_based_explanation() 组装展示、请求或内部计算所需的数据结构。
 def build_rule_based_explanation(payload: dict[str, Any]) -> dict[str, Any]:
     baseline_metrics = payload.get("baseline_metrics") or {}
     best_metrics = payload.get("best_metrics") or {}
@@ -28,6 +31,7 @@ def build_rule_based_explanation(payload: dict[str, Any]) -> dict[str, Any]:
     return {"text": text, "risk_notes": risk_notes}
 
 
+# 讲解注释：_infer_root_cause() 封装本文件中的一个独立处理步骤。
 def _infer_root_cause(metrics: dict[str, Any]) -> str:
     bottleneck = metrics.get("bottleneck_type")
     if bottleneck:
@@ -39,6 +43,7 @@ def _infer_root_cause(metrics: dict[str, Any]) -> str:
     return "整体运行较均衡"
 
 
+# 讲解注释：_metric_delta() 读取或计算指标汇总。
 def _metric_delta(base: dict[str, Any], best: dict[str, Any], key: str) -> float:
     if key not in base or key not in best:
         return 0.0

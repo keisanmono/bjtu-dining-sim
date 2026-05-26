@@ -1,3 +1,5 @@
+// 文件说明：实时地图模型工具：把后端 snapshot 转成队列、服务、行走和入座标记。
+
 import {
   getItemFootprint,
   tableTopForCapacity
@@ -22,6 +24,7 @@ export const LIVE_TRANSITION_MS = 320
 export const LIVE_TRANSITION_MIN_MS = 120
 export const LIVE_TRANSITION_FRAME_BUFFER_MS = 40
 
+// 讲解注释：buildQueueRows() 处理排队数据或队列展示。
 export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = [] } = {}) {
   const rows = []
   const buckets = new Map()
@@ -94,6 +97,7 @@ export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = 
   return rows.sort((a, b) => a.windowIndex - b.windowIndex)
 }
 
+// 讲解注释：normalizeGroup() 把输入值标准化为后续逻辑可使用的形式。
 export function normalizeGroup(group) {
   const id = group?.party_id ?? 'solo'
   return {
@@ -109,6 +113,7 @@ export function normalizeGroup(group) {
   }
 }
 
+// 讲解注释：partyColor() 封装本文件中的一个独立处理步骤。
 export function partyColor(group) {
   const id = group?.party_id ?? 'solo'
   const numeric = Number(id)
@@ -118,6 +123,7 @@ export function partyColor(group) {
   return PALETTE[Math.abs(index) % PALETTE.length]
 }
 
+// 讲解注释：wallNormal() 封装本文件中的一个独立处理步骤。
 export function wallNormal(item) {
   const side = item?.wall_side
   if (side === 'right') return { x: -1, y: 0 }
@@ -126,10 +132,12 @@ export function wallNormal(item) {
   return { x: 0, y: 1 }
 }
 
+// 讲解注释：clamp() 把数值限制在允许范围内。
 export function clamp(value, lower, upper) {
   return Math.max(lower, Math.min(upper, value))
 }
 
+// 讲解注释：buildLivePartyTargets() 组装展示、请求或内部计算所需的数据结构。
 export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   const windows = Array.isArray(layout?.windows) ? layout.windows : []
   const tables = Array.isArray(layout?.tables) ? layout.tables : []
@@ -167,6 +175,7 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   return Array.from(targetsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)))
 }
 
+// 讲解注释：buildLivePartyTransitions() 组装展示、请求或内部计算所需的数据结构。
 export function buildLivePartyTransitions({ previous = [], next = [], layout = {} } = {}) {
   const previousByKey = keyedTargets(previous)
   const nextByKey = keyedTargets(next)
@@ -208,6 +217,7 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
     .filter(Boolean)
 }
 
+// 讲解注释：transitionDurationForSnapshotGap() 把坐标或尺寸吸附到网格/范围内。
 export function transitionDurationForSnapshotGap(snapshotGapMs, fallbackMs = LIVE_TRANSITION_MS) {
   const fallback = Math.max(LIVE_TRANSITION_MIN_MS, Number(fallbackMs) || LIVE_TRANSITION_MS)
   const gap = Number(snapshotGapMs)
@@ -217,6 +227,7 @@ export function transitionDurationForSnapshotGap(snapshotGapMs, fallbackMs = LIV
   return clamp(gap - LIVE_TRANSITION_FRAME_BUFFER_MS, LIVE_TRANSITION_MIN_MS, LIVE_TRANSITION_MS)
 }
 
+// 讲解注释：backendTimelinePlaybackMs() 封装本文件中的一个独立处理步骤。
 export function backendTimelinePlaybackMs(timeline = {}) {
   const declared = Number(timeline?.playback_ms)
   const eventEnd = Math.max(0, ...(timeline?.events || []).map((event) => (
@@ -227,6 +238,7 @@ export function backendTimelinePlaybackMs(timeline = {}) {
   return Math.max(Number.isFinite(declared) ? declared : 0, eventEnd)
 }
 
+// 讲解注释：buildBackendWalkingMarkers() 组装展示、请求或内部计算所需的数据结构。
 export function buildBackendWalkingMarkers({ timeline = {}, elapsedMs = 0 } = {}) {
   const elapsed = Math.max(0, Number(elapsedMs) || 0)
   return (timeline?.events || [])
@@ -253,6 +265,7 @@ export function buildBackendWalkingMarkers({ timeline = {}, elapsedMs = 0 } = {}
     .filter(Boolean)
 }
 
+// 讲解注释：interpolateLivePartyMarkers() 封装本文件中的一个独立处理步骤。
 export function interpolateLivePartyMarkers({ previous = [], next = [], progress = 1, layout = {}, transitions = null } = {}) {
   const amount = clamp(Number(progress) || 0, 0, 1)
   const items = transitions || buildLivePartyTransitions({ previous, next, layout })
@@ -277,6 +290,7 @@ export function interpolateLivePartyMarkers({ previous = [], next = [], progress
   })
 }
 
+// 讲解注释：backendEventPlaybackDurationMs() 封装本文件中的一个独立处理步骤。
 function backendEventPlaybackDurationMs(event) {
   const declared = Number(event?.playback_duration_ms)
   if (Number.isFinite(declared) && declared > 0) return declared
@@ -288,6 +302,7 @@ function backendEventPlaybackDurationMs(event) {
   )
 }
 
+// 讲解注释：sampleBackendWalkingEvent() 封装本文件中的一个独立处理步骤。
 function sampleBackendWalkingEvent(event, progress) {
   const frames = Array.isArray(event?.frames)
     ? event.frames
@@ -332,6 +347,7 @@ function sampleBackendWalkingEvent(event, progress) {
   return samplePathAtProgress(fallbackPath, progress)
 }
 
+// 讲解注释：buildServiceTargets() 组装展示、请求或内部计算所需的数据结构。
 function buildServiceTargets(services, windows) {
   return (services || []).map((rawService) => {
     const group = normalizeGroup(rawService)
@@ -350,16 +366,19 @@ function buildServiceTargets(services, windows) {
   }).filter(Boolean)
 }
 
+// 讲解注释：serviceTargetKey() 封装本文件中的一个独立处理步骤。
 function serviceTargetKey(group) {
   return `service-${group?.party_id ?? 'solo'}-${group?.window_index ?? 0}`
 }
 
+// 讲解注释：shouldSuppressServiceExit() 封装本文件中的一个独立处理步骤。
 function shouldSuppressServiceExit(previousTarget, nextByKey) {
   if (previousTarget?.role !== 'service') return false
   const partyTarget = nextByKey.get(livePartyKey(previousTarget))
   return Boolean(partyTarget && partyTarget.role !== 'service')
 }
 
+// 讲解注释：samePartyPreviousTarget() 封装本文件中的一个独立处理步骤。
 function samePartyPreviousTarget(nextTarget, previousByKey) {
   if (!nextTarget || nextTarget.role === 'service') return null
   const candidates = Array.from(previousByKey.values())
@@ -368,6 +387,7 @@ function samePartyPreviousTarget(nextTarget, previousByKey) {
   return candidates.sort((left, right) => pointDistance(left, nextTarget) - pointDistance(right, nextTarget))[0]
 }
 
+// 讲解注释：buildWaitingTargets() 组装展示、请求或内部计算所需的数据结构。
 function buildWaitingTargets(waitingParties, windows, layout) {
   return (waitingParties || [])
     .map((rawGroup) => {
@@ -388,6 +408,7 @@ function buildWaitingTargets(waitingParties, windows, layout) {
     })
 }
 
+// 讲解注释：servicePointForWindow() 处理取餐窗口相关状态或位置。
 function servicePointForWindow(windowItem) {
   const normal = wallNormal(windowItem)
   const footprint = getItemFootprint('window', windowItem)
@@ -400,6 +421,7 @@ function servicePointForWindow(windowItem) {
   }
 }
 
+// 讲解注释：waitingPointForWindow() 处理取餐窗口相关状态或位置。
 function waitingPointForWindow(windowItem, waitPosition = 0) {
   const base = servicePointForWindow(windowItem)
   const normal = wallNormal(windowItem)
@@ -412,6 +434,7 @@ function waitingPointForWindow(windowItem, waitPosition = 0) {
   })
 }
 
+// 讲解注释：seatedSlotOffset() 处理座位、等座或入座相关状态。
 function seatedSlotOffset(table, slot) {
   const top = tableTopForCapacity(table.capacity)
   const horizontalSpan = Math.max(0, top.width / 2 - 6)
@@ -423,6 +446,7 @@ function seatedSlotOffset(table, slot) {
   return offsets[slot % offsets.length] || { x: 0, y: 0 }
 }
 
+// 讲解注释：entryPointForTarget() 封装本文件中的一个独立处理步骤。
 function entryPointForTarget(target, layout) {
   if (!target) return { x: 0, y: 0 }
   const doors = Array.isArray(layout?.doors) ? layout.doors : []
@@ -439,10 +463,12 @@ function entryPointForTarget(target, layout) {
   }
 }
 
+// 讲解注释：livePartyKey() 封装本文件中的一个独立处理步骤。
 function livePartyKey(group) {
   return `party-${group?.party_id ?? 'solo'}`
 }
 
+// 讲解注释：keyedTargets() 封装本文件中的一个独立处理步骤。
 function keyedTargets(targets) {
   const map = new Map()
   for (const target of targets || []) {
@@ -452,10 +478,12 @@ function keyedTargets(targets) {
   return map
 }
 
+// 讲解注释：pointDistance() 封装本文件中的一个独立处理步骤。
 function pointDistance(left, right) {
   return Math.hypot(Number(left?.x) - Number(right?.x), Number(left?.y) - Number(right?.y))
 }
 
+// 讲解注释：cleanPoint() 封装本文件中的一个独立处理步骤。
 function cleanPoint(point) {
   return {
     x: round1(point.x),
@@ -463,14 +491,17 @@ function cleanPoint(point) {
   }
 }
 
+// 讲解注释：round1() 对数值做取整或精度处理。
 function round1(value) {
   return Math.round(Number(value || 0) * 10) / 10
 }
 
+// 讲解注释：round2() 对数值做取整或精度处理。
 function round2(value) {
   return Math.round(Number(value || 0) * 100) / 100
 }
 
+// 讲解注释：bucketFor() 封装本文件中的一个独立处理步骤。
 function bucketFor(buckets, windowIndex) {
   const existing = buckets.get(windowIndex)
   if (existing) return existing
@@ -484,6 +515,7 @@ function bucketFor(buckets, windowIndex) {
   return bucket
 }
 
+// 讲解注释：allActiveWindowsFilled() 处理取餐窗口相关状态或位置。
 function allActiveWindowsFilled(buckets, activeWindows, totals) {
   for (const windowIndex of activeWindows) {
     const bucket = buckets.get(windowIndex)
@@ -498,6 +530,7 @@ function allActiveWindowsFilled(buckets, activeWindows, totals) {
   return true
 }
 
+// 讲解注释：buildWindowQueueRow() 处理取餐窗口相关状态或位置。
 function buildWindowQueueRow({ windowIndex, windowItem, visible, hiddenPeople, hiddenGroups }) {
   const normal = wallNormal(windowItem)
   const footprint = getItemFootprint('window', windowItem)
@@ -538,6 +571,7 @@ function buildWindowQueueRow({ windowIndex, windowItem, visible, hiddenPeople, h
   return { windowIndex, capsules, overflow }
 }
 
+// 讲解注释：queueCapsuleFor() 处理排队数据或队列展示。
 function queueCapsuleFor({ group, position, windowIndex, startX, startY, normal, wide }) {
   const size = clamp(Number(group.member_count) || Number(group.size) || 1, 1, 6)
   const long = QUEUE_LONG_BASE + Math.min(4, size - 1) * QUEUE_LONG_INCREMENT
@@ -557,6 +591,7 @@ function queueCapsuleFor({ group, position, windowIndex, startX, startY, normal,
   }
 }
 
+// 讲解注释：queueOverflowSize() 处理排队数据或队列展示。
 function queueOverflowSize(wide, hiddenPeople) {
   const weight = Math.max(1, Number(hiddenPeople) || 1)
   const longGrowth = Math.min(24, Math.ceil(Math.log2(weight + 1)) * 3)

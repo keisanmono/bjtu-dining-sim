@@ -1,3 +1,5 @@
+// 文件说明：前端源码文件。
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -8,6 +10,7 @@ import {
 } from '../src/candidates.js'
 import { LAYOUT_MAX_EDITABLE_SEATS } from '../src/layoutEditor.js'
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('default candidate settings provide an editable range around the baseline', () => {
   const settings = createDefaultCandidateSettings({ num_windows: 4, num_seats: 120 })
 
@@ -25,10 +28,12 @@ test('default candidate settings provide an editable range around the baseline',
   })
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('integer ranges include both ends and respect step size', () => {
   assert.deepEqual(buildIntegerRange(80, 150, 20), [80, 100, 120, 140, 150])
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('candidate settings build actual recommendation payload options', () => {
   const candidates = buildCandidatesFromSettings({
     windowMin: 2,
@@ -49,6 +54,7 @@ test('candidate settings build actual recommendation payload options', () => {
   assert.deepEqual(candidates.peakCounts, [1, 2, 3])
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat candidates are even because editable tables are 2/4/6 seats', () => {
   const candidates = buildCandidatesFromSettings({
     windowMin: 2,
@@ -64,6 +70,7 @@ test('seat candidates are even because editable tables are 2/4/6 seats', () => {
   assert.deepEqual(candidates.seats, [80, 94, 108, 122, 124])
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat candidates stay within the editable layout capacity', () => {
   const candidates = buildCandidatesFromSettings({
     windowMin: 2,

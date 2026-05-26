@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# 文件说明：校园到达数据模块：负责教学楼、食堂步行时间、实时/随机楼层人数和到达计划。
+
 import json
 import math
 import copy
@@ -48,12 +50,14 @@ DEFAULT_FLOOR_CAPACITY: dict[str, int] = {
 
 
 @dataclass(frozen=True)
+# 讲解注释：CampusFloorDemandData 处理校园教学楼、食堂或到达数据。
 class CampusFloorDemandData:
     floor: int
     count: int
 
 
 @dataclass(frozen=True)
+# 讲解注释：CampusBuildingDemandData 处理校园教学楼、食堂或到达数据。
 class CampusBuildingDemandData:
     building_id: str
     dismissal_minute: int = 0
@@ -62,6 +66,7 @@ class CampusBuildingDemandData:
 
 
 @dataclass(frozen=True)
+# 讲解注释：CampusDemandConfigData 处理校园教学楼、食堂或到达数据。
 class CampusDemandConfigData:
     enabled: bool = False
     cafeteria_id: str | None = None
@@ -69,10 +74,12 @@ class CampusDemandConfigData:
     buildings: list[CampusBuildingDemandData] = field(default_factory=list)
 
 
+# 讲解注释：load_campus_walk_times() 处理校园教学楼、食堂或到达数据。
 def load_campus_walk_times() -> dict[str, Any]:
     return json.loads(DATA_PATH.read_text(encoding="utf-8"))
 
 
+# 讲解注释：campus_locations() 处理校园教学楼、食堂或到达数据。
 def campus_locations() -> dict[str, Any]:
     data = load_campus_walk_times()
     return {
@@ -91,19 +98,23 @@ def campus_locations() -> dict[str, Any]:
     }
 
 
+# 讲解注释：building_name_by_id() 组装展示、请求或内部计算所需的数据结构。
 def building_name_by_id() -> dict[str, str]:
     return {item["id"]: item["name"] for item in load_campus_walk_times()["locations"]["teaching_buildings"]}
 
 
+# 讲解注释：known_building_ids() 组装展示、请求或内部计算所需的数据结构。
 def known_building_ids() -> set[str]:
     return set(building_name_by_id())
 
 
+# 讲解注释：known_cafeteria_ids() 封装本文件中的一个独立处理步骤。
 def known_cafeteria_ids() -> set[str]:
     data = load_campus_walk_times()
     return {item["id"] for item in data["locations"]["cafeterias"]}
 
 
+# 讲解注释：cafeteria_choice_probabilities() 封装本文件中的一个独立处理步骤。
 def cafeteria_choice_probabilities(building_id: str, choice_power: float = DEFAULT_CHOICE_POWER) -> dict[str, float]:
     walk_times = load_campus_walk_times()["walk_times"]
     if building_id not in walk_times:
@@ -121,6 +132,7 @@ def cafeteria_choice_probabilities(building_id: str, choice_power: float = DEFAU
     return {cafeteria_id: weight / total for cafeteria_id, weight in weights.items()}
 
 
+# 讲解注释：build_campus_arrival_schedule() 处理校园教学楼、食堂或到达数据。
 def build_campus_arrival_schedule(
     cafeteria_id: str,
     buildings: list[CampusBuildingDemandData],
@@ -156,6 +168,7 @@ def build_campus_arrival_schedule(
     return dict(sorted(schedule.items()))
 
 
+# 讲解注释：generate_random_floor_occupancy() 处理楼层人数占用数据。
 def generate_random_floor_occupancy(building_ids: list[str] | None = None, seed: int = 1) -> list[dict[str, Any]]:
     rng = random.Random(seed)
     names = building_name_by_id()
@@ -176,6 +189,7 @@ def generate_random_floor_occupancy(building_ids: list[str] | None = None, seed:
     return items
 
 
+# 讲解注释：fetch_live_floor_occupancy() 处理楼层人数占用数据。
 def fetch_live_floor_occupancy(building_ids: list[str] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     names = building_name_by_id()
     selected = building_ids or list(names)
@@ -201,6 +215,7 @@ def fetch_live_floor_occupancy(building_ids: list[str] | None = None) -> tuple[l
     return items, warnings
 
 
+# 讲解注释：_fetch_live_building_occupancy() 处理楼层人数占用数据。
 def _fetch_live_building_occupancy(building_id: str, building_name: str) -> tuple[dict[str, Any], str | None]:
     try:
         payload = _fetch_classroom_capacity_with_retry(building_name)
@@ -215,6 +230,7 @@ def _fetch_live_building_occupancy(building_id: str, building_name: str) -> tupl
         return fallback, _friendly_live_warning(building_name, exc, "模拟数据")
 
 
+# 讲解注释：parse_classroom_capacity_payload() 封装本文件中的一个独立处理步骤。
 def parse_classroom_capacity_payload(building_id: str, building_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     floors: dict[int, dict[str, int]] = {}
     for row in payload.get("data") or []:
@@ -238,6 +254,7 @@ def parse_classroom_capacity_payload(building_id: str, building_name: str, paylo
     return result
 
 
+# 讲解注释：campus_occupancy() 处理校园教学楼、食堂或到达数据。
 def campus_occupancy(source_mode: str, building_ids: list[str] | None = None, seed: int = 1) -> dict[str, Any]:
     if source_mode == "live":
         items, warnings = fetch_live_floor_occupancy(building_ids)
@@ -249,6 +266,7 @@ def campus_occupancy(source_mode: str, building_ids: list[str] | None = None, se
     raise ValueError("source_mode 必须是 live、random 或 manual。")
 
 
+# 讲解注释：_building_occupancy_payload() 处理楼层人数占用数据。
 def _building_occupancy_payload(
     building_id: str,
     building_name: str,
@@ -267,6 +285,7 @@ def _building_occupancy_payload(
     }
 
 
+# 讲解注释：_fetch_classroom_capacity() 封装本文件中的一个独立处理步骤。
 def _fetch_classroom_capacity(building_name: str) -> dict[str, Any]:
     query = urllib.parse.urlencode({"building": building_name})
     request = urllib.request.Request(
@@ -277,6 +296,7 @@ def _fetch_classroom_capacity(building_name: str) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+# 讲解注释：_fetch_classroom_capacity_with_retry() 封装本文件中的一个独立处理步骤。
 def _fetch_classroom_capacity_with_retry(building_name: str) -> dict[str, Any]:
     last_error: Exception | None = None
     for _attempt in range(LIVE_RETRY_COUNT + 1):
@@ -289,6 +309,7 @@ def _fetch_classroom_capacity_with_retry(building_name: str) -> dict[str, Any]:
     raise RuntimeError("实时人数服务未返回数据。")
 
 
+# 讲解注释：_cached_live_occupancy() 处理楼层人数占用数据。
 def _cached_live_occupancy(building_id: str) -> dict[str, Any] | None:
     cached = _LIVE_OCCUPANCY_CACHE.get(building_id)
     if cached is None:
@@ -298,16 +319,19 @@ def _cached_live_occupancy(building_id: str) -> dict[str, Any] | None:
     return payload
 
 
+# 讲解注释：_friendly_live_warning() 封装本文件中的一个独立处理步骤。
 def _friendly_live_warning(building_name: str, exc: Exception, fallback_label: str) -> str:
     reason = "实时服务超时" if _is_timeout_error(exc) else "实时服务暂不可用"
     return f"{building_name} {reason}，已使用{fallback_label}，可重试。"
 
 
+# 讲解注释：_is_timeout_error() 封装本文件中的一个独立处理步骤。
 def _is_timeout_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return isinstance(exc, TimeoutError) or "timed out" in text or "timeout" in text
 
 
+# 讲解注释：_floor_from_room_name() 封装本文件中的一个独立处理步骤。
 def _floor_from_room_name(room_name: str) -> int:
     matches = re.findall(r"\d{3,}", room_name)
     if not matches:
@@ -316,6 +340,7 @@ def _floor_from_room_name(room_name: str) -> int:
     return max(1, int(tail[0]))
 
 
+# 讲解注释：_floor_descent_seconds() 封装本文件中的一个独立处理步骤。
 def _floor_descent_seconds(floor: int, rng: random.Random) -> int:
     level = max(1, int(floor))
     if level <= 1:
@@ -323,6 +348,7 @@ def _floor_descent_seconds(floor: int, rng: random.Random) -> int:
     return max(0, int(round((level - 1) * rng.gauss(DEFAULT_FLOOR_SECONDS, 6))))
 
 
+# 讲解注释：_route_seconds_with_variation() 计算可行走路线。
 def _route_seconds_with_variation(route_seconds: int, rng: random.Random) -> int:
     roll = rng.random()
     if roll < 0.14:
@@ -335,6 +361,7 @@ def _route_seconds_with_variation(route_seconds: int, rng: random.Random) -> int
     return max(30, int(round(route_seconds * multiplier + linger)))
 
 
+# 讲解注释：_safe_int() 封装本文件中的一个独立处理步骤。
 def _safe_int(value: Any) -> int:
     try:
         return max(0, int(float(value)))
@@ -342,9 +369,11 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
+# 讲解注释：_clamp() 把数值限制在允许范围内。
 def _clamp(value: float, lower: float, upper: float) -> float:
     return min(upper, max(lower, float(value)))
 
 
+# 讲解注释：_stable_seed() 处理餐桌容量、位置或占用状态。
 def _stable_seed(value: str) -> int:
     return sum((index + 1) * ord(char) for index, char in enumerate(value)) % 10000

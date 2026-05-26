@@ -1,7 +1,10 @@
+// 文件说明：前端源码文件。
+
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('config recommendation panel does not render redundant candidate preview list', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -9,6 +12,7 @@ test('config recommendation panel does not render redundant candidate preview li
   assert.equal(source.includes('configCandidateGroups'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('recommendations stay inside config page without a separate tab or page', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -25,6 +29,7 @@ test('recommendations stay inside config page without a separate tab or page', (
   assert.equal(styleSource.includes('.recommend-grid'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('simulation preview renders a realistic cafeteria floor plan via LayoutEditor', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const editorSource = readFileSync(new URL('../src/LayoutEditor.vue', import.meta.url), 'utf8')
@@ -156,6 +161,7 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(styleSource.includes('.preview-grid'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('frontend sends the editable dining layout to simulation APIs', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -169,6 +175,7 @@ test('frontend sends the editable dining layout to simulation APIs', () => {
   assert.equal(source.includes('baseline_config: buildSimulationConfigPayload(config, layout.value)'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('door and window hit areas are not rendered as visible sprites', () => {
   const editorSource = readFileSync(new URL('../src/LayoutEditor.vue', import.meta.url), 'utf8')
   const mapSource = readFileSync(new URL('../src/LiveDiningMap.vue', import.meta.url), 'utf8')
@@ -185,6 +192,7 @@ test('door and window hit areas are not rendered as visible sprites', () => {
   assert.equal(styleSource.includes('rect:first-child'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('config recommendation panel shows effect metrics for alternatives', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -195,6 +203,7 @@ test('config recommendation panel shows effect metrics for alternatives', () => 
   assert.equal(source.includes('label="评分"'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('config recommendation panel can apply recommended and alternative plans', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -203,6 +212,7 @@ test('config recommendation panel can apply recommended and alternative plans', 
   assert.equal(source.includes('applyRecommendationConfig'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('config form uses a clear arrival volume label', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -210,6 +220,7 @@ test('config form uses a clear arrival volume label', () => {
   assert.equal(source.includes('label="到达率"'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('campus mode hides manual arrival controls from base parameters', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -222,6 +233,7 @@ test('campus mode hides manual arrival controls from base parameters', () => {
   assert.equal(source.includes('label="高峰结束"'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('config form groups base controls into aligned sections', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -238,6 +250,7 @@ test('config form groups base controls into aligned sections', () => {
   assert.equal(styleSource.includes('.config-action-bar'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('config form exposes campus demand controls with live and random buttons', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -249,6 +262,7 @@ test('config form exposes campus demand controls with live and random buttons', 
   assert.equal(source.includes('loadCampusOccupancy'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('campus floor population table expands vertically instead of scrolling', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -257,6 +271,7 @@ test('campus floor population table expands vertically instead of scrolling', ()
   assert.equal(source.includes('class="campus-table" size="small" max-height='), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('campus and recommendation controls use aligned grid shells', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -273,6 +288,7 @@ test('campus and recommendation controls use aligned grid shells', () => {
   assert.equal(styleSource.includes('.candidate-editor-row-single'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('recommendation candidate editor keeps range rows full width', () => {
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
@@ -282,6 +298,7 @@ test('recommendation candidate editor keeps range rows full width', () => {
   assert.equal(styleSource.includes('grid-template-columns: repeat(2, minmax(220px, 1fr));'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('recommendation panel sends dismissal peak count candidates', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -292,6 +309,7 @@ test('recommendation panel sends dismissal peak count candidates', () => {
   assert.equal(source.includes('peak_count_options: peakCountCandidates.value'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('applying campus recommendation writes peak schedule back to editable rows', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -301,6 +319,7 @@ test('applying campus recommendation writes peak schedule back to editable rows'
   assert.equal(source.includes('release_percent: releasePercentFromRatio(building.release_ratio ?? 1)'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('campus release control is edited as a percentage', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -312,6 +331,7 @@ test('campus release control is edited as a percentage', () => {
   assert.equal(source.includes('v-model="row.release_ratio" :min="0" :max="1"'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('campus occupancy buttons show loading only for the requested source', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -322,6 +342,7 @@ test('campus occupancy buttons show loading only for the requested source', () =
   assert.equal(source.includes(':loading="campusLoading"'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('analysis cards explain secondary metrics without jargon', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -334,6 +355,7 @@ test('analysis cards explain secondary metrics without jargon', () => {
   assert.equal(source.includes('`吞吐 ${'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat utilization label states it is an average over the run', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -342,6 +364,7 @@ test('seat utilization label states it is an average over the run', () => {
   assert.equal(source.includes('`当前等座 ${record?.waiting_for_seat_count || 0} 人`'), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('live run queue card shows current queue first and peak queue as context', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -351,6 +374,7 @@ test('live run queue card shows current queue first and peak queue as context', 
   assert.equal(source.includes('hint: `当前 ${queue} 人`'), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('live run renders the editable layout as a live dining map with party groups', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const mapSource = readFileSync(new URL('../src/LiveDiningMap.vue', import.meta.url), 'utf8')

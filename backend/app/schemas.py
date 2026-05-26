@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# 文件说明：接口模型模块：定义前端请求和后端响应的数据结构。
+
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,6 +21,7 @@ from .simulation import (
 
 
 # 布局相关模型直接对应前端 LayoutEditor 传来的入口、窗口和餐桌坐标。
+# 讲解注释：LayoutDoor 处理前端布局或后端布局数据。
 class LayoutDoor(BaseModel):
     id: str
     x: float
@@ -27,6 +30,7 @@ class LayoutDoor(BaseModel):
     arrival_share: float = Field(default=1.0, ge=0)
 
 
+# 讲解注释：LayoutWindow 处理取餐窗口相关状态或位置。
 class LayoutWindow(BaseModel):
     id: str
     x: float
@@ -35,6 +39,7 @@ class LayoutWindow(BaseModel):
     service_rate_factor: float = Field(default=1.0, gt=0)
 
 
+# 讲解注释：LayoutTable 处理餐桌容量、位置或占用状态。
 class LayoutTable(BaseModel):
     id: str
     x: float
@@ -44,17 +49,20 @@ class LayoutTable(BaseModel):
     rotation: int = 0
 
 
+# 讲解注释：DiningLayout 处理前端布局或后端布局数据。
 class DiningLayout(BaseModel):
     doors: list[LayoutDoor]
     windows: list[LayoutWindow]
     tables: list[LayoutTable]
 
 
+# 讲解注释：CampusFloorDemand 处理校园教学楼、食堂或到达数据。
 class CampusFloorDemand(BaseModel):
     floor: int = Field(ge=1)
     count: int = Field(ge=0)
 
 
+# 讲解注释：CampusBuildingDemand 处理校园教学楼、食堂或到达数据。
 class CampusBuildingDemand(BaseModel):
     building_id: str
     dismissal_minute: int = Field(default=0, ge=0)
@@ -62,6 +70,7 @@ class CampusBuildingDemand(BaseModel):
     floors: list[CampusFloorDemand] = Field(default_factory=list)
 
 
+# 讲解注释：CampusDemandConfig 处理校园教学楼、食堂或到达数据。
 class CampusDemandConfig(BaseModel):
     enabled: bool = False
     cafeteria_id: str | None = None
@@ -70,6 +79,7 @@ class CampusDemandConfig(BaseModel):
 
 
 # SimulationConfig 是前端提交的核心配置；Field 用于限制接口入参范围。
+# 讲解注释：SimulationConfig 封装本文件的一组相关数据或测试行为。
 class SimulationConfig(BaseModel):
     num_windows: int = Field(default=4, ge=1, le=30)
     num_seats: int = Field(default=120, ge=1, le=2000)
@@ -87,6 +97,7 @@ class SimulationConfig(BaseModel):
     party_size_distribution: dict[int, float] = Field(default_factory=lambda: {1: 1.0})
     campus_demand: CampusDemandConfig | None = None
 
+    # 讲解注释：to_data() 把接口层 Pydantic 模型转换为仿真层 dataclass。
     def to_data(self) -> SimulationConfigData:
         # 接口层使用 Pydantic，仿真层使用 dataclass；这里完成两者之间的显式转换。
         payload = self.model_dump()
@@ -120,6 +131,7 @@ class SimulationConfig(BaseModel):
 
 
 # 参数校验接口返回：valid 表示是否可运行，warnings 用于提示潜在瓶颈。
+# 讲解注释：ValidationResponse 封装本文件的一组相关数据或测试行为。
 class ValidationResponse(BaseModel):
     valid: bool
     errors: list[str]
@@ -127,6 +139,7 @@ class ValidationResponse(BaseModel):
 
 
 # 完整仿真返回：包含全部过程记录、最终指标和最终状态快照。
+# 讲解注释：RunResponse 封装本文件的一组相关数据或测试行为。
 class RunResponse(BaseModel):
     run_id: str
     config: dict[str, Any]
@@ -136,6 +149,7 @@ class RunResponse(BaseModel):
 
 
 # 单步请求：首次或重置时带 config，后续请求只需 run_id 继续同一个 runner。
+# 讲解注释：StepRequest 封装本文件的一组相关数据或测试行为。
 class StepRequest(BaseModel):
     run_id: str | None = None
     config: SimulationConfig | None = None
@@ -143,6 +157,7 @@ class StepRequest(BaseModel):
 
 
 # 单步返回：record 是本分钟记录，state 是地图实时状态，metrics 只在结束时返回。
+# 讲解注释：StepResponse 封装本文件的一组相关数据或测试行为。
 class StepResponse(BaseModel):
     run_id: str
     done: bool
@@ -151,6 +166,7 @@ class StepResponse(BaseModel):
     metrics: dict[str, Any] | None = None
 
 
+# 讲解注释：CampusOccupancyRequest 处理校园教学楼、食堂或到达数据。
 class CampusOccupancyRequest(BaseModel):
     source_mode: str = "random"
     buildings: list[str] = Field(default_factory=list)
@@ -158,6 +174,7 @@ class CampusOccupancyRequest(BaseModel):
 
 
 # 推荐接口请求：base_config 是基准方案，其余列表是后端枚举候选范围。
+# 讲解注释：RecommendationRequest 处理优化推荐相关流程。
 class RecommendationRequest(BaseModel):
     base_config: SimulationConfig
     window_options: list[int] = Field(default_factory=lambda: [3, 4, 5])
@@ -168,6 +185,7 @@ class RecommendationRequest(BaseModel):
 
 
 # 解释接口请求：把基准/推荐指标和策略传给规则化解释模块。
+# 讲解注释：ExplanationRequest 封装本文件的一组相关数据或测试行为。
 class ExplanationRequest(BaseModel):
     run_id: str | None = None
     baseline_config: dict[str, Any] | None = None
@@ -179,6 +197,7 @@ class ExplanationRequest(BaseModel):
     risk_notes: list[str] = Field(default_factory=list)
 
 
+# 讲解注释：ExplanationResponse 封装本文件的一组相关数据或测试行为。
 class ExplanationResponse(BaseModel):
     exp_id: str
     text: str

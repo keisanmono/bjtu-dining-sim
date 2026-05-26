@@ -1,3 +1,5 @@
+# 文件说明：校园步行数据测试：验证内置教学楼和食堂步行时间数据完整性。
+
 import json
 import unittest
 from pathlib import Path
@@ -6,7 +8,9 @@ from pathlib import Path
 DATA_PATH = Path(__file__).resolve().parents[1] / "backend" / "app" / "data" / "campus_walk_times.json"
 
 
+# 讲解注释：CampusWalkTimesTest 处理校园教学楼、食堂或到达数据。
 class CampusWalkTimesTest(unittest.TestCase):
+    # 讲解注释：test_campus_walk_times_cover_main_campus_without_secrets() 处理校园教学楼、食堂或到达数据。
     def test_campus_walk_times_cover_main_campus_without_secrets(self):
         payload = json.loads(DATA_PATH.read_text(encoding="utf-8"))
 

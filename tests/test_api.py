@@ -1,3 +1,5 @@
+# 文件说明：接口集成测试：验证 FastAPI 主要接口从运行到推荐解释的完整链路。
+
 import sys
 import unittest
 from pathlib import Path
@@ -18,7 +20,9 @@ from app.main import (
 from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig
 
 
+# 讲解注释：ApiTests 封装本文件的一组相关数据或测试行为。
 class ApiTests(unittest.TestCase):
+    # 讲解注释：setUp() 封装本文件中的一个独立处理步骤。
     def setUp(self):
         self.config = {
             "num_windows": 3,
@@ -35,6 +39,7 @@ class ApiTests(unittest.TestCase):
             "seat_columns": 10,
         }
 
+    # 讲解注释：test_run_records_metrics_recommendation_and_explanation() 读取或计算指标汇总。
     def test_run_records_metrics_recommendation_and_explanation(self):
         validation = validate_simulation_config(SimulationConfig(**self.config))
         self.assertTrue(validation.valid)
@@ -72,6 +77,7 @@ class ApiTests(unittest.TestCase):
         )
         self.assertIn("建议采用", explanation.text)
 
+    # 讲解注释：test_recommendation_accepts_campus_peak_count_options() 处理校园教学楼、食堂或到达数据。
     def test_recommendation_accepts_campus_peak_count_options(self):
         rec_body = recommend(
             RecommendationRequest(
@@ -116,6 +122,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(sorted({building["dismissal_minute"] for building in buildings}), [0, 10, 20])
         self.assertIn("3 峰下课", rec_body["best"]["strategy"])
 
+    # 讲解注释：test_layout_payload_drives_table_state_and_metrics() 处理餐桌容量、位置或占用状态。
     def test_layout_payload_drives_table_state_and_metrics(self):
         config = {
             **self.config,
@@ -147,6 +154,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("two_seat", body["metrics"]["table_utilization_by_type"])
         self.assertIn("avg_party_gather_wait", body["metrics"])
 
+    # 讲解注释：test_campus_locations_expose_main_campus_buildings_and_cafeterias() 处理校园教学楼、食堂或到达数据。
     def test_campus_locations_expose_main_campus_buildings_and_cafeterias(self):
         payload = campus_locations()
 
@@ -155,6 +163,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual({item["id"] for item in payload["cafeterias"]}, {"xuehuo", "minghu", "xuesi", "xueyuan"})
         self.assertIn("walk_times", payload)
 
+    # 讲解注释：test_random_campus_occupancy_returns_floor_rows() 处理校园教学楼、食堂或到达数据。
     def test_random_campus_occupancy_returns_floor_rows(self):
         payload = campus_occupancy(CampusOccupancyRequest(source_mode="random", buildings=["no9"], seed=7))
 

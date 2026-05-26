@@ -1,3 +1,5 @@
+# 文件说明：仿真核心测试：验证排队、座位、推荐、结伴和实时地图快照行为。
+
 import sys
 import unittest
 from pathlib import Path
@@ -21,7 +23,9 @@ from app.simulation import (
 )
 
 
+# 讲解注释：DiningSimulationTests 封装本文件的一组相关数据或测试行为。
 class DiningSimulationTests(unittest.TestCase):
+    # 讲解注释：test_run_is_reproducible_with_same_seed() 验证对应业务场景或回归行为。
     def test_run_is_reproducible_with_same_seed(self):
         config = SimulationConfigData(
             num_windows=3,
@@ -42,6 +46,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(first.metrics.peak_queue, second.metrics.peak_queue)
         self.assertEqual(first.metrics.total_left, first.metrics.total_arrived)
 
+    # 讲解注释：test_simulation_drains_all_arrivals_after_arrival_period() 计算或生成学生到达相关数据。
     def test_simulation_drains_all_arrivals_after_arrival_period(self):
         config = SimulationConfigData(
             num_windows=1,
@@ -64,6 +69,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(result.final_state["waiting_for_seat_count"], 0)
         self.assertNotIn("seat_matrix", result.final_state)
 
+    # 讲解注释：test_window_capacity_pressure_is_reported() 处理取餐窗口相关状态或位置。
     def test_window_capacity_pressure_is_reported(self):
         result = run_simulation(
             SimulationConfigData(
@@ -81,6 +87,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(result.metrics.bottleneck_type, "窗口服务")
         self.assertGreater(result.metrics.window_utilization, 0.85)
 
+    # 讲解注释：test_seat_capacity_pressure_is_reported() 处理座位、等座或入座相关状态。
     def test_seat_capacity_pressure_is_reported(self):
         result = run_simulation(
             SimulationConfigData(
@@ -98,6 +105,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(result.metrics.bottleneck_type, "座位容量")
         self.assertGreater(result.metrics.seat_utilization, 0.75)
 
+    # 讲解注释：test_recommendation_ranks_lower_waiting_plan_first() 处理优化推荐相关流程。
     def test_recommendation_ranks_lower_waiting_plan_first(self):
         base = SimulationConfigData(
             num_windows=2,
@@ -125,6 +133,7 @@ class DiningSimulationTests(unittest.TestCase):
         )
         self.assertIn(recommendation.best.config.num_windows, [3, 4])
 
+    # 讲解注释：test_recommendation_resizes_layout_for_candidate_resource_counts() 处理前端布局或后端布局数据。
     def test_recommendation_resizes_layout_for_candidate_resource_counts(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -156,6 +165,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(len(recommendation.best.config.layout.windows), 2)
         self.assertEqual(sum(table.capacity for table in recommendation.best.config.layout.tables), 8)
 
+    # 讲解注释：test_recommendation_preserves_custom_layout_coordinates_for_candidates() 处理前端布局或后端布局数据。
     def test_recommendation_preserves_custom_layout_coordinates_for_candidates(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=35, y=155)],
@@ -196,6 +206,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(candidate_layout.tables[0].x, 90)
         self.assertEqual(candidate_layout.tables[0].rotation, 90)
 
+    # 讲解注释：test_recommendation_keeps_custom_table_types_when_seat_count_is_unchanged() 处理餐桌容量、位置或占用状态。
     def test_recommendation_keeps_custom_table_types_when_seat_count_is_unchanged(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=35, y=155)],
@@ -231,6 +242,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual([table.capacity for table in candidate_layout.tables], [6, 2])
         self.assertEqual([table.table_type for table in candidate_layout.tables], ["six_seat", "two_seat"])
 
+    # 讲解注释：test_recommendation_splits_campus_buildings_into_dismissal_peaks() 处理校园教学楼、食堂或到达数据。
     def test_recommendation_splits_campus_buildings_into_dismissal_peaks(self):
         campus = CampusDemandConfigData(
             enabled=True,
@@ -285,6 +297,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertIn("3 峰下课", recommendation.best.strategy)
         self.assertIn("间隔 10 分钟", recommendation.best.strategy)
 
+    # 讲解注释：test_campus_recommendation_uses_fast_estimator_for_candidates() 处理校园教学楼、食堂或到达数据。
     def test_campus_recommendation_uses_fast_estimator_for_candidates(self):
         campus = CampusDemandConfigData(
             enabled=True,
@@ -328,6 +341,7 @@ class DiningSimulationTests(unittest.TestCase):
             peak_count_options=[1, 2, 3, 4],
             top_k=4,
         )
+        # 讲解注释：fail_if_full_simulation_runs() 封装本文件中的一个独立处理步骤。
         def fail_if_full_simulation_runs(config):
             raise AssertionError("校园推荐候选应使用快速估算器，而不是完整仿真。")
 
@@ -342,6 +356,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any("峰下课" in candidate.strategy for candidate in recommendation.ranking))
 
+    # 讲解注释：test_manual_recommendation_uses_fast_estimator_for_candidates() 处理优化推荐相关流程。
     def test_manual_recommendation_uses_fast_estimator_for_candidates(self):
         request = RecommendationRequestData(
             base_config=SimulationConfigData(
@@ -362,6 +377,7 @@ class DiningSimulationTests(unittest.TestCase):
             top_k=3,
         )
 
+        # 讲解注释：fail_if_full_simulation_runs() 封装本文件中的一个独立处理步骤。
         def fail_if_full_simulation_runs(config):
             raise AssertionError("手动平均推荐候选应使用快速估算器，而不是完整仿真。")
 
@@ -376,6 +392,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any(candidate.config.num_windows > request.base_config.num_windows for candidate in recommendation.ranking))
 
+    # 讲解注释：test_party_members_choose_windows_independently() 处理取餐窗口相关状态或位置。
     def test_party_members_choose_windows_independently(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -402,6 +419,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual([len(queue) for queue in runner.queues], [1, 1])
         self.assertEqual({student.window_index for student in students}, {0, 1})
 
+    # 讲解注释：test_snapshot_exposes_party_locations_for_live_map() 把坐标或尺寸吸附到网格/范围内。
     def test_snapshot_exposes_party_locations_for_live_map(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -451,6 +469,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(seated_snapshot["seated_parties"][0]["table_id"], "T1")
         self.assertEqual(seated_snapshot["table_occupancy"][0]["party_count"], 1)
 
+    # 讲解注释：test_party_seating_keeps_companions_at_one_table() 处理餐桌容量、位置或占用状态。
     def test_party_seating_keeps_companions_at_one_table(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -485,6 +504,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual({student.seat_time for student in students}, {5})
         self.assertEqual(runner.metrics_counters["party_split_count"], 0)
 
+    # 讲解注释：test_solo_student_prefers_empty_table_before_sharing() 处理餐桌容量、位置或占用状态。
     def test_solo_student_prefers_empty_table_before_sharing(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -518,6 +538,7 @@ class DiningSimulationTests(unittest.TestCase):
 
         self.assertEqual(party.table_index, 1)
 
+    # 讲解注释：test_ready_party_walks_to_seat_through_backend_timeline() 处理座位、等座或入座相关状态。
     def test_ready_party_walks_to_seat_through_backend_timeline(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=120)],

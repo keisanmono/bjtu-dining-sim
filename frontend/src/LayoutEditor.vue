@@ -1,3 +1,5 @@
+<!-- 文件说明：布局编辑组件：处理入口、窗口、餐桌和食堂尺寸的交互编辑。 -->
+
 <template>
   <div class="layout-editor" :class="{ 'is-dragging': isInteracting }">
     <div class="layout-editor-toolbar">
@@ -353,21 +355,30 @@ const keepViewportFitted = ref(true)
 
 const capacityOptions = TABLE_CAPACITY_OPTIONS
 
+// 讲解注释：totalSeats() 处理座位、等座或入座相关状态。
 const totalSeats = computed(() => totalLayoutSeats(props.layout))
+// 讲解注释：floorSize() 封装本文件中的一个独立处理步骤。
 const floorSize = computed(() => props.layout.floor || LAYOUT_DEFAULT_FLOOR)
+// 讲解注释：floorWidthMax() 封装本文件中的一个独立处理步骤。
 const floorWidthMax = computed(() => maxFloorDimensionForArea('width', floorSize.value))
+// 讲解注释：floorHeightMax() 封装本文件中的一个独立处理步骤。
 const floorHeightMax = computed(() => maxFloorDimensionForArea('height', floorSize.value))
+// 讲解注释：floorBounds() 封装本文件中的一个独立处理步骤。
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
+// 讲解注释：isInteracting() 封装本文件中的一个独立处理步骤。
 const isInteracting = computed(() => Boolean(dragState.value || resizeState.value || panState.value))
+// 讲解注释：viewBoxString() 封装本文件中的一个独立处理步骤。
 const viewBoxString = computed(() => (
   `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`
 ))
 
+// 讲解注释：selectedTable() 处理餐桌容量、位置或占用状态。
 const selectedTable = computed(() => {
   if (!selection.value || selection.value.kind !== 'table') return null
   return props.layout.tables.find((table) => table.id === selection.value.id) || null
 })
 
+// 讲解注释：selectionLabel() 封装本文件中的一个独立处理步骤。
 const selectionLabel = computed(() => {
   if (!selection.value) return '未选中对象'
   const sel = selection.value
@@ -394,10 +405,12 @@ watch(
   { deep: true }
 )
 
+// 讲解注释：isSelected() 封装本文件中的一个独立处理步骤。
 function isSelected(kind, id) {
   return selection.value?.kind === kind && selection.value?.id === id
 }
 
+// 讲解注释：isCollisionHighlighted() 封装本文件中的一个独立处理步骤。
 function isCollisionHighlighted(kind, id) {
   const state = dragState.value
   if (!state) return false
@@ -408,6 +421,7 @@ function isCollisionHighlighted(kind, id) {
   return itemOverlapsLayout(candidateLayout, kind, id, current.x, current.y, current)
 }
 
+// 讲解注释：itemRectFor() 封装本文件中的一个独立处理步骤。
 function itemRectFor(kind, item) {
   const footprint = getItemFootprint(kind, item)
   return {
@@ -418,6 +432,7 @@ function itemRectFor(kind, item) {
   }
 }
 
+// 讲解注释：itemHitRectFor() 封装本文件中的一个独立处理步骤。
 function itemHitRectFor(kind, item) {
   const rect = itemRectFor(kind, item)
   const padding = kind === 'table' ? 12 : 10
@@ -429,6 +444,7 @@ function itemHitRectFor(kind, item) {
   }
 }
 
+// 讲解注释：doorMarkerFor() 封装本文件中的一个独立处理步骤。
 function doorMarkerFor(door) {
   const footprint = getItemFootprint('door', door)
   if (door.wall_side === 'top' || door.wall_side === 'bottom') {
@@ -447,6 +463,7 @@ function doorMarkerFor(door) {
   }
 }
 
+// 讲解注释：windowMarkerFor() 处理取餐窗口相关状态或位置。
 function windowMarkerFor(window) {
   const footprint = getItemFootprint('window', window)
   if (window.wall_side === 'left' || window.wall_side === 'right') {
@@ -465,18 +482,22 @@ function windowMarkerFor(window) {
   }
 }
 
+// 讲解注释：tableTopFor() 处理餐桌容量、位置或占用状态。
 function tableTopFor(table) {
   return tableTopForCapacity(table.capacity)
 }
 
+// 讲解注释：chairLayoutFor() 处理前端布局或后端布局数据。
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
 }
 
+// 讲解注释：tableTransformFor() 处理餐桌容量、位置或占用状态。
 function tableTransformFor(table) {
   return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
+// 讲解注释：clientToSvgPoint() 封装本文件中的一个独立处理步骤。
 function clientToSvgPoint(clientX, clientY) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
@@ -484,6 +505,7 @@ function clientToSvgPoint(clientX, clientY) {
   return clientPointToViewBoxPoint(clientX, clientY, rect, viewBox.value)
 }
 
+// 讲解注释：clientDeltaToSvg() 封装本文件中的一个独立处理步骤。
 function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
@@ -491,6 +513,7 @@ function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   return clientDeltaToViewBoxDelta(deltaX, deltaY, rect, sourceViewBox)
 }
 
+// 讲解注释：onItemPointerDown() 处理鼠标/触控指针事件。
 function onItemPointerDown(event, kind, id) {
   selection.value = { kind, id }
   const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
@@ -512,6 +535,7 @@ function onItemPointerDown(event, kind, id) {
   event.preventDefault()
 }
 
+// 讲解注释：onResizePointerDown() 处理布局尺寸或视野缩放变化。
 function onResizePointerDown(event, handle) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const bounds = floorBounds.value
@@ -528,6 +552,7 @@ function onResizePointerDown(event, handle) {
   event.preventDefault()
 }
 
+// 讲解注释：onSvgPointerDown() 处理鼠标/触控指针事件。
 function onSvgPointerDown(event) {
   // Clicking on background clears selection (only if we didn't start a drag).
   if (event.target === svgRef.value || event.target?.classList?.contains('floor-grid') || event.target?.classList?.contains('floor-fill')) {
@@ -546,6 +571,7 @@ function onSvgPointerDown(event) {
   }
 }
 
+// 讲解注释：onPointerMove() 处理鼠标/触控指针事件。
 function onPointerMove(event) {
   if (resizeState.value) {
     const state = resizeState.value
@@ -583,6 +609,7 @@ function onPointerMove(event) {
   event.preventDefault()
 }
 
+// 讲解注释：onPointerUp() 处理鼠标/触控指针事件。
 function onPointerUp(event) {
   if (resizeState.value) {
     const state = resizeState.value
@@ -617,6 +644,7 @@ function onPointerUp(event) {
   dragState.value = null
 }
 
+// 讲解注释：onPointerLeave() 处理鼠标/触控指针事件。
 function onPointerLeave() {
   // Keep drag if pointer is captured; only clear when pointer truly leaves
   // and the drag state is no longer reachable. Pointer capture handles most
@@ -626,27 +654,32 @@ function onPointerLeave() {
   }
 }
 
+// 讲解注释：onWheelZoom() 处理 SVG 视野缩放。
 function onWheelZoom(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   zoomViewport(event.deltaY < 0 ? 0.86 : 1.16, point)
 }
 
+// 讲解注释：zoomViewport() 处理 SVG 视野缩放。
 function zoomViewport(factor, focusPoint = null) {
   keepViewportFitted.value = false
   viewBox.value = zoomViewBox(viewBox.value, factor, focusPoint)
 }
 
+// 讲解注释：fitViewportToLayout() 处理前端布局或后端布局数据。
 function fitViewportToLayout() {
   keepViewportFitted.value = true
   viewBox.value = fitViewBoxForLayout(props.layout)
 }
 
+// 讲解注释：onSelectedCapacityChange() 封装本文件中的一个独立处理步骤。
 function onSelectedCapacityChange(value) {
   if (!selectedTable.value) return
   const next = setTableCapacity(props.layout, selectedTable.value.id, Number(value))
   emit('update:layout', next)
 }
 
+// 讲解注释：rotateSelectedTable() 处理餐桌容量、位置或占用状态。
 function rotateSelectedTable() {
   if (!selectedTable.value) return
   const nextRotation = Number(selectedTable.value.rotation) === 90 ? 0 : 90
@@ -654,24 +687,29 @@ function rotateSelectedTable() {
   emit('update:layout', next)
 }
 
+// 讲解注释：changeDoorCount() 封装本文件中的一个独立处理步骤。
 function changeDoorCount(delta) {
   const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
 }
 
+// 讲解注释：changeWindowCount() 处理取餐窗口相关状态或位置。
 function changeWindowCount(value) {
   emit('update:window-count', Number(value))
 }
 
+// 讲解注释：changeSeatCount() 处理座位、等座或入座相关状态。
 function changeSeatCount(value) {
   emit('update:seat-count', Number(value))
 }
 
+// 讲解注释：autoArrangeTables() 处理餐桌容量、位置或占用状态。
 function autoArrangeTables(mode) {
   const next = arrangeLayoutTables(props.layout, mode)
   emit('update:layout', next, { source: 'arrange', transient: false })
 }
 
+// 讲解注释：changeFloorSize() 封装本文件中的一个独立处理步骤。
 function changeFloorSize(axis, value) {
   const nextSize = {
     ...floorSize.value,
@@ -680,6 +718,7 @@ function changeFloorSize(axis, value) {
   emit('update:layout', resizeLayoutFloor(props.layout, nextSize, { blockTableConflicts: true }))
 }
 
+// 讲解注释：revertInvalidDrag() 处理拖拽交互过程中的状态。
 function revertInvalidDrag(state) {
   const candidateLayout = state.latestLayout || props.layout
   const current = findItem(candidateLayout, state.kind, state.id)
@@ -694,6 +733,7 @@ function revertInvalidDrag(state) {
   return true
 }
 
+// 讲解注释：replaceLayoutItem() 处理前端布局或后端布局数据。
 function replaceLayoutItem(layout, kind, replacement) {
   const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
   return {

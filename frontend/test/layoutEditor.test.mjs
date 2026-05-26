@@ -1,3 +1,5 @@
+// 文件说明：前端源码文件。
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -42,6 +44,7 @@ import {
 } from '../src/layoutEditor.js'
 import { buildSimulationConfigPayload } from '../src/layout.js'
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('grid step snaps coordinates to multiples of 10', () => {
   assert.equal(snapToGrid(123), 120)
   assert.equal(snapToGrid(127), 130)
@@ -49,6 +52,7 @@ test('grid step snaps coordinates to multiples of 10', () => {
   assert.equal(LAYOUT_GRID_STEP, 10)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('clampToBounds keeps centers inside the floor area accounting for footprint', () => {
   const fp = getItemFootprint('table', { capacity: 4 })
   const clamped = clampToBounds(0, 0, fp)
@@ -61,6 +65,7 @@ test('clampToBounds keeps centers inside the floor area accounting for footprint
   assert.ok(clampedHigh.y <= LAYOUT_BOUNDS.bottom - fp.height / 2)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('snapAndClampPoint snaps and clamps in one shot', () => {
   const result = snapAndClampPoint(7, 5, 'window', null)
 
@@ -69,6 +74,7 @@ test('snapAndClampPoint snaps and clamps in one shot', () => {
   assert.ok(result.x >= LAYOUT_BOUNDS.x + getItemFootprint('window', result).width / 2)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('doors and windows snap to the nearest wall instead of floating inside the floor', () => {
   const topDoor = snapAndClampPoint(180, 25, 'door', { id: 'D1', wall_side: 'left' })
   const rightWindow = snapAndClampPoint(330, 315, 'window', { id: 'W1', wall_side: 'top' })
@@ -82,6 +88,7 @@ test('doors and windows snap to the nearest wall instead of floating inside the 
   assert.equal(rightWindow.y % LAYOUT_GRID_STEP, 0)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('door and window footprints rotate based on the wall side', () => {
   const topDoor = getItemFootprint('door', { wall_side: 'top' })
   const leftDoor = getItemFootprint('door', { wall_side: 'left' })
@@ -94,6 +101,7 @@ test('door and window footprints rotate based on the wall side', () => {
   assert.ok(rightWindow.height > rightWindow.width)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('createDefaultLayout produces in-bounds, on-grid items for the given config', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
 
@@ -112,6 +120,7 @@ test('createDefaultLayout produces in-bounds, on-grid items for the given config
   }
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat counts are normalized to even table capacity totals', () => {
   assert.equal(buildTableCapacities(121).reduce((sum, value) => sum + value, 0), 120)
 
@@ -121,6 +130,7 @@ test('seat counts are normalized to even table capacity totals', () => {
   assert.equal(layout.tables.some((table) => table.capacity % 2 !== 0), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setItemPosition snaps and clamps the target item without touching others', () => {
   const layout = createDefaultLayout({ num_windows: 3, num_seats: 16 })
   const targetId = layout.windows[1].id
@@ -138,6 +148,7 @@ test('setItemPosition snaps and clamps the target item without touching others',
   assert.equal(next.doors[0].x, layout.doors[0].x)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setItemPosition forces extreme drags back into the floor bounds', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
 
@@ -152,6 +163,7 @@ test('setItemPosition forces extreme drags back into the floor bounds', () => {
   assert.ok(moved.y >= bounds.y - fp.height / 2)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setItemPosition rejects moves that overlap existing layout items', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const table = layout.tables[0]
@@ -165,6 +177,7 @@ test('setItemPosition rejects moves that overlap existing layout items', () => {
   assert.equal(itemOverlapsLayout(layout, 'table', table.id, blockingWindow.x, blockingWindow.y), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setItemPosition can allow temporary overlaps during drag', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const table = layout.tables[0]
@@ -178,6 +191,7 @@ test('setItemPosition can allow temporary overlaps during drag', () => {
   assert.equal(itemOverlapsLayout(next, 'table', table.id, moved.x, moved.y), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('table collisions use the visible table and chair shapes instead of one footprint rectangle', () => {
   const first = { id: 'T1', capacity: 4, table_type: 'four_seat', x: 100, y: 100 }
   const second = { id: 'T2', capacity: 4, table_type: 'four_seat', x: 140, y: 130 }
@@ -188,6 +202,7 @@ test('table collisions use the visible table and chair shapes instead of one foo
   assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, first), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('table collisions still trigger when visible table parts intersect', () => {
   const first = { id: 'T1', capacity: 4, table_type: 'four_seat', x: 100, y: 100 }
   const second = { id: 'T2', capacity: 4, table_type: 'four_seat', x: 120, y: 100 }
@@ -196,6 +211,7 @@ test('table collisions still trigger when visible table parts intersect', () => 
   assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, first), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('rotated tables swap their footprint and collision shape', () => {
   const first = { id: 'T1', capacity: 4, table_type: 'four_seat', x: 100, y: 100, rotation: 0 }
   const second = { id: 'T2', capacity: 4, table_type: 'four_seat', x: 100, y: 155, rotation: 0 }
@@ -209,6 +225,7 @@ test('rotated tables swap their footprint and collision shape', () => {
   assert.equal(itemOverlapsLayout(layout, 'table', first.id, first.x, first.y, { ...first, rotation: 90 }), true)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setTableCapacity rounds to a supported size and updates table_type', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 16 })
   const tableId = layout.tables[0].id
@@ -221,6 +238,7 @@ test('setTableCapacity rounds to a supported size and updates table_type', () =>
   assert.equal(totalLayoutSeats(updated), totalLayoutSeats(layout) + (6 - layout.tables[0].capacity))
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setTableCapacity keeps a larger table inside the editable bounds', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const tableId = layout.tables[0].id
@@ -236,6 +254,7 @@ test('setTableCapacity keeps a larger table inside the editable bounds', () => {
   assert.equal(found.y % LAYOUT_GRID_STEP, 0)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('setTableRotation rotates a table and keeps it inside the active floor', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const tableId = layout.tables[0].id
@@ -251,6 +270,7 @@ test('setTableRotation rotates a table and keeps it inside the active floor', ()
   assert.equal(itemOverlapsLayout(rotated, 'table', tableId, found.x, found.y, found), false)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('adjustLayoutDoorCount appends and trims entrances while preserving existing positions', () => {
   const initial = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const moved = setItemPosition(initial, 'door', initial.doors[0].id, 70, 180)
@@ -268,6 +288,7 @@ test('adjustLayoutDoorCount appends and trims entrances while preserving existin
   assert.equal(trimmed.doors[0].x, 40)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('adjustLayoutDoorCount places new entrances without overlapping existing items', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
 
@@ -278,6 +299,7 @@ test('adjustLayoutDoorCount places new entrances without overlapping existing it
   }
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('adjustLayoutDoorCount skips wall slots already occupied by windows', () => {
   const layout = createDefaultLayout({ num_windows: 5, num_seats: 120 })
 
@@ -288,6 +310,7 @@ test('adjustLayoutDoorCount skips wall slots already occupied by windows', () =>
   }
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('adjustLayoutWindowCount appends or trims windows while preserving custom positions', () => {
   const initial = createDefaultLayout({ num_windows: 3, num_seats: 8 })
   const dragged = setItemPosition(initial, 'window', initial.windows[0].id, 200, 200)
@@ -301,6 +324,7 @@ test('adjustLayoutWindowCount appends or trims windows while preserving custom p
   assert.equal(findItem(shrunk, 'window', initial.windows[0].id).x, 320)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('rebuildLayoutTablesForSeats produces capacities that match the requested seat count', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 16 })
   const rebuilt = rebuildLayoutTablesForSeats(layout, 32)
@@ -309,6 +333,7 @@ test('rebuildLayoutTablesForSeats produces capacities that match the requested s
   assert.deepEqual(buildTableCapacities(32), rebuilt.tables.map((t) => t.capacity))
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('default layout avoids table overlap at the editable seat limit', () => {
   const seedLayout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const seatLimit = calculateLayoutSeatLimit(seedLayout)
@@ -318,12 +343,14 @@ test('default layout avoids table overlap at the editable seat limit', () => {
   assertNoLayoutOverlaps(layout)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('default layout avoids collisions between doors windows and tables', () => {
   const layout = createDefaultLayout({ num_windows: 30, num_seats: LAYOUT_MAX_EDITABLE_SEATS })
 
   assertNoLayoutOverlaps(layout)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('rebuilt tables avoid existing doors and windows', () => {
   const layout = createDefaultLayout({ num_windows: 30, num_seats: 16 })
 
@@ -332,6 +359,7 @@ test('rebuilt tables avoid existing doors and windows', () => {
   assertNoLayoutOverlaps(rebuilt)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('layout floor can be resized and updates the active bounds', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
 
@@ -344,6 +372,7 @@ test('layout floor can be resized and updates the active bounds', () => {
   assert.equal(bounds.y, (LAYOUT_VIEWBOX.height - 380) / 2)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('resize handles refuse to shrink walls into existing tables', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const bounds = floorBoundsForLayout(layout)
@@ -356,6 +385,7 @@ test('resize handles refuse to shrink walls into existing tables', () => {
   assert.equal(totalLayoutSeats(blocked), totalLayoutSeats(layout))
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('floor resize handles can grow the cafeteria beyond the default viewport frame', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const before = floorBoundsForLayout(layout)
@@ -372,6 +402,7 @@ test('floor resize handles can grow the cafeteria beyond the default viewport fr
   assert.equal(resized.floor.height % LAYOUT_SIZE_LIMITS.step, 0)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('floor resize is capped by a generous 2000-seat cafeteria envelope', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const roomy = resizeLayoutFloor(layout, {
@@ -398,6 +429,7 @@ test('floor resize is capped by a generous 2000-seat cafeteria envelope', () => 
   assert.notEqual(capped.floor.height, 5000)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('floor dimension maxima are derived from the current area envelope', () => {
   const roomy = { width: 2200, height: 2600 }
   const shallow = { width: 1000, height: 500 }
@@ -408,6 +440,7 @@ test('floor dimension maxima are derived from the current area envelope', () => 
   assert.equal(maxFloorDimensionForArea('height', shallow), 5720)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('zoomViewBox can zoom out past the old fixed viewport ceiling', () => {
   const initial = { x: 0, y: 0, width: 2200, height: 2600 }
   const zoomed = zoomViewBox(initial, 1.5, { x: 1100, y: 1300 })
@@ -418,6 +451,7 @@ test('zoomViewBox can zoom out past the old fixed viewport ceiling', () => {
   assert.equal(zoomed.height, 3900)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('clientPointToViewBoxPoint accounts for centered SVG letterboxing', () => {
   const rect = { left: 100, top: 50, width: 1000, height: 500 }
   const viewBox = { x: 0, y: 0, width: 400, height: 400 }
@@ -430,6 +464,7 @@ test('clientPointToViewBoxPoint accounts for centered SVG letterboxing', () => {
   assert.equal(moved.x - center.x, 80)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('compact table auto-arrangement packs seats toward the upper-left', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 32 })
   const compact = arrangeLayoutTables(layout, 'compact')
@@ -447,6 +482,7 @@ test('compact table auto-arrangement packs seats toward the upper-left', () => {
   assert.ok(rows.size <= 3)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('spread table auto-arrangement uses more of the existing floor than compact packing', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 32 })
   const compact = arrangeLayoutTables(layout, 'compact')
@@ -462,6 +498,7 @@ test('spread table auto-arrangement uses more of the existing floor than compact
   assert.ok(spreadHeight > compactHeight)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('fit viewBox includes an oversized cafeteria without relying on a fixed border', () => {
   const layout = resizeLayoutFloorFromHandle(
     createDefaultLayout({ num_windows: 2, num_seats: 32 }),
@@ -478,6 +515,7 @@ test('fit viewBox includes an oversized cafeteria without relying on a fixed bor
   assert.ok(viewBox.y + viewBox.height >= bounds.bottom + LAYOUT_VIEWPORT_MARGIN)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('zoomViewBox scales around the requested focal point', () => {
   const initial = { x: 0, y: 0, width: 400, height: 300 }
   const zoomed = zoomViewBox(initial, 0.5, { x: 100, y: 75 })
@@ -488,6 +526,7 @@ test('zoomViewBox scales around the requested focal point', () => {
   assert.equal(zoomed.y, 37.5)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat limit is computed from floor size and wall openings', () => {
   const roomy = createDefaultLayout({ num_windows: 1, num_seats: 120 })
   const compact = resizeLayoutFloor(roomy, {
@@ -504,6 +543,7 @@ test('seat limit is computed from floor size and wall openings', () => {
   assert.equal(calculateLayoutSeatLimit(roomy) % 2, 0)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat limit grows past the old 360-seat cap for large cafeterias', () => {
   const large = resizeLayoutFloor(createDefaultLayout({ num_windows: 6, num_seats: 120 }), {
     width: 2200,
@@ -517,6 +557,7 @@ test('seat limit grows past the old 360-seat cap for large cafeterias', () => {
   assert.ok(limit > 360)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('seat limit calculation stays responsive for the largest editable cafeteria', () => {
   const large = resizeLayoutFloor(createDefaultLayout({ num_windows: 6, num_seats: 120 }), {
     width: 2200,
@@ -531,6 +572,7 @@ test('seat limit calculation stays responsive for the largest editable cafeteria
   assert.ok(elapsedMs < 500, `seat limit calculation took ${Math.round(elapsedMs)}ms`)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('rebuilt table count is clamped to the computed floor capacity', () => {
   const layout = resizeLayoutFloor(createDefaultLayout({ num_windows: 30, num_seats: 120 }), {
     width: LAYOUT_SIZE_LIMITS.width.min,
@@ -544,6 +586,7 @@ test('rebuilt table count is clamped to the computed floor capacity', () => {
   assertNoLayoutOverlaps(rebuilt)
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('drag-edited layout flows into the simulation payload coordinates', () => {
   const layout = createDefaultLayout({ num_windows: 2, num_seats: 8 })
   const draggedDoor = setItemPosition(layout, 'door', layout.doors[0].id, 307, 548)
@@ -586,15 +629,18 @@ test('drag-edited layout flows into the simulation payload coordinates', () => {
   assert.equal(reconfiguredTable.table_type, 'six_seat')
 })
 
+// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
 test('LAYOUT_VIEWBOX is the agreed 360x640 frame', () => {
   assert.equal(LAYOUT_VIEWBOX.width, 360)
   assert.equal(LAYOUT_VIEWBOX.height, 640)
 })
 
+// 讲解注释：boxesOverlap() 封装本文件中的一个独立处理步骤。
 function boxesOverlap(a, b) {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 }
 
+// 讲解注释：assertNoLayoutOverlaps() 处理前端布局或后端布局数据。
 function assertNoLayoutOverlaps(layout) {
   const items = [
     ...layout.doors.map((item) => ({ kind: 'door', item })),

@@ -1,3 +1,5 @@
+# 文件说明：校园需求测试：验证校园人数、楼层到达和实时数据降级逻辑。
+
 import sys
 import unittest
 from pathlib import Path
@@ -22,13 +24,17 @@ from app.simulation import (
 )
 
 
+# 讲解注释：CampusDemandTests 处理校园教学楼、食堂或到达数据。
 class CampusDemandTests(unittest.TestCase):
+    # 讲解注释：setUp() 封装本文件中的一个独立处理步骤。
     def setUp(self):
         campus_module._LIVE_OCCUPANCY_CACHE.clear()
 
+    # 讲解注释：tearDown() 封装本文件中的一个独立处理步骤。
     def tearDown(self):
         campus_module._LIVE_OCCUPANCY_CACHE.clear()
 
+    # 讲解注释：test_nearest_cafeteria_has_highest_choice_probability() 验证对应业务场景或回归行为。
     def test_nearest_cafeteria_has_highest_choice_probability(self):
         probabilities = cafeteria_choice_probabilities("no9")
 
@@ -36,6 +42,7 @@ class CampusDemandTests(unittest.TestCase):
         self.assertGreater(probabilities["xuesi"], probabilities["xuehuo"])
         self.assertAlmostEqual(sum(probabilities.values()), 1.0, places=6)
 
+    # 讲解注释：test_upper_floor_arrivals_are_not_earlier_than_lower_floor() 计算或生成学生到达相关数据。
     def test_upper_floor_arrivals_are_not_earlier_than_lower_floor(self):
         lower = CampusBuildingDemandData(
             building_id="no9",
@@ -56,6 +63,7 @@ class CampusDemandTests(unittest.TestCase):
         self.assertLessEqual(min(lower_schedule), min(upper_schedule))
         self.assertLess(sum(minute * count for minute, count in lower_schedule.items()), sum(minute * count for minute, count in upper_schedule.items()))
 
+    # 讲解注释：test_simulation_uses_campus_schedule_instead_of_poisson_arrivals() 处理校园教学楼、食堂或到达数据。
     def test_simulation_uses_campus_schedule_instead_of_poisson_arrivals(self):
         campus = CampusDemandConfigData(
             enabled=True,
@@ -86,6 +94,7 @@ class CampusDemandTests(unittest.TestCase):
         self.assertGreater(result.metrics.total_arrived, 0)
         self.assertLess(result.metrics.total_arrived, 99)
 
+    # 讲解注释：test_campus_simulation_does_not_wait_for_manual_arrival_duration() 处理校园教学楼、食堂或到达数据。
     def test_campus_simulation_does_not_wait_for_manual_arrival_duration(self):
         campus = CampusDemandConfigData(
             enabled=True,
@@ -117,6 +126,7 @@ class CampusDemandTests(unittest.TestCase):
         self.assertEqual(result.metrics.total_left, result.metrics.total_arrived)
         self.assertLess(len(result.records), 120)
 
+    # 讲解注释：test_random_floor_occupancy_is_reproducible_and_floor_level() 处理楼层人数占用数据。
     def test_random_floor_occupancy_is_reproducible_and_floor_level(self):
         first = generate_random_floor_occupancy(["no9"], seed=9)
         second = generate_random_floor_occupancy(["no9"], seed=9)
@@ -126,6 +136,7 @@ class CampusDemandTests(unittest.TestCase):
         self.assertGreater(len(first[0]["floors"]), 1)
         self.assertTrue(all("floor" in item and "count" in item for item in first[0]["floors"]))
 
+    # 讲解注释：test_classroom_payload_is_aggregated_by_floor() 验证对应业务场景或回归行为。
     def test_classroom_payload_is_aggregated_by_floor(self):
         payload = {
             "time": ["2026-05-03 11:00", "2026-05-03 11:10"],
@@ -147,6 +158,7 @@ class CampusDemandTests(unittest.TestCase):
             {"floor": 3, "count": 10, "capacity": 20},
         ])
 
+    # 讲解注释：test_classroom_rows_at_or_above_capacity_are_unreadable_not_full() 验证对应业务场景或回归行为。
     def test_classroom_rows_at_or_above_capacity_are_unreadable_not_full(self):
         payload = {
             "time": ["2026-05-03 11:00", "2026-05-03 11:10"],
@@ -166,6 +178,7 @@ class CampusDemandTests(unittest.TestCase):
             {"floor": 2, "count": 1, "capacity": 110},
         ])
 
+    # 讲解注释：test_live_occupancy_retries_once_before_falling_back() 处理楼层人数占用数据。
     def test_live_occupancy_retries_once_before_falling_back(self):
         payload = {
             "time": ["2026-05-03 11:00", "2026-05-03 11:10"],
@@ -174,6 +187,7 @@ class CampusDemandTests(unittest.TestCase):
         calls = []
         original = campus_module._fetch_classroom_capacity
 
+        # 讲解注释：flaky_fetch() 封装本文件中的一个独立处理步骤。
         def flaky_fetch(building_name):
             calls.append(building_name)
             if len(calls) == 1:
@@ -191,6 +205,7 @@ class CampusDemandTests(unittest.TestCase):
         self.assertEqual(items[0]["source"], "live")
         self.assertEqual(items[0]["total_used"], 12)
 
+    # 讲解注释：test_live_occupancy_uses_cache_after_later_timeout() 处理楼层人数占用数据。
     def test_live_occupancy_uses_cache_after_later_timeout(self):
         payload = {
             "time": ["2026-05-03 11:00", "2026-05-03 11:10"],
@@ -204,6 +219,7 @@ class CampusDemandTests(unittest.TestCase):
             campus_module._fetch_classroom_capacity = original
         self.assertEqual(first_warnings, [])
 
+        # 讲解注释：timeout_fetch() 封装本文件中的一个独立处理步骤。
         def timeout_fetch(_building_name):
             raise TimeoutError("timed out")
 
@@ -219,9 +235,11 @@ class CampusDemandTests(unittest.TestCase):
         self.assertNotIn("timed out", warnings[0])
         self.assertNotIn("urlopen", warnings[0])
 
+    # 讲解注释：test_live_occupancy_without_cache_returns_friendly_fallback_warning() 处理楼层人数占用数据。
     def test_live_occupancy_without_cache_returns_friendly_fallback_warning(self):
         original = campus_module._fetch_classroom_capacity
 
+        # 讲解注释：timeout_fetch() 封装本文件中的一个独立处理步骤。
         def timeout_fetch(_building_name):
             raise TimeoutError("timed out")
 
