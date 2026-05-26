@@ -101,6 +101,7 @@ def step_simulation(request: StepRequest) -> StepResponse:
         # 仿真结束后才汇总指标并落库，前端收到 metrics 后切到结果分析页。
         result = runner.result()
         STORE.save_result(result)
+        # 结束的实时 runner 从内存表移除，避免后续误复用已完成状态。
         ACTIVE_RUNS.pop(runner.run_id, None)
         metrics = asdict(result.metrics)
     return StepResponse(
@@ -134,6 +135,7 @@ def get_run_metrics(run_id: str) -> dict[str, Any]:
 @app.post("/api/optimize/recommend")
 # 接收基准配置和候选范围，调用推荐模块返回排序后的优化方案。
 def recommend(request: RecommendationRequest) -> dict[str, Any]:
+    # FastAPI/Pydantic 模型先转成 simulation/optimization 使用的 dataclass。
     data = RecommendationRequestData(
         base_config=request.base_config.to_data(),
         window_options=request.window_options,
@@ -145,6 +147,7 @@ def recommend(request: RecommendationRequest) -> dict[str, Any]:
     result = recommend_config(data)
     payload = dataclass_to_dict(result)
     opt_id = uuid.uuid4().hex
+    # 推荐结果也保存一份，便于检查时说明“推荐方案可以追溯”。
     STORE.save_optimization(
         opt_id=opt_id,
         base_run_id=None,
@@ -187,6 +190,7 @@ def _resolve_runner(request: StepRequest) -> DiningSimulationRunner:
         if request.config is None:
             raise HTTPException(status_code=422, detail="首次单步运行需要提供 config。")
         runner = DiningSimulationRunner(request.config.to_data())
+        # ACTIVE_RUNS 是实时仿真的内存运行表，run_id 是前端后续 step 的定位依据。
         ACTIVE_RUNS[runner.run_id] = runner
         return runner
 

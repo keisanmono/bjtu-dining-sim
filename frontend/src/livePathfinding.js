@@ -56,12 +56,14 @@ export function buildWalkableRoute({ layout = {}, planner = null, start, end } =
   const cacheKey = routeCacheKey(from, to)
   const cached = activePlanner.routeCache.get(cacheKey)
   if (cached) {
+    // 同一快照里多个学生可能走相同路线，缓存避免重复跑 A*。
     activePlanner.stats.cacheHits += 1
     return cached
   }
   activePlanner.stats.cacheMisses += 1
 
   if (!segmentIntersectsAnyBox(from, to, activePlanner.boxes)) {
+    // 直线不穿过餐桌障碍时直接返回两点路径，动画最自然。
     const direct = dedupePoints([from, to])
     activePlanner.routeCache.set(cacheKey, direct)
     return direct
@@ -71,6 +73,7 @@ export function buildWalkableRoute({ layout = {}, planner = null, start, end } =
   const startCell = nearestWalkableCell(pointToCell(from, bounds), bounds, boxes)
   const endCell = nearestWalkableCell(pointToCell(to, bounds), bounds, boxes)
   if (!startCell || !endCell) {
+    // 起点或终点完全找不到可行走网格时保留直线兜底，避免动画消失。
     const fallback = [from, to]
     activePlanner.routeCache.set(cacheKey, fallback)
     return fallback
@@ -79,12 +82,14 @@ export function buildWalkableRoute({ layout = {}, planner = null, start, end } =
   activePlanner.stats.astarRuns += 1
   const cells = findRouteCells(startCell, endCell, bounds, boxes)
   if (!cells.length) {
+    // A* 无路可走时同样兜底直线，前端展示不中断。
     const fallback = [from, to]
     activePlanner.routeCache.set(cacheKey, fallback)
     return fallback
   }
 
   const routedPoints = simplifyPath(cells.map((cell) => cellToPoint(cell, bounds)))
+  // 最终路径保留真实起终点，中间网格点只负责绕开障碍。
   const route = dedupePoints([
     from,
     ...routedPoints.filter((point) => !samePoint(point, from) && !samePoint(point, to)),
@@ -110,6 +115,7 @@ export function samplePathAtProgress(path, progress) {
     const to = points[index]
     const length = distance(from, to)
     if (length <= 0) continue
+    // 先统计每段长度，后面才能按整条路径的距离比例采样。
     segments.push({ from, to, length })
     total += length
   }
@@ -149,6 +155,7 @@ function findRouteCells(start, end, bounds, boxes) {
   const closed = new Set()
 
   while (open.length) {
+    // 简单数组排序实现 A* 优先队列，数据量小于地图网格规模时足够使用。
     open.sort((left, right) => (fScore.get(cellKey(left)) || Infinity) - (fScore.get(cellKey(right)) || Infinity))
     const current = open.shift()
     const currentKey = cellKey(current)
@@ -164,6 +171,7 @@ function findRouteCells(start, end, bounds, boxes) {
       if (closed.has(neighborKey) || !isWalkableCell(neighbor, bounds, boxes)) continue
       const tentative = (gScore.get(currentKey) || 0) + 1
       if (tentative >= (gScore.get(neighborKey) ?? Infinity)) continue
+      // 找到更短路径时更新父节点和代价。
       cameFrom.set(neighborKey, current)
       gScore.set(neighborKey, tentative)
       fScore.set(neighborKey, tentative + heuristic(neighbor, end))
@@ -193,6 +201,7 @@ function nearestWalkableCell(origin, bounds, boxes) {
   const maxRadius = Math.max(columnCount(bounds), rowCount(bounds))
   for (let radius = 1; radius <= maxRadius; radius += 1) {
     const candidates = []
+    // 按方形环逐圈扩展，只检查当前半径边界上的网格。
     for (let dx = -radius; dx <= radius; dx += 1) {
       candidates.push({ col: origin.col + dx, row: origin.row - radius })
       candidates.push({ col: origin.col + dx, row: origin.row + radius })
@@ -219,6 +228,7 @@ function simplifyPath(points) {
     const current = clean[index]
     const next = clean[index + 1]
     if ((previous.x === current.x && current.x === next.x) || (previous.y === current.y && current.y === next.y)) {
+      // 连续三点共线时删掉中间点，减少 SVG 动画拐点。
       continue
     }
     simplified.push(current)

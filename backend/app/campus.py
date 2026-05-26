@@ -124,6 +124,7 @@ def cafeteria_choice_probabilities(building_id: str, choice_power: float = DEFAU
         for cafeteria_id, route in walk_times[building_id].items()
     }
     nearest = min(durations.values())
+    # 以最近食堂为基准做相对权重，choice_power 越大越偏向距离最近的食堂。
     weights = {
         cafeteria_id: math.pow(nearest / duration, max(0.1, choice_power))
         for cafeteria_id, duration in durations.items()
@@ -157,8 +158,10 @@ def build_campus_arrival_schedule(
         for floor in building.floors:
             released_count = max(0, int(round(floor.count * release_ratio)))
             for _ in range(released_count):
+                # 并不是教学楼所有学生都去当前食堂；按步行距离概率筛掉去其他食堂的人。
                 if rng.random() > target_probability:
                     continue
+                # 到达秒数由下课分钟、下楼时间和路上步行波动三部分组成。
                 arrival_second = (
                     max(0, building.dismissal_minute) * 60
                     + _floor_descent_seconds(floor.floor, rng)
@@ -181,6 +184,7 @@ def generate_random_floor_occupancy(building_ids: list[str] | None = None, seed:
         base_capacity = DEFAULT_FLOOR_CAPACITY.get(building_id, 140)
         floors = []
         for floor in range(1, floor_count + 1):
+            # 容量和占用率都带随机扰动，但 seed 固定后结果可复现。
             capacity = max(40, int(rng.gauss(base_capacity, base_capacity * 0.12)))
             occupancy_ratio = _clamp(rng.gauss(0.62, 0.20), 0.08, 0.96)
             count = int(round(capacity * occupancy_ratio))
@@ -197,6 +201,7 @@ def fetch_live_floor_occupancy(building_ids: list[str] | None = None) -> tuple[l
     warnings = []
     jobs = [(building_id, names.get(building_id)) for building_id in selected]
     with ThreadPoolExecutor(max_workers=min(6, max(1, len(jobs)))) as executor:
+        # 不同教学楼互不依赖，可以并发查询，避免一个楼的实时接口拖慢全部结果。
         futures = {
             executor.submit(_fetch_live_building_occupancy, building_id, building_name): (building_id, building_name)
             for building_id, building_name in jobs
@@ -211,6 +216,7 @@ def fetch_live_floor_occupancy(building_ids: list[str] | None = None) -> tuple[l
             items.append(item)
             if warning:
                 warnings.append(warning)
+    # 并发完成顺序不稳定，返回前按用户选择的教学楼顺序排回去。
     items.sort(key=lambda item: selected.index(item["building_id"]) if item["building_id"] in selected else len(selected))
     return items, warnings
 
@@ -220,12 +226,14 @@ def _fetch_live_building_occupancy(building_id: str, building_name: str) -> tupl
     try:
         payload = _fetch_classroom_capacity_with_retry(building_name)
         item = parse_classroom_capacity_payload(building_id, building_name, payload)
+        # 成功拿到实时数据时立即更新缓存，后续短时失败可以降级到 live_cache。
         _LIVE_OCCUPANCY_CACHE[building_id] = copy.deepcopy(item)
         return item, None
     except Exception as exc:  # noqa: BLE001 - external service must not break the simulation UI
         cached = _cached_live_occupancy(building_id)
         if cached is not None:
             return cached, _friendly_live_warning(building_name, exc, "最近一次实时数据")
+        # 无缓存时才退回随机数据，保证前端校园模式仍可继续演示。
         fallback = generate_random_floor_occupancy([building_id], seed=_stable_seed(building_id))[0]
         return fallback, _friendly_live_warning(building_name, exc, "模拟数据")
 
@@ -240,6 +248,7 @@ def parse_classroom_capacity_payload(building_id: str, building_name: str, paylo
         used = _safe_int(row[2])
         capacity = _safe_int(row[3])
         if capacity <= 0 or used >= capacity:
+            # 满员行在该接口里经常代表不可读或占位数据，避免把异常值当成真实人数。
             continue
         floor = _floor_from_room_name(room_name)
         item = floors.setdefault(floor, {"floor": floor, "count": 0, "capacity": 0})
@@ -249,6 +258,7 @@ def parse_classroom_capacity_payload(building_id: str, building_name: str, paylo
     result = _building_occupancy_payload(building_id, building_name, floor_items, source="live")
     times = payload.get("time") if isinstance(payload.get("time"), list) else []
     if len(times) >= 2:
+        # 保留外部接口给出的生效时间，便于前端说明这批实时数据的时间范围。
         result["effective_start"] = str(times[0])
         result["effective_end"] = str(times[1])
     return result
@@ -303,6 +313,7 @@ def _fetch_classroom_capacity_with_retry(building_name: str) -> dict[str, Any]:
         try:
             return _fetch_classroom_capacity(building_name)
         except Exception as exc:  # noqa: BLE001 - preserve final failure for fallback classification
+            # 这里只记录最后一次异常，不在重试中打印底层错误，最终交给友好降级提示。
             last_error = exc
     if last_error is not None:
         raise last_error

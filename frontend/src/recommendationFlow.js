@@ -9,6 +9,7 @@ export function nextViewAfterRecommendation(currentView) {
 export function applyRecommendedConfig(targetConfig, recommendedConfig) {
   for (const key of Object.keys(targetConfig)) {
     if (Object.hasOwn(recommendedConfig, key)) {
+      // 只覆盖页面已经声明过的配置键，忽略后端 best/config 里的派生字段。
       targetConfig[key] = recommendedConfig[key]
     }
   }

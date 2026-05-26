@@ -443,6 +443,7 @@ function startPartyTransition(nextTargets, timeline = null) {
   walkingPartyMarkers.value = []
   const backendPlaybackMs = backendTimelinePlaybackMs(timeline)
   if (backendPlaybackMs > 0) {
+    // 后端 timeline 包含真实路径帧时，优先播放它而不是前端补间估算。
     startBackendTimelineTransition(nextTargets, timeline, backendPlaybackMs)
     return
   }
@@ -451,6 +452,7 @@ function startPartyTransition(nextTargets, timeline = null) {
     ? snapshotArrivedAt - lastSnapshotArrivedAt
     : LIVE_TRANSITION_MS
   lastSnapshotArrivedAt = snapshotArrivedAt
+  // 根据快照实际到达间隔压缩动画时长，避免自动运行时越播越慢。
   const transitionDurationMs = transitionDurationForSnapshotGap(snapshotIntervalMs)
   const previousTargets = transitionStartTargets(lastSettledPartyTargets, animatedPartyMarkers.value)
   const transitions = buildLivePartyTransitions({
@@ -459,6 +461,7 @@ function startPartyTransition(nextTargets, timeline = null) {
     layout: props.layout
   })
   if (!transitions.length) {
+    // 没有移动、出现或离开时直接固化快照，并通知父组件可以请求下一步。
     lastSettledPartyTargets = nextTargets
     animatedPartyMarkers.value = settledMarkers(nextTargets)
     settleTableOccupancy()
@@ -504,6 +507,7 @@ function startPartyTransition(nextTargets, timeline = null) {
 
 // 播放后端单步仿真返回的入座行走 timeline。
 function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
+  // 服务和已入座标记先按目标态展示，walkingPartyMarkers 单独负责播放行走学生。
   animatedPartyMarkers.value = settledMarkers(nextTargets)
 
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -519,11 +523,13 @@ function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   const render = (timestamp) => {
     if (timelinePlaybackStartedAt === null) {
       timelinePlaybackStartedAt = timestamp
+      // 第一帧固定 elapsed=0，保证学生从后端给出的起点开始。
       walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs: 0 })
       partyAnimationFrame = window.requestAnimationFrame(render)
       return
     }
     const elapsedMs = clamp(timestamp - timelinePlaybackStartedAt, 0, playbackMs)
+    // 每帧按 elapsedMs 在后端 frames/path 中采样，得到当前行走位置。
     walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs })
     if (elapsedMs < playbackMs) {
       partyAnimationFrame = window.requestAnimationFrame(render)
@@ -548,6 +554,7 @@ function settleTableOccupancy() {
 
 // 过渡完成后只保留服务中的小组作为稳定标记。
 function settledMarkers(targets) {
+  // 过渡结束后隐藏等待和入座目标，只保留窗口服务中的点，座位占用由椅子颜色表达。
   return targets
     .filter((target) => target.role === 'service')
     .map((target) => ({ ...target, opacity: 1, progress: 1 }))

@@ -63,6 +63,7 @@ def recommend_config(request: RecommendationRequestData) -> RecommendationResult
     candidate_keys = _candidate_keys(request, campus_mode)
     for windows, seats, stagger, peak_count in candidate_keys:
         config = _candidate_config(request.base_config, windows, seats, stagger, peak_count)
+        # 候选等同基准时复用基准指标，避免重复估算同一个方案。
         metrics = baseline_metrics if _is_baseline_candidate_key(request.base_config, windows, seats, stagger, peak_count, campus_mode) else _estimate_recommendation_metrics(config)
         candidates.append(
             CandidateResultData(
@@ -76,6 +77,7 @@ def recommend_config(request: RecommendationRequestData) -> RecommendationResult
         raise ValueError("至少需要提供一组候选方案。")
 
     ranking = sorted(candidates, key=lambda item: (item.score, item.metrics.avg_wait, item.metrics.peak_queue))
+    # top_k 只影响返回给前端的方案数量，不影响前面全量候选排序。
     top_k = max(1, request.top_k)
     best = ranking[0]
     return RecommendationResultData(
@@ -99,6 +101,7 @@ def _candidate_keys(request: RecommendationRequestData, campus_mode: bool) -> li
                     key = (windows, seats, stagger, peak_count)
                     if key in seen:
                         continue
+                    # 用 set 去重，避免前端候选范围中重复值造成重复计算。
                     seen.add(key)
                     keys.append(key)
     keys.sort(key=lambda key: _candidate_key_priority(key, request.base_config, campus_mode))
@@ -144,6 +147,7 @@ def _score_candidate(metrics: MetricsSummary, config: SimulationConfigData, base
     stagger_cost = _stagger_cost(config, base)
     overload_penalty = 0.0
     if metrics.window_utilization > 0.92:
+        # 利用率接近 100% 的方案缺少缓冲，即使平均等待低也不宜排第一。
         overload_penalty += (metrics.window_utilization - 0.92) * 80
     if metrics.seat_utilization > 0.92:
         overload_penalty += (metrics.seat_utilization - 0.92) * 60
@@ -183,6 +187,7 @@ def _estimate_recommendation_metrics(config: SimulationConfigData) -> MetricsSum
     service_capacity = max(0.05, config.num_windows / max(0.1, config.service_time_mean))
     dining_minutes = max(1, int(math.ceil(config.dining_time_mean)))
     last_arrival = max(schedule) if schedule else 0
+    # horizon 要覆盖最后到达、服务和就餐释放，否则座位等待会被提前截断。
     horizon = max(config.duration_min, last_arrival + dining_minutes + int(math.ceil(config.service_time_mean)) + 5)
     releases = [0.0 for _ in range(horizon + dining_minutes + 2)]
     queue_backlog = 0.0
@@ -197,6 +202,7 @@ def _estimate_recommendation_metrics(config: SimulationConfigData) -> MetricsSum
     peak_waiting_for_seat = 0.0
 
     for minute in range(horizon):
+        # releases 表示若干分钟前入座的人在本分钟吃完离开，释放座位。
         occupied_seats = max(0.0, occupied_seats - releases[minute])
         left_total += releases[minute]
 
@@ -211,9 +217,11 @@ def _estimate_recommendation_metrics(config: SimulationConfigData) -> MetricsSum
         newly_seated = min(seat_demand, available_seats)
         seat_waiting = max(0.0, seat_demand - newly_seated)
         occupied_seats += newly_seated
+        # 新入座的人会在 dining_minutes 之后释放座位，用数组做延迟释放。
         release_minute = min(len(releases) - 1, minute + dining_minutes)
         releases[release_minute] += newly_seated
 
+        # 队列面积/等座面积除以总到达人数，近似 Little's Law 下的平均等待。
         queue_wait_area += queue_backlog
         seat_wait_area += seat_waiting
         occupied_seat_area += min(config.num_seats, occupied_seats)
@@ -252,10 +260,12 @@ def _estimate_recommendation_metrics(config: SimulationConfigData) -> MetricsSum
 def _estimate_arrival_schedule(config: SimulationConfigData) -> dict[int, float]:
     campus = config.campus_demand
     if campus and campus.enabled and campus.cafeteria_id:
+        # 校园模式使用真实下课到达分布；推荐只评估候选资源和下课峰安排。
         return {
             minute: float(count)
             for minute, count in build_campus_arrival_schedule(campus.cafeteria_id, campus.buildings, seed=config.seed).items()
         }
+    # 手动模式没有随机采样，直接使用每分钟期望到达率做快速估算。
     return {
         minute: _manual_arrival_rate_for_minute(config, minute)
         for minute in range(max(0, config.duration_min))
@@ -303,6 +313,7 @@ def _strategy_label(config: SimulationConfigData, base: SimulationConfigData) ->
         parts.append(f"座位 {config.num_seats}")
     peak_label = _campus_peak_strategy_label(config, base)
     if peak_label:
+        # 校园推荐优先展示“几峰下课”，比普通错峰分钟更符合检查讲解。
         parts.append(peak_label)
     elif config.stagger_minutes:
         parts.append(f"错峰 {config.stagger_minutes} 分钟")
@@ -330,6 +341,7 @@ def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> D
     base_windows = list(base.layout.windows)
     candidate_windows = base_windows[:windows]
     if len(candidate_windows) < windows:
+        # 增加窗口时保留已有窗口坐标，新增部分从默认布局补齐。
         candidate_windows.extend(default.windows[len(candidate_windows):windows])
 
     if sum(table.capacity for table in base.layout.tables) == seats:
@@ -339,6 +351,7 @@ def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> D
         for index, default_table in enumerate(default.tables):
             if index < len(base.layout.tables):
                 existing = base.layout.tables[index]
+                # 座位数变化时沿用已有餐桌位置和旋转，但容量跟随默认拆桌方案。
                 candidate_tables.append(
                     LayoutTableData(
                         id=existing.id,
@@ -365,6 +378,7 @@ def _candidate_config(base: SimulationConfigData, windows: int, seats: int, stag
     campus_demand = base.campus_demand
     stagger_minutes = stagger
     if campus_mode:
+        # 校园模式下“错峰”体现为教学楼下课峰错开，基础 stagger_minutes 保持 0。
         campus_demand = _campus_demand_with_peaks(base.campus_demand, peak_count, stagger)
         stagger_minutes = 0
     return replace(
@@ -411,6 +425,7 @@ def _campus_demand_with_peaks(
     buildings = [
         replace(
             building,
+            # assignments 是第几个峰，乘以 peak_gap_minutes 得到相对延迟。
             dismissal_minute=max(0, building.dismissal_minute) + assignments.get(building.building_id, 0) * peak_gap_minutes,
         )
         for building in campus.buildings
@@ -431,6 +446,7 @@ def _assign_buildings_to_peaks(
         key=lambda item: (-item[0], item[1].building_id),
     )
     for weight, building in weighted:
+        # 先放需求大的教学楼，每次放到当前负载最小的峰，得到近似均衡分桶。
         bucket_index = min(range(len(bucket_loads)), key=lambda index: (bucket_loads[index], index))
         assignments[building.building_id] = bucket_index
         bucket_loads[bucket_index] += weight
@@ -469,6 +485,7 @@ def _campus_delay_cost(candidate: CampusDemandConfigData | None, base: CampusDem
             continue
         weight = _estimated_building_demand(building, candidate.cafeteria_id)
         delay = max(0, building.dismissal_minute - base_building.dismissal_minute)
+        # 人数越多的教学楼延迟影响越大，所以延迟成本按需求人数加权。
         weighted_delay += weight * delay
         total_weight += weight
         peak_offsets.add(delay)

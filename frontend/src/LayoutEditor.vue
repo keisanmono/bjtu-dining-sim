@@ -576,6 +576,7 @@ function onPointerMove(event) {
   if (resizeState.value) {
     const state = resizeState.value
     const point = clientToSvgPoint(event.clientX, event.clientY)
+    // 地面缩放使用当前指针位置减去初始偏移，保证拖住手柄时边界不跳动。
     const next = resizeLayoutFloorFromHandle(
       state.latestLayout || props.layout,
       state.handle,
@@ -589,6 +590,7 @@ function onPointerMove(event) {
   }
   if (panState.value) {
     const state = panState.value
+    // 平移视野只改变 viewBox，不修改任何布局对象。
     const delta = clientDeltaToSvg(event.clientX - state.startClientX, event.clientY - state.startClientY, state.startViewBox)
     viewBox.value = {
       ...state.startViewBox,
@@ -603,6 +605,7 @@ function onPointerMove(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const targetX = point.x - state.offsetX
   const targetY = point.y - state.offsetY
+  // 拖拽中允许临时重叠，用高亮提示；最终是否接受在 pointerup 里判断。
   const next = setItemPosition(state.latestLayout || props.layout, state.kind, state.id, targetX, targetY, { allowOverlap: true })
   state.latestLayout = next
   emit('update:layout', next, { source: 'item', kind: state.kind, transient: true })
@@ -616,6 +619,7 @@ function onPointerUp(event) {
     if (event.target?.releasePointerCapture && event.pointerId) {
       try { event.target.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
     }
+    // 缩放结束后强制父组件重新计算座位上限。
     emit('update:layout', state.latestLayout || props.layout, { source: 'resize', transient: false, forceSeatLimit: true })
     resizeState.value = null
     return
@@ -634,6 +638,7 @@ function onPointerUp(event) {
   }
   const reverted = revertInvalidDrag(state)
   if (!reverted) {
+    // 门窗移动可能改变可用座位上限，餐桌移动只影响自身位置。
     emit('update:layout', state.latestLayout || props.layout, {
       source: 'item',
       kind: state.kind,
@@ -715,6 +720,7 @@ function changeFloorSize(axis, value) {
     ...floorSize.value,
     [axis]: Number(value)
   }
+  // 输入框修改和拖拽缩放共用 resizeLayoutFloor，保持碰撞策略一致。
   emit('update:layout', resizeLayoutFloor(props.layout, nextSize, { blockTableConflicts: true }))
 }
 
@@ -724,6 +730,7 @@ function revertInvalidDrag(state) {
   const current = findItem(candidateLayout, state.kind, state.id)
   if (!current) return false
   if (!itemOverlapsLayout(candidateLayout, state.kind, state.id, current.x, current.y, current)) return false
+  // 只有落点仍发生碰撞时才回滚到 pointerdown 记录的原始位置。
   emit('update:layout', replaceLayoutItem(candidateLayout, state.kind, state.originalItem), {
     source: 'item',
     kind: state.kind,

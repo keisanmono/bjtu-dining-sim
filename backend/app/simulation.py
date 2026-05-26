@@ -312,8 +312,10 @@ class DiningSimulationRunner:
         self.current_minute = 0
         self.next_student_id = 1
         self.next_party_id = 1
+        # 校园模式在初始化时一次性生成到达表，后续每分钟只查 schedule。
         self.campus_arrival_schedule = self._build_campus_arrival_schedule()
         self.arrival_horizon_minute = self._arrival_horizon_minute()
+        # 下面这些列表就是仿真“现场”：每分钟都会原地更新。
         self.queues: list[list[Student]] = [[] for _ in range(len(self.layout.windows))]
         self.windows: list[WindowService | None] = [None for _ in range(len(self.layout.windows))]
         self.waiting_for_seat: list[DiningParty] = []
@@ -322,6 +324,7 @@ class DiningSimulationRunner:
         self.table_occupied_seats: list[int] = [0 for _ in self.layout.tables]
         self.table_reserved_seats: list[int] = [0 for _ in self.layout.tables]
         self.table_party_ids: list[set[int]] = [set() for _ in self.layout.tables]
+        # students/parties 是全局索引，快照、指标和结伴逻辑都从这里回查。
         self.records: list[StepRecord] = []
         self.students: dict[int, Student] = {}
         self.parties: dict[int, DiningParty] = {}
@@ -356,6 +359,7 @@ class DiningSimulationRunner:
         step_start_sec = minute * 60
         step_end_sec = (minute + 1) * 60
         timeline_events: list[dict[str, Any]] = []
+        # 先处理旧状态，再生成新到达，避免同一分钟新来的学生立即“吃完”或越级入座。
         left_count = self._advance_dining(minute)
         served_students = self._advance_windows(minute)
         self._move_ready_parties_to_seat_wait(served_students, minute)
@@ -367,10 +371,12 @@ class DiningSimulationRunner:
         self.peak_fragmented_seats = max(self.peak_fragmented_seats, self._fragmented_seats())
 
         busy_windows = sum(1 for window in self.windows if window is not None)
+        # 利用率不是瞬时值，而是把每分钟资源占用累加到最后统一除以总资源分钟。
         self.window_busy_minutes += busy_windows
         self.seat_occupied_minutes += len(self.seated)
 
         self.current_minute += 1
+        # 记录中的 t 是推进完成后的分钟数，方便前端把第 1 条记录显示为第 1 分钟。
         record = self._build_record(
             t=self.current_minute,
             arrived_count=len(arrivals),
@@ -404,6 +410,7 @@ class DiningSimulationRunner:
                 if seat.table_index is not None:
                     self.table_occupied_seats[seat.table_index] = max(0, self.table_occupied_seats[seat.table_index] - 1)
                     party_id = seat.student.party_id
+                    # 同组最后一个人离开该桌后，才能从桌面 party 集合中移除这个小组。
                     if not any(
                         other.student.party_id == party_id and other.table_index == seat.table_index and other.remaining > 0
                         for other in self.seated
@@ -437,6 +444,7 @@ class DiningSimulationRunner:
             if party.ready_time is not None:
                 continue
             members = [self.students[student_id] for student_id in party.student_ids]
+            # 结伴小组必须等所有成员都取餐结束后，才整体进入等座队列。
             if all(member.service_end_time is not None for member in members):
                 party.ready_time = minute
                 self.waiting_for_seat.append(party)
@@ -448,6 +456,7 @@ class DiningSimulationRunner:
         for party in self.waiting_for_seat:
             table_index = self._choose_table_for_party(party)
             if table_index is None:
+                # 找不到能容纳整组的餐桌时继续等待，并记录 blocked_party_count 指标。
                 still_waiting.append(party)
                 self.blocked_party_ids.add(party.party_id)
                 self.metrics_counters["blocked_party_count"] = len(self.blocked_party_ids)
@@ -458,6 +467,7 @@ class DiningSimulationRunner:
             remaining = self._sample_duration(self.config.dining_time_mean)
             transfer = self._start_walking_to_seat(party, table_index, remaining, minute)
             self.walking_to_seat.append(transfer)
+            # 先预留座位，避免同一分钟后面的等座小组抢到同一张桌子的同一批座位。
             self.table_reserved_seats[table_index] += party.size
             party.table_index = table_index
             walking_count += party.size
@@ -478,6 +488,7 @@ class DiningSimulationRunner:
         start = self._window_service_point(self.layout.windows[window_index])
         table = self.layout.tables[table_index]
         end = {"x": round(float(table.x), 1), "y": round(float(table.y), 1)}
+        # 路径排除目标餐桌本身，否则终点在桌面附近会被误判为撞到目标桌。
         path = self._walking_path(start, end, table_index)
         duration = self._walking_duration_sec(path)
         start_time_sec = minute * 60
@@ -500,6 +511,7 @@ class DiningSimulationRunner:
                 still_walking.append(transfer)
                 continue
             party = transfer.party
+            # 到达秒数可能落在分钟中间，seat_time 向上取整代表学生在下一分钟开始占座。
             seat_minute = math.ceil(transfer.arrive_time_sec / 60)
             for student_id in party.student_ids:
                 student = self.students[student_id]
@@ -515,6 +527,7 @@ class DiningSimulationRunner:
                 0,
                 self.table_reserved_seats[transfer.table_index] - party.size,
             )
+            # 行走完成后，预留座位转为实际占用座位。
             self.table_occupied_seats[transfer.table_index] += party.size
             self.table_party_ids[transfer.table_index].add(party.party_id)
             party.seat_time = seat_minute
@@ -561,6 +574,7 @@ class DiningSimulationRunner:
         arrivals = []
         remaining = max(0, person_count)
         while remaining > 0:
+            # 最后一组人数不能超过本分钟剩余到达人数。
             party_size = min(self._sample_party_size(), remaining)
             party_id = self.next_party_id
             self.next_party_id += 1
@@ -584,6 +598,7 @@ class DiningSimulationRunner:
                 door_index=door_index,
                 student_ids=student_ids,
             )
+            # 同组成员共享 party_id，但后续仍会各自选择窗口排队。
             remaining -= party_size
         return arrivals
 
@@ -630,6 +645,7 @@ class DiningSimulationRunner:
             if available < party.size:
                 continue
             is_empty = occupied == 0
+            # 成本项越小越优：近距离、少拼桌、少浪费空座；单人额外偏好空桌。
             distance_cost = _distance(party_window, table) * 0.015
             share_penalty = 0.0 if is_empty else (6.0 if party.size == 1 else 3.0)
             waste_penalty = max(0, available - party.size) * (0.7 if party.size == 1 else 0.35)
@@ -657,6 +673,7 @@ class DiningSimulationRunner:
         latest = max(
             members,
             key=lambda student: (
+                # service_end_time 越晚，越能代表小组最后汇合的位置。
                 student.service_end_time if student.service_end_time is not None else -1,
                 -student.student_id,
             ),
@@ -685,6 +702,7 @@ class DiningSimulationRunner:
         if self._path_is_clear(direct, boxes):
             return direct
 
+        # 先尝试两条简单 L 型路径；如果仍被餐桌挡住，再围绕阻挡餐桌生成绕行点。
         candidates = [
             _dedupe_path([start, {"x": start["x"], "y": end["y"]}, end]),
             _dedupe_path([start, {"x": end["x"], "y": start["y"]}, end]),
@@ -711,6 +729,7 @@ class DiningSimulationRunner:
         for path in sorted(candidates, key=_path_length):
             if self._path_is_clear(path, boxes):
                 return path
+        # 如果所有绕行候选都失败，保留直线路径，保证前端仍有可播放轨迹。
         return direct
 
     # _path_is_clear() 处理行走路径或路径采样。
@@ -788,9 +807,11 @@ class DiningSimulationRunner:
         if not in_peak:
             shoulder_end = self.config.peak_end_min + max(0, self.config.stagger_minutes)
             if self.config.stagger_minutes and self.config.peak_end_min <= minute < shoulder_end:
+                # 错峰不会凭空减少总需求，而是把一部分高峰需求推到高峰后的肩部时段。
                 return rate * (1.0 + min(0.35, self.config.stagger_minutes / 60))
             return rate
 
+        # 错峰分钟越长，高峰强度越低，但用 0.55 设置下限，避免高峰被完全削平。
         stagger_factor = max(0.55, 1.0 - self.config.stagger_minutes / 45)
         return rate * self.config.peak_multiplier * stagger_factor
 
@@ -799,6 +820,7 @@ class DiningSimulationRunner:
         if lam <= 0:
             return 0
         if lam > 50:
+            # 大均值下 Knuth 循环太长，使用同均值方差的正态近似提升速度。
             return max(0, int(round(self.rng.gauss(lam, math.sqrt(lam)))))
         threshold = math.exp(-lam)
         count = 0
@@ -822,6 +844,7 @@ class DiningSimulationRunner:
         cumulative = 0.0
         for size, weight in distribution:
             cumulative += weight
+            # 累积概率第一次越过随机阈值时，即抽中该小组人数。
             if threshold <= cumulative:
                 return size
         return distribution[-1][0] if distribution else 1
@@ -836,6 +859,7 @@ class DiningSimulationRunner:
         cumulative = 0.0
         for idx, share in enumerate(shares):
             cumulative += share
+            # arrival_share 是权重而不是百分比，按累计权重抽样即可。
             if threshold <= cumulative:
                 return idx
         return len(shares) - 1
@@ -907,6 +931,7 @@ class DiningSimulationRunner:
         occupied = len(self.seated)
         return {
             "minute": self.current_minute,
+            # 队列长度用于指标卡和队列图；queue_groups 用于地图按小组展示。
             "queue_lengths": [len(queue) for queue in self.queues],
             "queue_groups": self._queue_groups_snapshot(),
             "busy_windows": [window is not None for window in self.windows],
@@ -916,6 +941,7 @@ class DiningSimulationRunner:
             "waiting_for_seat_count": self._waiting_for_seat_people(),
             "waiting_party_count": len(self.waiting_for_seat),
             "waiting_parties": self._waiting_parties_snapshot(),
+            # walking_parties 是跨分钟仍在走的人；timeline 只记录本分钟新发生的走路事件。
             "walking_to_seat_count": sum(transfer.party.size for transfer in self.walking_to_seat),
             "walking_parties": self._walking_parties_snapshot(),
             "seated_parties": self._seated_parties_snapshot(),
@@ -946,6 +972,7 @@ class DiningSimulationRunner:
             grouped: dict[int, dict[str, Any]] = {}
             for position, student in enumerate(queue):
                 party = self.parties[student.party_id]
+                # 队列按学生排，但前端地图按小组画，所以同 party_id 的成员需要合并。
                 item = grouped.setdefault(
                     party.party_id,
                     {
@@ -1039,10 +1066,12 @@ class DiningSimulationRunner:
     def _walking_event_snapshot(self, transfer: WalkingSeatTransfer, step_start_sec: int) -> dict[str, Any]:
         payload = self._walking_transfer_snapshot(transfer, transfer.start_time_sec)
         duration_sec = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
+        # playback_start_ms 把仿真秒映射到前端本 step 的播放时间轴。
         playback_start_ms = max(
             0,
             round((transfer.start_time_sec - step_start_sec) / 60 * TIMELINE_BASE_PLAYBACK_MS),
         )
+        # 播放时长按真实路径秒数缩放，同时限制上下界，避免动画过快或过慢。
         playback_duration_ms = max(
             MIN_WALKING_PLAYBACK_MS,
             min(MAX_WALKING_PLAYBACK_MS, round(duration_sec * WALKING_PLAYBACK_MS_PER_SEC)),
@@ -1099,6 +1128,7 @@ class DiningSimulationRunner:
             party = self.parties[seat.student.party_id]
             table = self.layout.tables[seat.table_index]
             key = (party.party_id, seat.table_index)
+            # 一张桌上同一个小组可能有多名成员，聚合后前端只画一个小组簇。
             item = seated.setdefault(
                 key,
                 {
@@ -1131,11 +1161,13 @@ class DiningSimulationRunner:
         avg_wait = _average(student.seat_time - student.arrival_time for student in seated_students)
         avg_queue_wait = _average(student.service_start_time - student.arrival_time for student in served_students)
         avg_seat_wait = _average(student.seat_time - student.service_end_time for student in seat_wait_students)
+        # 峰值类指标从每分钟记录中取最大值，反映整个运行过程中的最拥堵时刻。
         peak_queue = max((sum(record.queue_lengths) for record in self.records), default=0)
         peak_waiting_for_seat = max((record.waiting_for_seat_count for record in self.records), default=0)
         elapsed_minutes = max(1, len(self.records))
         denominator_windows = max(1, elapsed_minutes * len(self.windows))
         denominator_seats = max(1, elapsed_minutes * self.total_seat_capacity)
+        # 利用率 = 资源被占用的分钟数 / 资源总分钟数。
         window_utilization = self.window_busy_minutes / denominator_windows
         seat_utilization = self.seat_occupied_minutes / denominator_seats
         avg_party_gather_wait = _average(self._party_gather_wait(party) for party in seated_parties)
@@ -1148,6 +1180,7 @@ class DiningSimulationRunner:
             window_utilization=window_utilization,
         )
         chart_data = {
+            # chart_data 直接服务前端 ECharts，避免前端重新理解完整记录结构。
             "times": [record.t for record in self.records],
             "queue_totals": [sum(record.queue_lengths) for record in self.records],
             "empty_seats": [record.empty_seats for record in self.records],
@@ -1199,6 +1232,7 @@ class DiningSimulationRunner:
         for record in self.records:
             for table in record.snapshot.get("table_occupancy", []):
                 table_type = table.get("type", "unknown")
+                # 每分钟 occupied 座位数累加起来，就是该桌型的占用座位分钟数。
                 occupied_minutes_by_type[table_type] = occupied_minutes_by_type.get(table_type, 0) + int(table.get("occupied", 0))
         return {
             table_type: round(occupied_minutes_by_type.get(table_type, 0) / max(1, elapsed_minutes * capacity), 4)

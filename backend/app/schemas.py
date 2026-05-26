@@ -99,15 +99,18 @@ class SimulationConfig(BaseModel):
     def to_data(self) -> SimulationConfigData:
         # 接口层使用 Pydantic，仿真层使用 dataclass；这里完成两者之间的显式转换。
         payload = self.model_dump()
+        # layout/campus_demand 含嵌套对象，先从普通字段里取出单独转换。
         layout = payload.pop("layout")
         campus_demand = payload.pop("campus_demand")
         if layout is not None:
+            # 前端传来的平面图会变成仿真层 dataclass，后续算法只依赖 dataclass 字段。
             payload["layout"] = DiningLayoutData(
                 doors=[LayoutDoorData(**door) for door in layout["doors"]],
                 windows=[LayoutWindowData(**window) for window in layout["windows"]],
                 tables=[LayoutTableData(**table) for table in layout["tables"]],
             )
         if campus_demand is not None:
+            # 校园到达数据同样显式转换，保留下课时间、释放比例和楼层人数。
             payload["campus_demand"] = CampusDemandConfigData(
                 enabled=campus_demand["enabled"],
                 cafeteria_id=campus_demand["cafeteria_id"],

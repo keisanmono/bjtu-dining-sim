@@ -26,11 +26,13 @@ export function buildLayoutFromConfig(config) {
 
 // buildSimulationConfigPayload() 把页面配置和布局整理为后端仿真接口请求体。
 export function buildSimulationConfigPayload(config, layout = null) {
+  // 若当前布局不完整，则用基础参数生成默认布局，保证后端总能收到可仿真的 layout。
   const effectiveLayout = isUsableLayout(layout)
     ? normalizeLayout(layout)
     : buildLayoutFromConfig(config)
   return {
     ...config,
+    // 后端以 layout 为准，所以窗口数和座位数要由实际布局反算。
     num_seats: totalLayoutSeats(effectiveLayout),
     num_windows: effectiveLayout.windows.length,
     layout: effectiveLayout,
@@ -50,6 +52,7 @@ function isUsableLayout(layout) {
 
 // 清洗布局坐标、容量和旋转角，输出后端 schema 可接收的字段。
 function normalizeLayout(layout) {
+  // 门和窗口保留墙面方向，后端路径和入口/服务点会用到 wall_side。
   const doors = layout.doors.map((door) => ({
     id: door.id,
     x: round1(door.x),
@@ -81,6 +84,7 @@ function normalizeLayout(layout) {
 // 根据最大餐桌容量裁剪结伴人数分布，避免出现坐不下的小组。
 function partyDistributionForLayout(layout) {
   const maxCapacity = Math.max(1, ...layout.tables.map((table) => table.capacity))
+  // 只保留当前布局能坐下的小组规模，避免后端生成无法同桌入座的小组。
   return Object.fromEntries(
     Object.entries(defaultPartySizeDistribution)
       .filter(([size]) => Number(size) <= maxCapacity)

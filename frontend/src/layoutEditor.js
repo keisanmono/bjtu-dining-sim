@@ -609,6 +609,7 @@ function findGreedyTableCandidate(layout, tables, id, capacity, startIndex = 0, 
 
 // 通过试放餐桌估算当前门窗布局下最多能支持多少座位。
 function calculateCandidateSlotSeatLimit(baseLayout) {
+  // 先试六人桌密排，快速估算大座位数区间的上限。
   const sixTables = placeSameCapacityTablesGreedy(
     baseLayout,
     6,
@@ -620,6 +621,7 @@ function calculateCandidateSlotSeatLimit(baseLayout) {
     if (sixCount > sixTables.length) continue
     if (remainder === 0) return seats
     const placedSixTables = sixTables.slice(0, sixCount)
+    // 剩余 2/4 座通过再放一张小桌验证，避免纯六人桌估算偏高。
     const remainderTable = findGreedyTableCandidate(
       baseLayout,
       placedSixTables,
@@ -629,6 +631,7 @@ function calculateCandidateSlotSeatLimit(baseLayout) {
     )
     if (remainderTable) return seats
   }
+  // 小规模座位数直接调用完整摆放逻辑，结果更接近真实布局。
   for (let seats = Math.min(DENSE_TABLE_THRESHOLD_SEATS, LAYOUT_MAX_EDITABLE_SEATS); seats >= 2; seats -= 2) {
     if (placeTablesForSeats(baseLayout, seats)) return seats
   }
@@ -641,6 +644,7 @@ export function createDefaultLayout(config) {
   const floor = floorSizeFromConfig(config)
   const doors = []
   let draft = { floor, doors, windows: [], tables: [] }
+  // 默认至少保留一个入口，后续门窗和餐桌都基于这个草稿布局避障。
   doors.push({
     id: 'D1',
     arrival_share: 1,
@@ -650,6 +654,7 @@ export function createDefaultLayout(config) {
   const windows = []
   for (let index = 0; index < numWindows; index += 1) {
     const id = `W${index + 1}`
+    // 每新增一个窗口都带上已有窗口作为占用约束，避免默认位置重叠。
     windows.push({
       id,
       service_rate_factor: 1,
@@ -657,6 +662,7 @@ export function createDefaultLayout(config) {
     })
   }
   draft = { ...draft, windows }
+  // 座位数先受当前地面和门窗可容纳上限限制，再生成餐桌。
   const numSeats = normalizeSeatCount(config?.num_seats, calculateLayoutSeatLimit(draft))
   const tables = placeTablesForSeats(draft, numSeats) || []
   return { floor, doors, windows, tables }
@@ -670,12 +676,14 @@ export function adjustLayoutWindowCount(layout, desiredCount) {
     return layout
   }
   if (current.length > target) {
+    // 减少窗口时只截断数组，不改变剩余窗口的坐标和服务系数。
     return { ...layout, windows: current.slice(0, target) }
   }
   const additional = []
   for (let index = current.length; index < target; index += 1) {
     const id = nextWindowId(current.concat(additional))
     const draft = { ...layout, windows: [...current, ...additional] }
+    // 新窗口优先用默认墙面点，若冲突则沿墙面候选点搜索。
     const point = findAvailableWallPosition(draft, 'window', id, index, defaultWindowPosition(index, draft, id))
     if (!point) break
     additional.push({
@@ -695,12 +703,14 @@ export function adjustLayoutDoorCount(layout, desiredCount) {
     return layout
   }
   if (current.length > target) {
+    // 减少入口同样保留前面的入口，避免扰动用户已经调整的位置。
     return { ...layout, doors: current.slice(0, target) }
   }
   const additional = []
   for (let index = current.length; index < target; index += 1) {
     const id = nextDoorId(current.concat(additional))
     const draft = { ...layout, doors: [...current, ...additional] }
+    // 新入口只能落在墙面上，并且必须避开现有门窗和餐桌。
     const point = findAvailableWallPosition(draft, 'door', id, index, defaultDoorPosition(index, draft, id))
     if (!point) break
     additional.push({
@@ -772,6 +782,7 @@ export function resizeLayoutFloor(layout, floorSize, options = {}) {
   let draft = { floor, doors, windows: [], tables: [] }
   ;(layout?.doors || []).forEach((door, index) => {
     const id = door.id || `D${index + 1}`
+    // 地面尺寸变化后，门先吸附回新的墙面边界。
     const preferred = snapAndClampPoint(door.x, door.y, 'door', door, floorBoundsForLayout(draft))
     const point = findAvailableWallPosition({ ...draft, doors }, 'door', id, index, preferred)
     if (!point) return
@@ -785,6 +796,7 @@ export function resizeLayoutFloor(layout, floorSize, options = {}) {
   const windows = []
   ;(layout?.windows || []).forEach((window, index) => {
     const id = window.id || `W${index + 1}`
+    // 窗口和门一样重新吸附，避免缩放后落到地面外。
     const preferred = snapAndClampPoint(window.x, window.y, 'window', window, floorBoundsForLayout(draft))
     const point = findAvailableWallPosition({ ...draft, windows }, 'window', id, index, preferred)
     if (!point) return
@@ -800,10 +812,12 @@ export function resizeLayoutFloor(layout, floorSize, options = {}) {
     changedFloorSides(currentFloor, floor),
     layout
   )) {
+    // 缩小地面如果会压住餐桌或让门窗撞桌，直接拒绝本次尺寸变更。
     return layout
   }
   const tables = (layout?.tables || []).map((table, index) => {
     const id = table.id || `T${index + 1}`
+    // 餐桌不重新排布，只把中心点夹回新的地面范围内。
     const point = snapAndClampPoint(table.x, table.y, 'table', table, floorBoundsForLayout(draft))
     return {
       ...table,
@@ -848,9 +862,11 @@ export function setItemPosition(layout, kind, id, x, y, options = {}) {
   const bounds = floorBoundsForLayout(layout)
   const items = layout[collection].map((item) => {
     if (item.id !== id) return item
+    // 门窗会在 snapAndClampPoint 内吸附到最近墙面，餐桌则吸附到地面网格。
     const point = snapAndClampPoint(x, y, kind, item, bounds)
     const movedItem = { ...item, x: point.x, y: point.y, ...wallSidePatch(kind, point) }
     if (!allowOverlap && itemOverlapsLayout(layout, kind, id, point.x, point.y, movedItem)) {
+      // 非拖拽预览模式下，发生碰撞就保留旧位置。
       return item
     }
     return movedItem
@@ -907,6 +923,7 @@ export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) 
   const movingItem = itemOverride || findItem(layout, kind, id)
   if (!movingItem) return false
   const movingBoxes = getItemCollisionBoxes(kind, { ...movingItem, x, y })
+  // 与自身同 id 的图元不参与碰撞，其余门窗餐桌都使用矩形盒判断。
   return allLayoutItems(layout).some((candidate) => {
     if (candidate.kind === kind && candidate.item.id === id) return false
     return boxesOverlapAny(movingBoxes, getItemCollisionBoxes(candidate.kind, candidate.item))
@@ -1098,6 +1115,7 @@ function constrainFloorArea(floor, referenceFloor = null) {
   if (!Number.isFinite(maxArea) || floor.width * floor.height <= maxArea) {
     return floor
   }
+  // referenceFloor 用来判断用户主要修改的是宽还是高，从而优先保留另一条边。
   const reference = referenceFloor && Number.isFinite(referenceFloor.width) && Number.isFinite(referenceFloor.height)
     ? referenceFloor
     : null
@@ -1107,10 +1125,13 @@ function constrainFloorArea(floor, referenceFloor = null) {
   let height = floor.height
 
   if (widthChanged && !heightChanged) {
+    // 只改宽时优先压回宽度，用户输入的高度保持不变。
     width = snapFloorExtentDown(maxArea / height, LAYOUT_SIZE_LIMITS.width.min)
   } else if (heightChanged && !widthChanged) {
+    // 只改高时优先压回高度，用户输入的宽度保持不变。
     height = snapFloorExtentDown(maxArea / width, LAYOUT_SIZE_LIMITS.height.min)
   } else {
+    // 宽高都变化或没有参考值时按比例缩放，尽量保持形状。
     const scale = Math.sqrt(maxArea / (width * height))
     width = snapFloorExtentDown(width * scale, LAYOUT_SIZE_LIMITS.width.min)
     height = snapFloorExtentDown(height * scale, LAYOUT_SIZE_LIMITS.height.min)

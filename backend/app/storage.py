@@ -27,6 +27,7 @@ class SimulationStore:
     def save_result(self, result: SimulationResult) -> None:
         # 完整仿真结束后落库：先清理同 run_id 旧记录，再写配置、StepRecord 和 MetricsSummary。
         with self._connect() as conn:
+            # run_id 可能被重新运行覆盖，先删明细和指标可以避免旧分钟记录残留。
             conn.execute("DELETE FROM step_record WHERE run_id = ?", (result.run_id,))
             conn.execute("DELETE FROM metrics_summary WHERE run_id = ?", (result.run_id,))
             conn.execute(
@@ -48,6 +49,7 @@ class SimulationStore:
                 """,
                 [_record_row(record) for record in result.records],
             )
+            # 指标表保存常用字段；不常用于筛选的派生指标统一放入 extra_metrics_json。
             conn.execute(
                 """
                 INSERT OR REPLACE INTO metrics_summary (
@@ -88,6 +90,7 @@ class SimulationStore:
     # 保存一次优化推荐结果，包括候选方案、最佳配置和排序明细。
     def save_optimization(self, opt_id: str, base_run_id: str | None, payload: dict[str, Any]) -> None:
         with self._connect() as conn:
+            # 推荐结果按 opt_id 覆盖写入，便于重复请求时保持一条最新记录。
             conn.execute(
                 """
                 INSERT OR REPLACE INTO optimization_result (
@@ -108,6 +111,7 @@ class SimulationStore:
     # 保存规则化解释请求和响应，便于之后按 exp_id 或 run_id 追溯。
     def save_explanation(self, exp_id: str, run_id: str | None, request: dict[str, Any], response: dict[str, Any]) -> None:
         with self._connect() as conn:
+            # request_json 保存原始解释上下文，response_text/risk_notes 保存可直接展示的结果。
             conn.execute(
                 """
                 INSERT OR REPLACE INTO explanation_result (
@@ -148,7 +152,9 @@ class SimulationStore:
         if row is None:
             return None
         data = dict(row)
+        # JSON 字段在接口层恢复成普通 dict，调用方不需要了解数据库列名。
         data["chart_data"] = json.loads(data.pop("chart_data_json"))
+        # extra_metrics_json 是兼容扩展字段，展开后与基础指标处于同一层。
         data.update(json.loads(data.pop("extra_metrics_json", "{}") or "{}"))
         return data
 
@@ -160,6 +166,7 @@ class SimulationStore:
             raise KeyError(f"run_id 不存在或没有过程记录: {run_id}")
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
+        # CSV 只导出标量和队列长度摘要，完整前端快照仍保留在 SQLite 的 snapshot_json。
         fieldnames = [
             "run_id",
             "t",
@@ -258,9 +265,11 @@ class SimulationStore:
     # 提供自动 commit/close 的 SQLite 连接上下文。
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
+        # 使用 Row 后，读取时可以按列名取值，_record_dict/get_metrics 更清晰。
         conn.row_factory = sqlite3.Row
         try:
             yield conn
+            # 所有写入函数共用这个上下文，正常退出时统一提交事务。
             conn.commit()
         finally:
             conn.close()
@@ -290,6 +299,7 @@ def _record_row(record: Any) -> tuple[Any, ...]:
 # 把数据库行恢复成前端接口使用的记录字典。
 def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
+    # 数据库保存紧凑 JSON，接口返回时恢复为前端可直接使用的对象。
     data["queue_lengths"] = json.loads(data.pop("queue_lengths_json"))
     data["snapshot"] = json.loads(data.pop("snapshot_json"))
     return data
@@ -302,6 +312,7 @@ def _json(value: Any) -> str:
 
 # 如果旧表缺少字段，则用 ALTER TABLE 做一次轻量迁移。
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    # PRAGMA 读取当前列集合，避免对新数据库重复执行 ALTER TABLE。
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

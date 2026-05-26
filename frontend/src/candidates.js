@@ -15,6 +15,7 @@ export function roundUpToStep(value, step) {
 // 根据当前基础配置生成推荐候选范围的默认值。
 export function createDefaultCandidateSettings(config) {
   const seatStep = 20
+  // 基准座位数先限制到编辑器上限，再围绕它生成默认搜索区间。
   const baselineSeats = Math.min(LAYOUT_MAX_EDITABLE_SEATS, Number(config.num_seats || seatStep))
   return {
     windowMin: Math.max(1, Number(config.num_windows || 1) - 1),
@@ -35,6 +36,7 @@ export function buildIntegerRange(minValue, maxValue, stepValue = 1, lower = 1, 
   const step = Math.max(1, Math.round(Number(stepValue) || 1))
   const first = clamp(Math.round(Number(minValue) || lower), lower, upper)
   const last = clamp(Math.round(Number(maxValue) || lower), lower, upper)
+  // 允许用户把最小值和最大值填反，内部统一转为递增区间。
   const start = Math.min(first, last)
   const end = Math.max(first, last)
   const values = []
@@ -43,6 +45,7 @@ export function buildIntegerRange(minValue, maxValue, stepValue = 1, lower = 1, 
     values.push(value)
   }
   if (values.at(-1) !== end) {
+    // 末端不整除步长时仍保留用户输入的上界方案。
     values.push(end)
   }
   return [...new Set(values)]
@@ -63,6 +66,7 @@ function buildEvenSeatRange(minValue, maxValue, stepValue, lower, upper) {
   const step = Math.max(2, roundEven(Number(stepValue) || 2))
   const first = clamp(roundEven(Number(minValue) || lower), lower, upper)
   const last = clamp(roundEven(Number(maxValue) || lower), lower, upper)
+  // 座位候选必须是偶数，便于拆成 2/4/6 人桌。
   const start = Math.min(first, last)
   const end = Math.max(first, last)
   const values = []
