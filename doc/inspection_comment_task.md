@@ -6,6 +6,8 @@
 
 在不改变系统功能、不改变接口行为、不破坏现有运行方式的前提下，为关键文件补充中文讲解注释，并补充一份检查讲解文档。注释应帮助不熟悉 Python、Vue、FastAPI 的同学快速说明：这个文件负责什么、核心函数怎么被调用、一次仿真请求从前端到后端如何流转。
 
+本次检查准备的第一优先级是：**把 README.md 改成项目总索引 + 检查讲解入口**。老师或组员打开 README 后，应能快速知道项目做什么、怎么启动、从哪些文件看起、一次仿真运行时数据如何从前端流到后端再回到前端。
+
 ## 严格禁止
 
 - 不要重写核心算法。
@@ -14,6 +16,7 @@
 - 不要引入新的外部依赖。
 - 不要大规模格式化全文件。
 - 不要把主分支 `main` 作为工作分支。
+- README 可以大幅扩写，但必须保持真实，不要写项目中不存在的功能。
 
 ## 建议工作分支
 
@@ -23,16 +26,178 @@ git checkout inspection-commented
 git pull origin inspection-commented
 ```
 
-## 需要重点加注释的文件
+## 需要重点加注释和补充说明的文件
 
-### 1. `README.md`
+### 1. `README.md`：必须扩写成项目索引
 
-补充一个“检查时如何介绍项目”的小节，包含：
+当前 README 偏简略，需要扩写成“项目地图”。它不仅要写启动命令，还要承担检查时的入口说明、文件索引、数据流转说明和常见追问回答。
 
-- 项目背景：食堂高峰期排队、窗口、座位问题。
-- 项目目标：模拟就餐过程，统计指标，给出优化建议。
-- 运行流程：启动后端、启动前端、配置参数、开始仿真、查看结果。
-- 文件结构：frontend、backend、tests、data、doc、scripts 各负责什么。
+README 建议包含以下章节：
+
+```markdown
+# 北京交通大学就餐仿真系统
+
+## 1. 项目一句话介绍
+## 2. 项目背景与目标
+## 3. 功能总览
+## 4. 技术栈与选型原因
+## 5. 项目目录索引
+## 6. 快速启动
+## 7. 页面功能与操作流程
+## 8. 一次仿真运行流程
+## 9. 前后端数据流转
+## 10. 后端核心仿真逻辑
+## 11. 指标、瓶颈判断与优化推荐
+## 12. 关键文件阅读顺序
+## 13. 测试与验证
+## 14. 课程检查讲解路线
+## 15. 常见问题与回答
+```
+
+README 必须加入 Mermaid 图，至少包括以下 4 张。图应使用 GitHub Markdown 支持的 Mermaid 语法，避免过于复杂导致渲染失败。
+
+#### Mermaid 图 1：项目模块总览
+
+用于说明 frontend、backend、tests、data、doc、scripts 分别负责什么。
+
+```mermaid
+flowchart TD
+    A[北京交通大学就餐仿真系统] --> B[frontend 前端页面]
+    A --> C[backend 后端服务]
+    A --> D[tests 测试用例]
+    A --> E[data 数据与导出]
+    A --> F[doc 项目文档]
+    A --> G[scripts 启动脚本]
+
+    B --> B1[App.vue 页面状态与交互]
+    B --> B2[api.js 封装后端接口]
+    B --> B3[LayoutEditor / LiveDiningMap 可视化]
+
+    C --> C1[main.py FastAPI 入口]
+    C --> C2[schemas.py 参数模型]
+    C --> C3[simulation.py 核心仿真]
+    C --> C4[optimization.py 优化推荐]
+    C --> C5[storage.py SQLite 持久化]
+```
+
+#### Mermaid 图 2：启动和访问流程
+
+用于说明后端 8001、前端 5173、Vite proxy 转发 `/api`。
+
+```mermaid
+flowchart LR
+    U[用户浏览器] -->|访问 127.0.0.1:5173| F[Vite 前端服务]
+    F -->|页面加载| V[Vue App.vue]
+    V -->|请求 /api/...| P[Vite Proxy]
+    P -->|转发到 127.0.0.1:8001| B[FastAPI 后端]
+    B -->|JSON 响应| P
+    P --> V
+    V -->|更新表单 / 图表 / 地图| U
+```
+
+#### Mermaid 图 3：一次实时仿真的数据流转
+
+用于说明点击“开始仿真”后，从 `App.vue` 到 `api.js`、`main.py`、`simulation.py`、`storage.py` 的完整链路。
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant App as frontend/src/App.vue
+    participant API as frontend/src/api.js
+    participant Main as backend/app/main.py
+    participant Sim as backend/app/simulation.py
+    participant Store as backend/app/storage.py
+
+    User->>App: 点击“开始仿真”
+    App->>App: startLiveRun() / singleStep()
+    App->>API: api.stepSimulation(payload)
+    API->>Main: POST /api/sim/step
+    Main->>Sim: DiningSimulationRunner.step()
+    Sim-->>Main: StepRecord + 当前状态快照
+    alt 仿真结束
+        Main->>Sim: runner.result()
+        Main->>Store: save_result(result)
+        Store-->>Main: 保存完成
+        Main-->>API: done=true + metrics
+    else 仿真未结束
+        Main-->>API: done=false + record + state
+    end
+    API-->>App: 返回 JSON
+    App->>App: appendRunRecord() 更新 records
+    App->>User: 刷新地图、卡片和 ECharts 图表
+```
+
+#### Mermaid 图 4：后端单步仿真内部流程
+
+用于讲清 `DiningSimulationRunner.step()` 的分钟级离散仿真过程。
+
+```mermaid
+flowchart TD
+    S[step 推进一分钟] --> A[处理已吃完离开的学生]
+    A --> B[推进窗口服务]
+    B --> C[取餐完成的小组进入等座队列]
+    C --> D[给等座小组分配餐桌]
+    D --> E[生成本分钟新到达学生]
+    E --> F[学生选择窗口并排队]
+    F --> G[空闲窗口开始服务]
+    G --> H[推进走向座位动画]
+    H --> I[生成 StepRecord]
+    I --> J[前端更新实时状态]
+```
+
+#### 可选 Mermaid 图 5：指标和推荐链路
+
+如果篇幅允许，README 再补一张指标与推荐流程图：
+
+```mermaid
+flowchart TD
+    R[仿真过程记录 records] --> M[MetricsSummary 指标汇总]
+    M --> M1[平均等待时间]
+    M --> M2[峰值排队人数]
+    M --> M3[窗口利用率]
+    M --> M4[座位利用率]
+    M --> B[瓶颈判断]
+    B --> O[optimization.py 枚举候选方案]
+    O --> S[综合评分排序]
+    S --> E[explanation.py 规则化解释]
+    E --> UI[前端展示推荐与说明]
+```
+
+README 还需要加入“关键文件阅读顺序”，建议写成表格：
+
+| 阅读顺序 | 文件 | 检查时怎么讲 |
+|---|---|---|
+| 1 | `README.md` | 项目总览、启动方式、讲解入口 |
+| 2 | `frontend/src/App.vue` | 页面状态、按钮事件、实时运行入口 |
+| 3 | `frontend/src/api.js` | 前端如何调用后端接口 |
+| 4 | `frontend/vite.config.js` | `/api` 代理如何转发到后端 |
+| 5 | `backend/app/main.py` | FastAPI 接口入口 |
+| 6 | `backend/app/schemas.py` | 请求和返回数据结构 |
+| 7 | `backend/app/simulation.py` | 核心离散时间仿真 |
+| 8 | `backend/app/storage.py` | SQLite 保存与 CSV 导出 |
+| 9 | `backend/app/optimization.py` | 优化推荐逻辑 |
+| 10 | `backend/app/explanation.py` | 规则化解释 |
+
+README 中“课程检查讲解路线”建议写成可直接照读的版本：
+
+1. 先讲项目背景：食堂高峰期排队、座位紧张、窗口利用不均衡。
+2. 再讲项目目标：通过仿真观察过程、统计指标、提出推荐。
+3. 打开目录结构：说明 frontend/backend/tests/data/doc 的职责。
+4. 打开前端运行页面：从参数配置、场景预览、实时运行、结果分析四个页面讲。
+5. 打开 `App.vue`：说明点击开始仿真会进入 `startLiveRun()` 和 `singleStep()`。
+6. 打开 `api.js`：说明前端通过 axios 调后端 `/api/sim/step`。
+7. 打开 `main.py`：说明 FastAPI 接口接收请求并调用仿真器。
+8. 打开 `simulation.py`：说明 `DiningSimulationRunner.step()` 每次推进一分钟。
+9. 打开结果分析页：说明平均等待、峰值排队、窗口利用率、座位利用率和瓶颈判断。
+10. 最后讲推荐：根据候选窗口数、座位数、错峰时间进行评分排序。
+
+README 的风格要求：
+
+- 用中文说明为主，术语可以保留英文文件名。
+- 每个章节尽量短段落 + 表格 + Mermaid 图，便于检查时快速定位。
+- 不要堆砌代码；README 是索引，不是源码复制。
+- 每个关键文件说明后最好写一句“检查时可以这样说”。
+- 明确说明“规则化解释不是外部大模型核心能力，核心仿真不依赖 LLM”。
 
 ### 2. `frontend/src/App.vue`
 
@@ -163,6 +328,8 @@ git pull origin inspection-commented
 ## 10. 老师可能追问的问题与回答
 ```
 
+讲解文档应与 README 互补：README 是项目索引，`inspection_walkthrough.md` 是检查现场可以照着讲的口播稿。
+
 ## 验证要求
 
 完成注释和文档后至少运行：
@@ -180,13 +347,14 @@ cd frontend && npm run build
 
 ```bash
 git add README.md frontend/src/App.vue frontend/src/api.js frontend/vite.config.js backend/app/main.py backend/app/schemas.py backend/app/simulation.py backend/app/optimization.py backend/app/explanation.py backend/app/storage.py doc/inspection_walkthrough.md doc/inspection_comment_task.md
-git commit -m "docs: add inspection-oriented comments and walkthrough"
+git commit -m "docs: add inspection-oriented README, comments, and walkthrough"
 git push origin inspection-commented
 ```
 
 最终输出请包含：
 
-- 修改了哪些文件。
+- README 新增了哪些索引章节和 Mermaid 图。
+- 修改了哪些代码文件的注释。
 - 没有改动哪些运行逻辑。
 - 测试/构建是否通过。
 - 检查时推荐从哪个文件开始讲。
