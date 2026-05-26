@@ -532,27 +532,27 @@ let chartRenderScheduledAt = 0
 let stepInFlight = false
 let awaitingLiveMapTransition = false
 
-// 讲解注释：currentMinute() 封装本文件中的一个独立处理步骤。
+// 当前仿真分钟来自最新 StepRecord，尚未运行时为 0。
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
-// 讲解注释：currentRecord() 读写或展示分钟级过程记录。
+// 最新一条分钟记录，驱动实时指标和地图状态。
 const currentRecord = computed(() => records.value.at(-1) || null)
-// 讲解注释：chartRecords() 读写或展示分钟级过程记录。
+// 图表只保留最近一段记录，避免实时运行时曲线过长。
 const chartRecords = computed(() => records.value.slice(-LIVE_CHART_RECORD_LIMIT))
-// 讲解注释：recommendationCandidates() 处理优化推荐相关流程。
+// 将候选设置转换为窗口、座位、错峰和高峰批次数数组。
 const recommendationCandidates = computed(() => buildCandidatesFromSettings(candidateSettings))
-// 讲解注释：windowCandidates() 处理取餐窗口相关状态或位置。
+// 推荐接口枚举的窗口数量候选。
 const windowCandidates = computed(() => recommendationCandidates.value.windows)
-// 讲解注释：seatCandidates() 处理座位、等座或入座相关状态。
+// 推荐接口枚举的座位候选，并受当前布局可容纳座位上限约束。
 const seatCandidates = computed(() => {
   const seats = recommendationCandidates.value.seats.filter((value) => value <= layoutSeatLimit.value)
   return seats.length ? seats : [config.num_seats]
 })
-// 讲解注释：staggerCandidates() 封装本文件中的一个独立处理步骤。
+// 推荐接口枚举的错峰分钟候选，空列表时保留 0 分钟兜底。
 const staggerCandidates = computed(() => recommendationCandidates.value.staggers.length ? recommendationCandidates.value.staggers : [0])
-// 讲解注释：peakCountCandidates() 封装本文件中的一个独立处理步骤。
+// 校园模式下推荐接口枚举的下课高峰批次数候选。
 const peakCountCandidates = computed(() => recommendationCandidates.value.peakCounts.length ? recommendationCandidates.value.peakCounts : [1])
 const layoutSeatLimit = ref(calculateLayoutSeatLimit(layout.value))
-// 讲解注释：runCards() 封装本文件中的一个独立处理步骤。
+// 运行页四张指标卡，实时运行时用最新记录，结束后用最终 metrics。
 const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
@@ -564,7 +564,7 @@ const runCards = computed(() => {
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
   ]
 })
-// 讲解注释：analysisCards() 封装本文件中的一个独立处理步骤。
+// 分析页指标卡，展示最终等待、排队、利用率和瓶颈判断。
 const analysisCards = computed(() => {
   const m = metrics.value
   return [
@@ -574,11 +574,11 @@ const analysisCards = computed(() => {
     { label: '平均座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` }
   ]
 })
-// 讲解注释：recentRecords() 读写或展示分钟级过程记录。
+// 运行记录表格倒序展示最近 80 条。
 const recentRecords = computed(() => records.value.slice(-80).reverse())
-// 讲解注释：campusCafeterias() 处理校园教学楼、食堂或到达数据。
+// 校园位置接口返回的食堂列表。
 const campusCafeterias = computed(() => campusLocations.value.cafeterias || [])
-// 讲解注释：campusSourceLabel() 处理校园教学楼、食堂或到达数据。
+// 当前校园人数来源的页面展示文本。
 const campusSourceLabel = computed(() => {
   if (campusSourceMode.value === 'live') return '实时数据'
   if (campusSourceMode.value === 'random') return '随机生成'
@@ -664,7 +664,7 @@ async function loadCampusLocations() {
   }
 }
 
-// 讲解注释：buildEmptyCampusRows() 处理校园教学楼、食堂或到达数据。
+// 根据教学楼基础数据生成可手动填写的楼层人数行。
 function buildEmptyCampusRows(buildings) {
   return buildings.map((building) => ({
     building_id: building.id,
@@ -707,7 +707,7 @@ async function loadCampusOccupancy(sourceMode) {
   }
 }
 
-// 讲解注释：applyCampusOccupancyItems() 处理校园教学楼、食堂或到达数据。
+// 将实时/随机人数接口返回的楼层人数写回页面表格。
 function applyCampusOccupancyItems(items, sourceMode) {
   const byId = new Map(items.map((item) => [item.building_id, item]))
   const baseRows = campusRows.value.length
@@ -739,7 +739,7 @@ function applyCampusOccupancyItems(items, sourceMode) {
   })
 }
 
-// 讲解注释：applyCampusDemandConfig() 处理校园教学楼、食堂或到达数据。
+// 将推荐方案或后端配置中的校园到达参数还原到页面控件。
 function applyCampusDemandConfig(campusDemand) {
   if (!campusDemand?.enabled) return
   arrivalMode.value = 'campus'
@@ -762,7 +762,7 @@ function applyCampusDemandConfig(campusDemand) {
   }))
 }
 
-// 讲解注释：loadDefault() 封装本文件中的一个独立处理步骤。
+// 恢复页面默认参数、默认布局和推荐候选设置。
 function loadDefault() {
   isSyncingLayout.value = true
   Object.assign(config, defaultConfig)
@@ -777,7 +777,7 @@ function loadDefault() {
   nextTick(() => { isSyncingLayout.value = false })
 }
 
-// 讲解注释：resetLayout() 处理前端布局或后端布局数据。
+// 按当前基础参数重新生成布局，并同步座位数和窗口数。
 function resetLayout() {
   isSyncingLayout.value = true
   layout.value = createDefaultLayout(config)
@@ -788,17 +788,17 @@ function resetLayout() {
   nextTick(() => { isSyncingLayout.value = false })
 }
 
-// 讲解注释：updateWindowCount() 处理取餐窗口相关状态或位置。
+// 清洗窗口数量输入，具体布局增减由 watch/布局编辑器同步。
 function updateWindowCount(value) {
   config.num_windows = Math.min(30, Math.max(1, Math.round(Number(value) || 1)))
 }
 
-// 讲解注释：updateSeatCount() 处理座位、等座或入座相关状态。
+// 清洗座位数量输入，并限制在当前布局可容纳上限内。
 function updateSeatCount(value) {
   config.num_seats = normalizeSeatCount(value, layoutSeatLimit.value)
 }
 
-// 讲解注释：onLayoutUpdate() 处理前端布局或后端布局数据。
+// 接收布局编辑器更新，同步布局、座位数、窗口数和地面尺寸配置。
 function onLayoutUpdate(nextLayout, meta = {}) {
   const shouldRefreshSeatLimit = Boolean(meta?.forceSeatLimit) || (
     !meta?.transient && layoutCapacitySignature(layout.value) !== layoutCapacitySignature(nextLayout)
@@ -828,7 +828,7 @@ function onLayoutUpdate(nextLayout, meta = {}) {
   }
 }
 
-// 讲解注释：layoutCapacitySignature() 处理前端布局或后端布局数据。
+// 用影响可容纳座位数的地面、门、窗口字段生成轻量签名。
 function layoutCapacitySignature(targetLayout) {
   const floor = targetLayout?.floor || {}
   const doors = (targetLayout?.doors || []).map((item) => `${item.id}:${item.x}:${item.y}:${item.wall_side}`).join('|')
@@ -836,7 +836,7 @@ function layoutCapacitySignature(targetLayout) {
   return `${floor.x}:${floor.y}:${floor.width}:${floor.height}::${doors}::${windows}`
 }
 
-// 讲解注释：resetCandidateSettings() 封装本文件中的一个独立处理步骤。
+// 根据当前基础配置重置推荐候选范围。
 function resetCandidateSettings() {
   Object.assign(candidateSettings, createDefaultCandidateSettings(config))
 }
@@ -874,7 +874,7 @@ async function startLiveRun() {
   scheduleNextLiveStep()
 }
 
-// 讲解注释：pauseRun() 封装本文件中的一个独立处理步骤。
+// 停止实时自动步进并清理定时器。
 function pauseRun() {
   isRunning.value = false
   if (timer.value) {
@@ -883,7 +883,7 @@ function pauseRun() {
   }
 }
 
-// 讲解注释：scheduleNextLiveStep() 封装本文件中的一个独立处理步骤。
+// 在地图动画结束或固定延迟后安排下一次实时单步请求。
 function scheduleNextLiveStep(delayMs = liveStepDelay(LIVE_TRANSITION_MS)) {
   if (typeof window === 'undefined' || !isRunning.value || isDone.value) return
   if (timer.value) {
@@ -903,7 +903,7 @@ async function runScheduledLiveStep() {
   }
 }
 
-// 讲解注释：onLiveMapTransitionSettled() 处理实时地图动画过渡。
+// 地图动画播放完后再调度下一次 step，保证视觉状态不跳帧。
 function onLiveMapTransitionSettled() {
   if (!awaitingLiveMapTransition) return
   awaitingLiveMapTransition = false
@@ -912,7 +912,7 @@ function onLiveMapTransitionSettled() {
   }
 }
 
-// 讲解注释：resetRun() 封装本文件中的一个独立处理步骤。
+// 清空当前运行的 run_id、记录、指标和地图状态。
 function resetRun(clearMessage = true) {
   pauseRun()
   awaitingLiveMapTransition = false
@@ -929,7 +929,7 @@ function resetRun(clearMessage = true) {
 }
 
 // 后端每返回一条 StepRecord，就追加到 records；指标卡片和趋势图都从这里取数据。
-// 讲解注释：appendRunRecord() 追加后端返回的分钟记录并触发图表刷新。
+// appendRunRecord() 追加后端返回的分钟记录并触发图表刷新。
 function appendRunRecord(record) {
   if (!record) return
   records.value.push(record)
@@ -987,7 +987,7 @@ async function runFullSimulation() {
   }
 }
 
-// 讲解注释：applyRunResponse() 封装本文件中的一个独立处理步骤。
+// 将完整仿真响应写入页面状态，并刷新图表。
 function applyRunResponse(response) {
   runId.value = response.run_id
   records.value = (response.records || []).slice(-LIVE_RECORD_LIMIT)
@@ -1029,12 +1029,12 @@ async function generateRecommendation() {
   }
 }
 
-// 讲解注释：refreshCampusDemandConfig() 处理校园教学楼、食堂或到达数据。
+// 将页面的校园到达表格同步到 config.campus_demand。
 function refreshCampusDemandConfig() {
   config.campus_demand = buildCampusDemandPayload()
 }
 
-// 讲解注释：buildCampusDemandPayload() 处理校园教学楼、食堂或到达数据。
+// 将校园到达页面表格整理为后端 SimulationConfig.campus_demand。
 function buildCampusDemandPayload() {
   if (arrivalMode.value !== 'campus') return null
   return {
@@ -1053,30 +1053,30 @@ function buildCampusDemandPayload() {
   }
 }
 
-// 讲解注释：campusRowTotal() 处理校园教学楼、食堂或到达数据。
+// 汇总单栋教学楼各楼层当前人数。
 function campusRowTotal(row) {
   return (row.floors || []).reduce((sum, floor) => sum + (Number(floor.count) || 0), 0)
 }
 
-// 讲解注释：campusWalkMinutes() 处理校园教学楼、食堂或到达数据。
+// 读取当前教学楼到选中食堂的步行分钟数。
 function campusWalkMinutes(row) {
   const route = campusLocations.value.walk_times?.[row.building_id]?.[selectedCafeteriaId.value]
   return route?.duration_min ?? '-'
 }
 
-// 讲解注释：releasePercentFromRatio() 封装本文件中的一个独立处理步骤。
+// 将后端 0-1 释放比例转换为页面百分比输入值。
 function releasePercentFromRatio(value) {
   const ratio = Math.min(1, Math.max(0, Number(value) || 0))
   return Math.round(ratio * 100)
 }
 
-// 讲解注释：releasePercentToRatio() 封装本文件中的一个独立处理步骤。
+// 将页面百分比输入值转换为后端 0-1 释放比例。
 function releasePercentToRatio(value) {
   const percent = Math.min(100, Math.max(0, Number(value) || 0))
   return percent / 100
 }
 
-// 讲解注释：campusChoiceProbability() 处理校园教学楼、食堂或到达数据。
+// 按步行时间估算该教学楼学生选择当前食堂的概率。
 function campusChoiceProbability(row) {
   const routes = campusLocations.value.walk_times?.[row.building_id]
   if (!routes || !selectedCafeteriaId.value || !routes[selectedCafeteriaId.value]) return 0
@@ -1091,7 +1091,7 @@ function campusChoiceProbability(row) {
   return total > 0 ? weights[selectedCafeteriaId.value] / total : 0
 }
 
-// 讲解注释：applyRecommendationConfig() 处理优化推荐相关流程。
+// 将推荐方案写回基础参数，并重新生成对应布局。
 function applyRecommendationConfig(recommendedConfig) {
   applyRecommendedConfig(config, recommendedConfig)
   if (recommendedConfig.campus_demand) {
@@ -1104,14 +1104,14 @@ function applyRecommendationConfig(recommendedConfig) {
   nextTick(() => { isSyncingLayout.value = false })
 }
 
-// 讲解注释：exportRecords() 读写或展示分钟级过程记录。
+// 打开后端 CSV 导出地址，下载当前 run_id 的分钟记录。
 function exportRecords() {
   if (runId.value) {
     window.open(api.exportUrl(runId.value), '_blank')
   }
 }
 
-// 讲解注释：renderChartsThrottled() 封装本文件中的一个独立处理步骤。
+// 限制实时单步期间图表刷新频率，避免连续 step 触发过多重绘。
 function renderChartsThrottled() {
   const nowMs = Date.now()
   const elapsed = nowMs - chartRenderScheduledAt
@@ -1129,7 +1129,7 @@ function renderChartsThrottled() {
 }
 
 // 图表刷新使用 requestAnimationFrame，避免实时单步返回太快时频繁重绘。
-// 讲解注释：renderCharts() 统一调度队列图、趋势图和分析图重绘。
+// renderCharts() 统一调度队列图、趋势图和分析图重绘。
 function renderCharts() {
   nextTick(() => {
     if (chartRenderFrame) {
@@ -1146,7 +1146,7 @@ function renderCharts() {
   })
 }
 
-// 讲解注释：renderQueueChart() 处理排队数据或队列展示。
+// 绘制当前每个窗口的排队人数柱状图。
 function renderQueueChart() {
   const element = queueChartEl.value
   if (!canRenderChartElement(element)) return
@@ -1163,7 +1163,7 @@ function renderQueueChart() {
   })
 }
 
-// 讲解注释：renderTrendChart() 封装本文件中的一个独立处理步骤。
+// 绘制运行页小尺寸趋势图。
 function renderTrendChart() {
   const element = trendChartEl.value
   if (!canRenderChartElement(element)) return
@@ -1172,7 +1172,7 @@ function renderTrendChart() {
   trendChart.setOption(trendOption())
 }
 
-// 讲解注释：renderAnalysisChart() 封装本文件中的一个独立处理步骤。
+// 绘制分析页大尺寸趋势图。
 function renderAnalysisChart() {
   const element = analysisChartEl.value
   if (!canRenderChartElement(element)) return
@@ -1183,7 +1183,7 @@ function renderAnalysisChart() {
 
 // 趋势图数据优先使用后端最终 metrics.chart_data；实时运行未结束时，
 // 则从最近的 StepRecord 临时拼出队列、空座、吞吐和等座曲线。
-// 讲解注释：trendOption() 封装本文件中的一个独立处理步骤。
+// 生成 ECharts 趋势图配置，结束后优先使用后端 chart_data。
 function trendOption(large = false) {
   const chart = metrics.value?.chart_data || {
     times: chartRecords.value.map((item) => item.t),
@@ -1210,40 +1210,40 @@ function trendOption(large = false) {
   }
 }
 
-// 讲解注释：resizeCharts() 处理布局尺寸或视野缩放变化。
+// 浏览器窗口尺寸变化时同步调整三个 ECharts 实例。
 function resizeCharts() {
   queueChart?.resize()
   trendChart?.resize()
   analysisChart?.resize()
 }
 
-// 讲解注释：totalQueue() 处理排队数据或队列展示。
+// 汇总单条 StepRecord 中所有窗口队列长度。
 function totalQueue(record) {
   return (record?.queue_lengths || []).reduce((sum, value) => sum + value, 0)
 }
 
-// 讲解注释：formatMinutes() 封装本文件中的一个独立处理步骤。
+// 将分钟数格式化为指标卡展示文本。
 function formatMinutes(value) {
   return `${formatNumber(value)} min`
 }
 
-// 讲解注释：formatPercent() 封装本文件中的一个独立处理步骤。
+// 将 0-1 比例格式化为百分比展示文本。
 function formatPercent(value) {
   return `${Math.round((Number(value) || 0) * 100)}%`
 }
 
-// 讲解注释：formatNumber() 封装本文件中的一个独立处理步骤。
+// 整数不显示小数，非整数保留一位。
 function formatNumber(value) {
   const number = Number(value) || 0
   return number.toFixed(number % 1 === 0 ? 0 : 1)
 }
 
-// 讲解注释：formatConfigSummary() 封装本文件中的一个独立处理步骤。
+// 将推荐候选配置压缩成“窗口/座位/错峰”的摘要。
 function formatConfigSummary(item) {
   return `${item.num_windows} 窗 / ${item.num_seats} 座 / ${formatStagger(item.stagger_minutes)}`
 }
 
-// 讲解注释：formatStagger() 封装本文件中的一个独立处理步骤。
+// 将错峰分钟数格式化为中文摘要。
 function formatStagger(value) {
   const minutes = Number(value) || 0
   return minutes === 0 ? '不启用错峰' : `错峰 ${minutes} 分钟`

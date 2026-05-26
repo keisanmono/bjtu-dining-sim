@@ -23,7 +23,7 @@ from .simulation import (
 
 # 推荐请求内部模型：前端给出基准配置和候选范围，后端负责枚举比较。
 @dataclass(frozen=True)
-# 讲解注释：RecommendationRequestData 处理优化推荐相关流程。
+# 存放推荐接口转换后的内部请求，候选列表已经是可枚举的整数范围。
 class RecommendationRequestData:
     base_config: SimulationConfigData
     window_options: list[int]
@@ -35,7 +35,7 @@ class RecommendationRequestData:
 
 # 单个候选方案的仿真估算指标、评分和可读策略名称。
 @dataclass(frozen=True)
-# 讲解注释：CandidateResultData 封装本文件的一组相关数据或测试行为。
+# 保存一个候选配置的估算指标、综合评分和页面展示用策略名称。
 class CandidateResultData:
     config: SimulationConfigData
     metrics: MetricsSummary
@@ -45,7 +45,7 @@ class CandidateResultData:
 
 # 推荐结果包含基准指标、最佳候选、排序列表和展示用摘要。
 @dataclass(frozen=True)
-# 讲解注释：RecommendationResultData 处理优化推荐相关流程。
+# 推荐接口最终返回的内部结构，包含基准、最佳方案、排序和备选说明。
 class RecommendationResultData:
     baseline_metrics: MetricsSummary
     best: CandidateResultData
@@ -54,7 +54,7 @@ class RecommendationResultData:
     alternatives: list[str]
 
 
-# 讲解注释：recommend_config() 枚举候选方案、估算指标并返回综合排序。
+# recommend_config() 枚举候选方案、估算指标并返回综合排序。
 def recommend_config(request: RecommendationRequestData) -> RecommendationResultData:
     # 推荐模块不重写核心仿真，也不依赖外部服务；它枚举窗口、座位、错峰和峰数候选。
     campus_mode = _uses_campus_peak_search(request.base_config)
@@ -87,7 +87,7 @@ def recommend_config(request: RecommendationRequestData) -> RecommendationResult
     )
 
 
-# 讲解注释：_candidate_keys() 封装本文件中的一个独立处理步骤。
+# 生成去重后的候选组合，校园模式才会枚举下课峰数。
 def _candidate_keys(request: RecommendationRequestData, campus_mode: bool) -> list[tuple[int, int, int, int]]:
     keys: list[tuple[int, int, int, int]] = []
     seen: set[tuple[int, int, int, int]] = set()
@@ -105,7 +105,7 @@ def _candidate_keys(request: RecommendationRequestData, campus_mode: bool) -> li
     return keys
 
 
-# 讲解注释：_candidate_key_priority() 封装本文件中的一个独立处理步骤。
+# 给候选组合排序，优先尝试资源变化较小、错峰成本较低的方案。
 def _candidate_key_priority(
     key: tuple[int, int, int, int],
     base: SimulationConfigData,
@@ -120,7 +120,7 @@ def _candidate_key_priority(
     return (resource_cost + peak_cost, windows, seats, peak_count, stagger)
 
 
-# 讲解注释：_is_baseline_candidate_key() 封装本文件中的一个独立处理步骤。
+# 判断候选是否等同基准配置，避免重复估算基准指标。
 def _is_baseline_candidate_key(
     base: SimulationConfigData,
     windows: int,
@@ -136,7 +136,7 @@ def _is_baseline_candidate_key(
     return stagger == base.stagger_minutes
 
 
-# 讲解注释：_score_candidate() 封装本文件中的一个独立处理步骤。
+# 计算候选综合评分：等待和排队是收益项，新增资源与错峰延迟是成本项。
 def _score_candidate(metrics: MetricsSummary, config: SimulationConfigData, base: SimulationConfigData) -> float:
     # 分数越低表示越优：等待、排队、等座越少越好，新增窗口/座位和错峰延迟会增加成本。
     added_window_cost = max(0, config.num_windows - base.num_windows) * 3.0
@@ -159,7 +159,7 @@ def _score_candidate(metrics: MetricsSummary, config: SimulationConfigData, base
     )
 
 
-# 讲解注释：_estimate_recommendation_metrics() 读取或计算指标汇总。
+# 用轻量排队估算器替代完整仿真，加快候选方案排序。
 def _estimate_recommendation_metrics(config: SimulationConfigData) -> MetricsSummary:
     schedule = _estimate_arrival_schedule(config)
     total_arrived = sum(schedule.values())
@@ -248,7 +248,7 @@ def _estimate_recommendation_metrics(config: SimulationConfigData) -> MetricsSum
     )
 
 
-# 讲解注释：_estimate_arrival_schedule() 计算或生成学生到达相关数据。
+# 推荐估算用的到达表：校园模式读取校园日程，手动模式按分钟到达率生成。
 def _estimate_arrival_schedule(config: SimulationConfigData) -> dict[int, float]:
     campus = config.campus_demand
     if campus and campus.enabled and campus.cafeteria_id:
@@ -262,7 +262,7 @@ def _estimate_arrival_schedule(config: SimulationConfigData) -> dict[int, float]
     }
 
 
-# 讲解注释：_manual_arrival_rate_for_minute() 计算或生成学生到达相关数据。
+# 手动模式下估算某一分钟的到达强度，错峰会降低高峰并增加肩部到达。
 def _manual_arrival_rate_for_minute(config: SimulationConfigData, minute: int) -> float:
     rate = max(0.0, float(config.arrival_rate))
     in_peak = config.peak_start_min <= minute < config.peak_end_min
@@ -276,7 +276,7 @@ def _manual_arrival_rate_for_minute(config: SimulationConfigData, minute: int) -
     return rate * max(0.0, config.peak_multiplier) * stagger_factor
 
 
-# 讲解注释：_estimated_bottleneck_type() 封装本文件中的一个独立处理步骤。
+# 根据估算的排队、等座和利用率给候选方案标注主要瓶颈。
 def _estimated_bottleneck_type(
     peak_queue: int,
     peak_waiting_for_seat: int,
@@ -290,7 +290,7 @@ def _estimated_bottleneck_type(
     return "整体均衡"
 
 
-# 讲解注释：_strategy_label() 封装本文件中的一个独立处理步骤。
+# 把候选配置和基准配置的差异转换成前端可读的策略名称。
 def _strategy_label(config: SimulationConfigData, base: SimulationConfigData) -> str:
     parts: list[str] = []
     if config.num_windows > base.num_windows:
@@ -309,7 +309,7 @@ def _strategy_label(config: SimulationConfigData, base: SimulationConfigData) ->
     return "，".join(parts) if parts else "保持基准配置"
 
 
-# 讲解注释：_build_summary() 组装展示、请求或内部计算所需的数据结构。
+# 根据最佳候选与基准指标差异生成推荐摘要。
 def _build_summary(best: CandidateResultData, baseline: MetricsSummary) -> str:
     wait_delta = round(baseline.avg_wait - best.metrics.avg_wait, 2)
     queue_delta = baseline.peak_queue - best.metrics.peak_queue
@@ -321,7 +321,7 @@ def _build_summary(best: CandidateResultData, baseline: MetricsSummary) -> str:
     return f"推荐采用“{best.strategy}”。该方案在资源成本和等待指标之间综合评分最低。"
 
 
-# 讲解注释：_candidate_layout() 处理前端布局或后端布局数据。
+# 为候选窗口/座位数调整布局：保留原坐标，缺失对象用默认布局补齐。
 def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> DiningLayoutData | None:
     if base.layout is None:
         return None
@@ -359,7 +359,7 @@ def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> D
     )
 
 
-# 讲解注释：_candidate_config() 封装本文件中的一个独立处理步骤。
+# 基于基准配置生成候选配置，校园模式会把错峰转换成多下课峰。
 def _candidate_config(base: SimulationConfigData, windows: int, seats: int, stagger: int, peak_count: int) -> SimulationConfigData:
     campus_mode = _uses_campus_peak_search(base)
     campus_demand = base.campus_demand
@@ -377,19 +377,19 @@ def _candidate_config(base: SimulationConfigData, windows: int, seats: int, stag
     )
 
 
-# 讲解注释：_uses_campus_peak_search() 处理校园教学楼、食堂或到达数据。
+# 判断当前配置是否启用了校园教学楼到达，从而决定是否枚举下课峰数。
 def _uses_campus_peak_search(config: SimulationConfigData) -> bool:
     campus = config.campus_demand
     return bool(campus and campus.enabled and campus.buildings)
 
 
-# 讲解注释：_peak_count_options() 封装本文件中的一个独立处理步骤。
+# 规范化下课峰数候选，限制在课程演示可解释的 1 到 6 峰。
 def _peak_count_options(values: list[int]) -> list[int]:
     normalized = sorted({max(1, min(6, int(value))) for value in values if int(value) >= 1})
     return normalized or [1]
 
 
-# 讲解注释：_stagger_options_for_peak() 封装本文件中的一个独立处理步骤。
+# 校园多峰时只保留正错峰间隔；非校园模式直接使用错峰候选。
 def _stagger_options_for_peak(stagger_options: list[int], peak_count: int, campus_mode: bool) -> list[int]:
     if not campus_mode:
         return stagger_options
@@ -399,7 +399,7 @@ def _stagger_options_for_peak(stagger_options: list[int], peak_count: int, campu
     return positive_options or [0]
 
 
-# 讲解注释：_campus_demand_with_peaks() 处理校园教学楼、食堂或到达数据。
+# 把教学楼分配到多个下课峰，并按峰序延后 dismissal_minute。
 def _campus_demand_with_peaks(
     campus: CampusDemandConfigData | None,
     peak_count: int,
@@ -418,7 +418,7 @@ def _campus_demand_with_peaks(
     return replace(campus, buildings=buildings)
 
 
-# 讲解注释：_assign_buildings_to_peaks() 组装展示、请求或内部计算所需的数据结构。
+# 按预计就餐人数把教学楼贪心分桶，让多个下课峰负载尽量均衡。
 def _assign_buildings_to_peaks(
     buildings: list[CampusBuildingDemandData],
     cafeteria_id: str | None,
@@ -437,7 +437,7 @@ def _assign_buildings_to_peaks(
     return assignments
 
 
-# 讲解注释：_estimated_building_demand() 组装展示、请求或内部计算所需的数据结构。
+# 估算单栋楼会流向目标食堂的人数，用于多峰分桶权重。
 def _estimated_building_demand(building: CampusBuildingDemandData, cafeteria_id: str | None) -> float:
     released = sum(max(0, floor.count) for floor in building.floors) * max(0.0, min(1.0, building.release_ratio))
     if not cafeteria_id:
@@ -448,14 +448,14 @@ def _estimated_building_demand(building: CampusBuildingDemandData, cafeteria_id:
         return released
 
 
-# 讲解注释：_stagger_cost() 封装本文件中的一个独立处理步骤。
+# 计算错峰策略成本；校园模式按教学楼延迟加权，手动模式按分钟数计成本。
 def _stagger_cost(config: SimulationConfigData, base: SimulationConfigData) -> float:
     if _uses_campus_peak_search(config):
         return _campus_delay_cost(config.campus_demand, base.campus_demand)
     return max(0, config.stagger_minutes) * 0.08
 
 
-# 讲解注释：_campus_delay_cost() 处理校园教学楼、食堂或到达数据。
+# 计算校园多峰方案的平均延迟和峰数成本，避免推荐过度延后下课。
 def _campus_delay_cost(candidate: CampusDemandConfigData | None, base: CampusDemandConfigData | None) -> float:
     if not candidate or not base:
         return 0.0
@@ -477,7 +477,7 @@ def _campus_delay_cost(candidate: CampusDemandConfigData | None, base: CampusDem
     return average_delay * 0.12 + peak_count_cost
 
 
-# 讲解注释：_campus_peak_strategy_label() 处理校园教学楼、食堂或到达数据。
+# 从候选校园配置中提取“几峰下课、间隔几分钟”的展示文案。
 def _campus_peak_strategy_label(config: SimulationConfigData, base: SimulationConfigData) -> str:
     candidate = config.campus_demand
     baseline = base.campus_demand

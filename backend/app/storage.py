@@ -15,15 +15,15 @@ from .simulation import SimulationResult
 
 
 # SQLite 持久化层：保存配置、每分钟记录、最终指标、推荐结果和解释结果。
-# 讲解注释：SimulationStore 封装本文件的一组相关数据或测试行为。
+# SimulationStore 负责连接数据库、初始化表结构，以及读写仿真相关数据。
 class SimulationStore:
-    # 讲解注释：__init__() 封装本文件中的一个独立处理步骤。
+    # 保存数据库路径，确保目录存在，并在首次使用时创建表结构。
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    # 讲解注释：save_result() 保存一次完整仿真的配置、过程记录和最终指标。
+    # save_result() 保存一次完整仿真的配置、过程记录和最终指标。
     def save_result(self, result: SimulationResult) -> None:
         # 完整仿真结束后落库：先清理同 run_id 旧记录，再写配置、StepRecord 和 MetricsSummary。
         with self._connect() as conn:
@@ -85,7 +85,7 @@ class SimulationStore:
                 ),
             )
 
-    # 讲解注释：save_optimization() 封装本文件中的一个独立处理步骤。
+    # 保存一次优化推荐结果，包括候选方案、最佳配置和排序明细。
     def save_optimization(self, opt_id: str, base_run_id: str | None, payload: dict[str, Any]) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -105,7 +105,7 @@ class SimulationStore:
                 ),
             )
 
-    # 讲解注释：save_explanation() 封装本文件中的一个独立处理步骤。
+    # 保存规则化解释请求和响应，便于之后按 exp_id 或 run_id 追溯。
     def save_explanation(self, exp_id: str, run_id: str | None, request: dict[str, Any], response: dict[str, Any]) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -125,7 +125,7 @@ class SimulationStore:
                 ),
             )
 
-    # 讲解注释：get_records() 读写或展示分钟级过程记录。
+    # 按 run_id 读取所有分钟级过程记录，并恢复 JSON 字段。
     def get_records(self, run_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -138,7 +138,7 @@ class SimulationStore:
             ).fetchall()
         return [_record_dict(row) for row in rows]
 
-    # 讲解注释：get_metrics() 读取或计算指标汇总。
+    # 按 run_id 读取最终指标汇总，并合并额外指标 JSON。
     def get_metrics(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -152,7 +152,7 @@ class SimulationStore:
         data.update(json.loads(data.pop("extra_metrics_json", "{}") or "{}"))
         return data
 
-    # 讲解注释：export_records_csv() 把已保存的分钟记录导出为 CSV 文件。
+    # export_records_csv() 把已保存的分钟记录导出为 CSV 文件。
     def export_records_csv(self, run_id: str, output_path: str | Path) -> Path:
         # CSV 导出只包含每分钟过程字段，便于检查后用表格复核仿真过程。
         records = self.get_records(run_id)
@@ -183,7 +183,7 @@ class SimulationStore:
                 writer.writerow({key: record.get(key) for key in fieldnames})
         return output
 
-    # 讲解注释：_init_db() 封装本文件中的一个独立处理步骤。
+    # 创建或补齐 SQLite 表结构，兼容已有数据库缺少 extra_metrics_json 的情况。
     def _init_db(self) -> None:
         with self._connect() as conn:
             # 表结构含义：
@@ -255,7 +255,7 @@ class SimulationStore:
             _ensure_column(conn, "metrics_summary", "extra_metrics_json", "TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
-    # 讲解注释：_connect() 封装本文件中的一个独立处理步骤。
+    # 提供自动 commit/close 的 SQLite 连接上下文。
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -266,7 +266,7 @@ class SimulationStore:
             conn.close()
 
 
-# 讲解注释：_record_row() 读写或展示分钟级过程记录。
+# 把 StepRecord dataclass 压平成 step_record 表的一行。
 def _record_row(record: Any) -> tuple[Any, ...]:
     return (
         record.run_id,
@@ -287,7 +287,7 @@ def _record_row(record: Any) -> tuple[Any, ...]:
     )
 
 
-# 讲解注释：_record_dict() 读写或展示分钟级过程记录。
+# 把数据库行恢复成前端接口使用的记录字典。
 def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     data["queue_lengths"] = json.loads(data.pop("queue_lengths_json"))
@@ -295,18 +295,18 @@ def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
     return data
 
 
-# 讲解注释：_json() 封装本文件中的一个独立处理步骤。
+# 用紧凑 JSON 保存嵌套配置、快照和指标，保留中文字符。
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-# 讲解注释：_ensure_column() 封装本文件中的一个独立处理步骤。
+# 如果旧表缺少字段，则用 ALTER TABLE 做一次轻量迁移。
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
-# 讲解注释：_now_iso() 封装本文件中的一个独立处理步骤。
+# 生成 UTC ISO 时间戳，供 run/optimization/explanation 记录创建时间。
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

@@ -19,12 +19,12 @@ export const defaultPartySizeDistribution = {
 
 export { buildTableCapacities, tableTypeForCapacity }
 
-// 讲解注释：buildLayoutFromConfig() 处理前端布局或后端布局数据。
+// 根据当前参数生成一份可直接提交给后端的默认布局。
 export function buildLayoutFromConfig(config) {
   return createDefaultLayout(config)
 }
 
-// 讲解注释：buildSimulationConfigPayload() 把页面配置和布局整理为后端仿真接口请求体。
+// buildSimulationConfigPayload() 把页面配置和布局整理为后端仿真接口请求体。
 export function buildSimulationConfigPayload(config, layout = null) {
   const effectiveLayout = isUsableLayout(layout)
     ? normalizeLayout(layout)
@@ -38,7 +38,7 @@ export function buildSimulationConfigPayload(config, layout = null) {
   }
 }
 
-// 讲解注释：isUsableLayout() 处理前端布局或后端布局数据。
+// 判断布局是否包含仿真必需的入口、窗口和餐桌。
 function isUsableLayout(layout) {
   return Boolean(
     layout &&
@@ -48,7 +48,7 @@ function isUsableLayout(layout) {
   )
 }
 
-// 讲解注释：normalizeLayout() 处理前端布局或后端布局数据。
+// 清洗布局坐标、容量和旋转角，输出后端 schema 可接收的字段。
 function normalizeLayout(layout) {
   const doors = layout.doors.map((door) => ({
     id: door.id,
@@ -78,7 +78,7 @@ function normalizeLayout(layout) {
   return { doors, windows, tables }
 }
 
-// 讲解注释：partyDistributionForLayout() 处理前端布局或后端布局数据。
+// 根据最大餐桌容量裁剪结伴人数分布，避免出现坐不下的小组。
 function partyDistributionForLayout(layout) {
   const maxCapacity = Math.max(1, ...layout.tables.map((table) => table.capacity))
   return Object.fromEntries(
@@ -88,14 +88,14 @@ function partyDistributionForLayout(layout) {
   )
 }
 
-// 讲解注释：round1() 对数值做取整或精度处理。
+// 将布局坐标保留一位小数，减少请求体中的浮点噪声。
 function round1(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return 0
   return Math.round(number * 10) / 10
 }
 
-// 讲解注释：totalSeatsFromLayout() 处理座位、等座或入座相关状态。
+// 对外暴露布局总座位数，内部复用布局编辑器的统计函数。
 export function totalSeatsFromLayout(layout) {
   return totalLayoutSeats(layout)
 }

@@ -2,17 +2,17 @@
 
 import { LAYOUT_MAX_EDITABLE_SEATS } from './layoutEditor.js'
 
-// 讲解注释：roundDownToStep() 对数值做取整或精度处理。
+// 将候选范围下界向下对齐到步长，且至少保留一个步长。
 export function roundDownToStep(value, step) {
   return Math.max(step, Math.floor(value / step) * step)
 }
 
-// 讲解注释：roundUpToStep() 对数值做取整或精度处理。
+// 将候选范围上界向上对齐到步长，避免漏掉边界方案。
 export function roundUpToStep(value, step) {
   return Math.max(step, Math.ceil(value / step) * step)
 }
 
-// 讲解注释：createDefaultCandidateSettings() 创建默认对象或运行时辅助对象。
+// 根据当前基础配置生成推荐候选范围的默认值。
 export function createDefaultCandidateSettings(config) {
   const seatStep = 20
   const baselineSeats = Math.min(LAYOUT_MAX_EDITABLE_SEATS, Number(config.num_seats || seatStep))
@@ -30,7 +30,7 @@ export function createDefaultCandidateSettings(config) {
   }
 }
 
-// 讲解注释：buildIntegerRange() 组装展示、请求或内部计算所需的数据结构。
+// 按最小值、最大值和步长生成去重后的整数候选列表。
 export function buildIntegerRange(minValue, maxValue, stepValue = 1, lower = 1, upper = 2000) {
   const step = Math.max(1, Math.round(Number(stepValue) || 1))
   const first = clamp(Math.round(Number(minValue) || lower), lower, upper)
@@ -48,7 +48,7 @@ export function buildIntegerRange(minValue, maxValue, stepValue = 1, lower = 1, 
   return [...new Set(values)]
 }
 
-// 讲解注释：buildCandidatesFromSettings() 组装展示、请求或内部计算所需的数据结构。
+// 将页面候选设置转换成后端推荐接口需要的四组候选数组。
 export function buildCandidatesFromSettings(settings) {
   return {
     windows: buildIntegerRange(settings.windowMin, settings.windowMax, 1, 1, 30),
@@ -58,7 +58,7 @@ export function buildCandidatesFromSettings(settings) {
   }
 }
 
-// 讲解注释：buildEvenSeatRange() 处理座位、等座或入座相关状态。
+// 生成偶数座位候选，保证前端餐桌拆分能保持偶数座位。
 function buildEvenSeatRange(minValue, maxValue, stepValue, lower, upper) {
   const step = Math.max(2, roundEven(Number(stepValue) || 2))
   const first = clamp(roundEven(Number(minValue) || lower), lower, upper)
@@ -75,12 +75,12 @@ function buildEvenSeatRange(minValue, maxValue, stepValue, lower, upper) {
   return [...new Set(values)]
 }
 
-// 讲解注释：clamp() 把数值限制在允许范围内。
+// 将候选值限制在给定闭区间内。
 function clamp(value, lower, upper) {
   return Math.min(upper, Math.max(lower, value))
 }
 
-// 讲解注释：roundEven() 对数值做取整或精度处理。
+// 将座位数向下规整为偶数。
 function roundEven(value) {
   return Math.floor(value / 2) * 2
 }

@@ -8,9 +8,9 @@ from pathlib import Path
 DATA_PATH = Path(__file__).resolve().parents[1] / "backend" / "app" / "data" / "campus_walk_times.json"
 
 
-# 讲解注释：CampusWalkTimesTest 处理校园教学楼、食堂或到达数据。
+# 校园步行时间数据测试，确保检查使用的数据只覆盖主校区且无敏感字段。
 class CampusWalkTimesTest(unittest.TestCase):
-    # 讲解注释：test_campus_walk_times_cover_main_campus_without_secrets() 处理校园教学楼、食堂或到达数据。
+    # 验证内置教学楼、食堂和步行时间表完整，并且不包含东区或密钥字段。
     def test_campus_walk_times_cover_main_campus_without_secrets(self):
         payload = json.loads(DATA_PATH.read_text(encoding="utf-8"))
 

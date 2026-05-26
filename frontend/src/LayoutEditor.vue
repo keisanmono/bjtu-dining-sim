@@ -355,30 +355,30 @@ const keepViewportFitted = ref(true)
 
 const capacityOptions = TABLE_CAPACITY_OPTIONS
 
-// 讲解注释：totalSeats() 处理座位、等座或入座相关状态。
+// 统计当前布局中所有餐桌容量，用于和配置座位数保持同步。
 const totalSeats = computed(() => totalLayoutSeats(props.layout))
-// 讲解注释：floorSize() 封装本文件中的一个独立处理步骤。
+// 读取当前食堂地面尺寸，缺省时使用编辑器默认尺寸。
 const floorSize = computed(() => props.layout.floor || LAYOUT_DEFAULT_FLOOR)
-// 讲解注释：floorWidthMax() 封装本文件中的一个独立处理步骤。
+// 根据最大面积约束计算宽度输入框的上限。
 const floorWidthMax = computed(() => maxFloorDimensionForArea('width', floorSize.value))
-// 讲解注释：floorHeightMax() 封装本文件中的一个独立处理步骤。
+// 根据最大面积约束计算高度输入框的上限。
 const floorHeightMax = computed(() => maxFloorDimensionForArea('height', floorSize.value))
-// 讲解注释：floorBounds() 封装本文件中的一个独立处理步骤。
+// 将 floor 的 x/y/width/height 转成拖拽和碰撞需要的边界。
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
-// 讲解注释：isInteracting() 封装本文件中的一个独立处理步骤。
+// 判断当前是否处于拖拽、缩放地面或平移视野的交互中。
 const isInteracting = computed(() => Boolean(dragState.value || resizeState.value || panState.value))
-// 讲解注释：viewBoxString() 封装本文件中的一个独立处理步骤。
+// 把响应式 viewBox 对象转成 SVG 属性字符串。
 const viewBoxString = computed(() => (
   `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`
 ))
 
-// 讲解注释：selectedTable() 处理餐桌容量、位置或占用状态。
+// 仅当选中对象是餐桌时返回对应餐桌，供容量和旋转控件使用。
 const selectedTable = computed(() => {
   if (!selection.value || selection.value.kind !== 'table') return null
   return props.layout.tables.find((table) => table.id === selection.value.id) || null
 })
 
-// 讲解注释：selectionLabel() 封装本文件中的一个独立处理步骤。
+// 将当前选中对象转换成人可读的侧栏状态文本。
 const selectionLabel = computed(() => {
   if (!selection.value) return '未选中对象'
   const sel = selection.value
@@ -405,12 +405,12 @@ watch(
   { deep: true }
 )
 
-// 讲解注释：isSelected() 封装本文件中的一个独立处理步骤。
+// 判断给定图元是否为当前选中对象。
 function isSelected(kind, id) {
   return selection.value?.kind === kind && selection.value?.id === id
 }
 
-// 讲解注释：isCollisionHighlighted() 封装本文件中的一个独立处理步骤。
+// 拖拽过程中当候选位置与其他图元碰撞时高亮当前图元。
 function isCollisionHighlighted(kind, id) {
   const state = dragState.value
   if (!state) return false
@@ -421,7 +421,7 @@ function isCollisionHighlighted(kind, id) {
   return itemOverlapsLayout(candidateLayout, kind, id, current.x, current.y, current)
 }
 
-// 讲解注释：itemRectFor() 封装本文件中的一个独立处理步骤。
+// 生成门、窗口或餐桌主体在本地坐标中的 SVG 矩形。
 function itemRectFor(kind, item) {
   const footprint = getItemFootprint(kind, item)
   return {
@@ -432,7 +432,7 @@ function itemRectFor(kind, item) {
   }
 }
 
-// 讲解注释：itemHitRectFor() 封装本文件中的一个独立处理步骤。
+// 给图元增加点击热区，避免小窗口和小门难以选中。
 function itemHitRectFor(kind, item) {
   const rect = itemRectFor(kind, item)
   const padding = kind === 'table' ? 12 : 10
@@ -444,7 +444,7 @@ function itemHitRectFor(kind, item) {
   }
 }
 
-// 讲解注释：doorMarkerFor() 封装本文件中的一个独立处理步骤。
+// 根据门所在墙面生成门缝标记的局部矩形。
 function doorMarkerFor(door) {
   const footprint = getItemFootprint('door', door)
   if (door.wall_side === 'top' || door.wall_side === 'bottom') {
@@ -463,7 +463,7 @@ function doorMarkerFor(door) {
   }
 }
 
-// 讲解注释：windowMarkerFor() 处理取餐窗口相关状态或位置。
+// 根据窗口所在墙面生成服务窗口标记的局部矩形。
 function windowMarkerFor(window) {
   const footprint = getItemFootprint('window', window)
   if (window.wall_side === 'left' || window.wall_side === 'right') {
@@ -482,22 +482,22 @@ function windowMarkerFor(window) {
   }
 }
 
-// 讲解注释：tableTopFor() 处理餐桌容量、位置或占用状态。
+// 根据餐桌容量返回桌面可视尺寸。
 function tableTopFor(table) {
   return tableTopForCapacity(table.capacity)
 }
 
-// 讲解注释：chairLayoutFor() 处理前端布局或后端布局数据。
+// 根据餐桌容量返回椅子在餐桌局部坐标中的矩形列表。
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
 }
 
-// 讲解注释：tableTransformFor() 处理餐桌容量、位置或占用状态。
+// 将餐桌旋转角转换成 SVG transform。
 function tableTransformFor(table) {
   return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
-// 讲解注释：clientToSvgPoint() 封装本文件中的一个独立处理步骤。
+// 把浏览器 client 坐标转换为当前 SVG viewBox 坐标。
 function clientToSvgPoint(clientX, clientY) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
@@ -505,7 +505,7 @@ function clientToSvgPoint(clientX, clientY) {
   return clientPointToViewBoxPoint(clientX, clientY, rect, viewBox.value)
 }
 
-// 讲解注释：clientDeltaToSvg() 封装本文件中的一个独立处理步骤。
+// 把浏览器拖动距离转换成当前 SVG viewBox 下的距离。
 function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
@@ -513,7 +513,7 @@ function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   return clientDeltaToViewBoxDelta(deltaX, deltaY, rect, sourceViewBox)
 }
 
-// 讲解注释：onItemPointerDown() 处理鼠标/触控指针事件。
+// 开始拖拽门、窗口或餐桌，并记录指针到图元中心的偏移。
 function onItemPointerDown(event, kind, id) {
   selection.value = { kind, id }
   const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
@@ -535,7 +535,7 @@ function onItemPointerDown(event, kind, id) {
   event.preventDefault()
 }
 
-// 讲解注释：onResizePointerDown() 处理布局尺寸或视野缩放变化。
+// 开始拖拽地面尺寸控制点，并记录当前边界偏移。
 function onResizePointerDown(event, handle) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const bounds = floorBounds.value
@@ -552,7 +552,7 @@ function onResizePointerDown(event, handle) {
   event.preventDefault()
 }
 
-// 讲解注释：onSvgPointerDown() 处理鼠标/触控指针事件。
+// 在空白地面按下时清除选择并进入 SVG 视野平移模式。
 function onSvgPointerDown(event) {
   // Clicking on background clears selection (only if we didn't start a drag).
   if (event.target === svgRef.value || event.target?.classList?.contains('floor-grid') || event.target?.classList?.contains('floor-fill')) {
@@ -571,7 +571,7 @@ function onSvgPointerDown(event) {
   }
 }
 
-// 讲解注释：onPointerMove() 处理鼠标/触控指针事件。
+// 根据当前交互状态分别处理地面缩放、视野平移或图元拖拽。
 function onPointerMove(event) {
   if (resizeState.value) {
     const state = resizeState.value
@@ -609,7 +609,7 @@ function onPointerMove(event) {
   event.preventDefault()
 }
 
-// 讲解注释：onPointerUp() 处理鼠标/触控指针事件。
+// 结束当前指针交互，并在拖拽图元碰撞时回滚位置。
 function onPointerUp(event) {
   if (resizeState.value) {
     const state = resizeState.value
@@ -644,7 +644,7 @@ function onPointerUp(event) {
   dragState.value = null
 }
 
-// 讲解注释：onPointerLeave() 处理鼠标/触控指针事件。
+// 兼容不支持 pointer capture 的环境，必要时清理拖拽状态。
 function onPointerLeave() {
   // Keep drag if pointer is captured; only clear when pointer truly leaves
   // and the drag state is no longer reachable. Pointer capture handles most
@@ -654,32 +654,32 @@ function onPointerLeave() {
   }
 }
 
-// 讲解注释：onWheelZoom() 处理 SVG 视野缩放。
+// onWheelZoom() 处理 SVG 视野缩放。
 function onWheelZoom(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   zoomViewport(event.deltaY < 0 ? 0.86 : 1.16, point)
 }
 
-// 讲解注释：zoomViewport() 处理 SVG 视野缩放。
+// zoomViewport() 处理 SVG 视野缩放。
 function zoomViewport(factor, focusPoint = null) {
   keepViewportFitted.value = false
   viewBox.value = zoomViewBox(viewBox.value, factor, focusPoint)
 }
 
-// 讲解注释：fitViewportToLayout() 处理前端布局或后端布局数据。
+// 将 SVG 视野重新对齐到当前食堂地面范围。
 function fitViewportToLayout() {
   keepViewportFitted.value = true
   viewBox.value = fitViewBoxForLayout(props.layout)
 }
 
-// 讲解注释：onSelectedCapacityChange() 封装本文件中的一个独立处理步骤。
+// 用户修改餐桌容量时同步更新选中餐桌并触发父组件保存。
 function onSelectedCapacityChange(value) {
   if (!selectedTable.value) return
   const next = setTableCapacity(props.layout, selectedTable.value.id, Number(value))
   emit('update:layout', next)
 }
 
-// 讲解注释：rotateSelectedTable() 处理餐桌容量、位置或占用状态。
+// 在 0 度和 90 度之间切换选中餐桌的摆放方向。
 function rotateSelectedTable() {
   if (!selectedTable.value) return
   const nextRotation = Number(selectedTable.value.rotation) === 90 ? 0 : 90
@@ -687,29 +687,29 @@ function rotateSelectedTable() {
   emit('update:layout', next)
 }
 
-// 讲解注释：changeDoorCount() 封装本文件中的一个独立处理步骤。
+// 增减入口数量，并让布局工具自动选择不碰撞的墙面位置。
 function changeDoorCount(delta) {
   const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
 }
 
-// 讲解注释：changeWindowCount() 处理取餐窗口相关状态或位置。
+// 把窗口数量变更交给父组件配置，再由 watch 同步布局。
 function changeWindowCount(value) {
   emit('update:window-count', Number(value))
 }
 
-// 讲解注释：changeSeatCount() 处理座位、等座或入座相关状态。
+// 把座位总数变更交给父组件配置，再重建餐桌布局。
 function changeSeatCount(value) {
   emit('update:seat-count', Number(value))
 }
 
-// 讲解注释：autoArrangeTables() 处理餐桌容量、位置或占用状态。
+// 按紧凑或分散模式重新排列现有餐桌。
 function autoArrangeTables(mode) {
   const next = arrangeLayoutTables(props.layout, mode)
   emit('update:layout', next, { source: 'arrange', transient: false })
 }
 
-// 讲解注释：changeFloorSize() 封装本文件中的一个独立处理步骤。
+// 修改食堂地面宽高，并在缩小时阻止会压住餐桌的变更。
 function changeFloorSize(axis, value) {
   const nextSize = {
     ...floorSize.value,
@@ -718,7 +718,7 @@ function changeFloorSize(axis, value) {
   emit('update:layout', resizeLayoutFloor(props.layout, nextSize, { blockTableConflicts: true }))
 }
 
-// 讲解注释：revertInvalidDrag() 处理拖拽交互过程中的状态。
+// revertInvalidDrag() 处理拖拽交互过程中的状态。
 function revertInvalidDrag(state) {
   const candidateLayout = state.latestLayout || props.layout
   const current = findItem(candidateLayout, state.kind, state.id)
@@ -733,7 +733,7 @@ function revertInvalidDrag(state) {
   return true
 }
 
-// 讲解注释：replaceLayoutItem() 处理前端布局或后端布局数据。
+// 将某个布局图元替换回指定版本，用于非法拖拽回滚。
 function replaceLayoutItem(layout, kind, replacement) {
   const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
   return {

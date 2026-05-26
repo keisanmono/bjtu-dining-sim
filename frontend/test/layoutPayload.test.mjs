@@ -1,4 +1,4 @@
-// 文件说明：前端源码文件。
+// 文件说明：前端仿真请求体测试，验证布局、座位和校园到达字段会正确提交。
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -9,7 +9,7 @@ import {
   defaultPartySizeDistribution
 } from '../src/layout.js'
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证默认布局会让窗口数、总座位数和混合桌型保持一致。
 test('layout payload keeps resource counts and mixed table types in sync', () => {
   const layout = buildLayoutFromConfig({ num_windows: 5, num_seats: 16 })
 
@@ -20,7 +20,7 @@ test('layout payload keeps resource counts and mixed table types in sync', () =>
   assert.deepEqual([...new Set(layout.tables.map((table) => table.table_type))], ['two_seat', 'four_seat', 'six_seat'])
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证仿真请求体会携带布局和与餐桌容量匹配的结伴人数分布。
 test('simulation config payload sends layout and party distribution to backend', () => {
   const payload = buildSimulationConfigPayload({
     num_windows: 4,
@@ -42,7 +42,7 @@ test('simulation config payload sends layout and party distribution to backend',
   assert.deepEqual(payload.party_size_distribution, defaultPartySizeDistribution)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证奇数座位输入会按可编辑餐桌布局规整为实际总座位数。
 test('simulation config payload normalizes odd seat counts to the editable layout total', () => {
   const payload = buildSimulationConfigPayload({
     num_windows: 4,
@@ -63,7 +63,7 @@ test('simulation config payload normalizes odd seat counts to the editable layou
   assert.equal(payload.layout.tables.reduce((sum, table) => sum + table.capacity, 0), 120)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证启用校园到达时请求体会保留 campus_demand 配置。
 test('simulation config payload includes campus demand when enabled', () => {
   const payload = buildSimulationConfigPayload({
     num_windows: 4,

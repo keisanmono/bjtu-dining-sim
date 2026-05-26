@@ -16,14 +16,14 @@ const DIRECTIONS = [
   { dx: 0, dy: -1 }
 ]
 
-// 讲解注释：buildObstacleBoxes() 组装展示、请求或内部计算所需的数据结构。
+// 将餐桌碰撞盒扩展成行走避障区域。
 export function buildObstacleBoxes(layout) {
   return (layout?.tables || []).flatMap((table) => (
     getItemCollisionBoxes('table', table).map((box) => expandBox(box, LIVE_PATH_OBSTACLE_PADDING))
   ))
 }
 
-// 讲解注释：createPathPlanner() 创建默认对象或运行时辅助对象。
+// 为一次快照动画创建路径规划上下文，包含边界、障碍和缓存统计。
 export function createPathPlanner(layout = {}) {
   return {
     bounds: insetBounds(floorBoundsForLayout(layout), LIVE_PATH_FLOOR_MARGIN),
@@ -37,7 +37,7 @@ export function createPathPlanner(layout = {}) {
   }
 }
 
-// 讲解注释：pointInsideAnyBox() 封装本文件中的一个独立处理步骤。
+// 判断点是否落入任意一个避障矩形。
 export function pointInsideAnyBox(point, boxes) {
   return (boxes || []).some((box) => (
     point.x >= box.left &&
@@ -47,7 +47,7 @@ export function pointInsideAnyBox(point, boxes) {
   ))
 }
 
-// 讲解注释：buildWalkableRoute() 组装展示、请求或内部计算所需的数据结构。
+// 在起点和终点之间生成避开餐桌的可行走路径，直线无碰撞时直接返回。
 export function buildWalkableRoute({ layout = {}, planner = null, start, end } = {}) {
   if (!isFinitePoint(start) || !isFinitePoint(end)) return []
   const activePlanner = planner || createPathPlanner(layout)
@@ -94,7 +94,7 @@ export function buildWalkableRoute({ layout = {}, planner = null, start, end } =
   return route
 }
 
-// 讲解注释：samplePathAtProgress() 处理行走路径或路径采样。
+// samplePathAtProgress() 处理行走路径或路径采样。
 export function samplePathAtProgress(path, progress) {
   const points = (path || []).filter(isFinitePoint).map(cleanPoint)
   if (!points.length) return { x: 0, y: 0 }
@@ -129,7 +129,7 @@ export function samplePathAtProgress(path, progress) {
   return points[points.length - 1]
 }
 
-// 讲解注释：pathLength() 处理行走路径或路径采样。
+// pathLength() 处理行走路径或路径采样。
 export function pathLength(path) {
   const points = (path || []).filter(isFinitePoint)
   let total = 0
@@ -139,7 +139,7 @@ export function pathLength(path) {
   return total
 }
 
-// 讲解注释：findRouteCells() 计算可行走路线。
+// findRouteCells() 计算可行走路线。
 function findRouteCells(start, end, bounds, boxes) {
   const open = [start]
   const cameFrom = new Map()
@@ -176,7 +176,7 @@ function findRouteCells(start, end, bounds, boxes) {
   return []
 }
 
-// 讲解注释：reconstructPath() 处理行走路径或路径采样。
+// reconstructPath() 处理行走路径或路径采样。
 function reconstructPath(cameFrom, current) {
   const path = [current]
   let cursor = current
@@ -187,7 +187,7 @@ function reconstructPath(cameFrom, current) {
   return path.reverse()
 }
 
-// 讲解注释：nearestWalkableCell() 封装本文件中的一个独立处理步骤。
+// 当起点或终点落在障碍中时，向外扩圈寻找最近可行走网格。
 function nearestWalkableCell(origin, bounds, boxes) {
   if (isWalkableCell(origin, bounds, boxes)) return origin
   const maxRadius = Math.max(columnCount(bounds), rowCount(bounds))
@@ -209,7 +209,7 @@ function nearestWalkableCell(origin, bounds, boxes) {
   return null
 }
 
-// 讲解注释：simplifyPath() 处理行走路径或路径采样。
+// simplifyPath() 处理行走路径或路径采样。
 function simplifyPath(points) {
   const clean = dedupePoints(points)
   if (clean.length <= 2) return clean
@@ -227,13 +227,13 @@ function simplifyPath(points) {
   return simplified
 }
 
-// 讲解注释：isWalkableCell() 封装本文件中的一个独立处理步骤。
+// 判断网格单元是否在地面范围内且没有落入障碍。
 function isWalkableCell(cell, bounds, boxes) {
   if (cell.col < 0 || cell.row < 0 || cell.col >= columnCount(bounds) || cell.row >= rowCount(bounds)) return false
   return !pointInsideAnyBox(cellToPoint(cell, bounds), boxes)
 }
 
-// 讲解注释：pointToCell() 封装本文件中的一个独立处理步骤。
+// 将世界坐标点映射到路径规划网格单元。
 function pointToCell(point, bounds) {
   return {
     col: clamp(Math.round((point.x - bounds.x) / LIVE_PATH_GRID_STEP), 0, columnCount(bounds) - 1),
@@ -241,7 +241,7 @@ function pointToCell(point, bounds) {
   }
 }
 
-// 讲解注释：cellToPoint() 封装本文件中的一个独立处理步骤。
+// 将路径规划网格单元映射回世界坐标点。
 function cellToPoint(cell, bounds) {
   return cleanPoint({
     x: bounds.x + cell.col * LIVE_PATH_GRID_STEP,
@@ -249,17 +249,17 @@ function cellToPoint(cell, bounds) {
   })
 }
 
-// 讲解注释：columnCount() 封装本文件中的一个独立处理步骤。
+// 计算当前地面范围在路径网格中的列数。
 function columnCount(bounds) {
   return Math.max(1, Math.floor((bounds.right - bounds.x) / LIVE_PATH_GRID_STEP) + 1)
 }
 
-// 讲解注释：rowCount() 封装本文件中的一个独立处理步骤。
+// 计算当前地面范围在路径网格中的行数。
 function rowCount(bounds) {
   return Math.max(1, Math.floor((bounds.bottom - bounds.y) / LIVE_PATH_GRID_STEP) + 1)
 }
 
-// 讲解注释：insetBounds() 封装本文件中的一个独立处理步骤。
+// 给地面边界内缩一圈，避免行走路径贴住墙线。
 function insetBounds(bounds, margin) {
   return {
     x: bounds.x + margin,
@@ -269,7 +269,7 @@ function insetBounds(bounds, margin) {
   }
 }
 
-// 讲解注释：expandBox() 封装本文件中的一个独立处理步骤。
+// 给餐桌障碍矩形增加安全边距。
 function expandBox(box, padding) {
   return {
     left: box.left - padding,
@@ -279,12 +279,12 @@ function expandBox(box, padding) {
   }
 }
 
-// 讲解注释：segmentIntersectsAnyBox() 封装本文件中的一个独立处理步骤。
+// 判断线段是否穿过任意一个避障矩形。
 function segmentIntersectsAnyBox(start, end, boxes) {
   return (boxes || []).some((box) => segmentIntersectsBox(start, end, box))
 }
 
-// 讲解注释：segmentIntersectsBox() 封装本文件中的一个独立处理步骤。
+// 判断线段是否进入或穿过单个避障矩形。
 function segmentIntersectsBox(start, end, box) {
   if (pointInsideAnyBox(start, [box]) || pointInsideAnyBox(end, [box])) return true
   const left = box.left
@@ -299,7 +299,7 @@ function segmentIntersectsBox(start, end, box) {
     segmentsIntersect(start, end, { x: left, y: bottom }, { x: left, y: top })
 }
 
-// 讲解注释：segmentsIntersect() 封装本文件中的一个独立处理步骤。
+// 使用方向测试判断两条线段是否相交。
 function segmentsIntersect(a, b, c, d) {
   const abC = orientation(a, b, c)
   const abD = orientation(a, b, d)
@@ -308,19 +308,19 @@ function segmentsIntersect(a, b, c, d) {
   return abC * abD <= 0 && cdA * cdB <= 0
 }
 
-// 讲解注释：orientation() 封装本文件中的一个独立处理步骤。
+// 计算三点转向方向，接近共线时返回 0。
 function orientation(a, b, c) {
   const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
   if (Math.abs(value) < 0.0001) return 0
   return value > 0 ? 1 : -1
 }
 
-// 讲解注释：routeCacheKey() 计算可行走路线。
+// routeCacheKey() 计算可行走路线。
 function routeCacheKey(start, end) {
   return `${start.x},${start.y}->${end.x},${end.y}`
 }
 
-// 讲解注释：dedupePoints() 封装本文件中的一个独立处理步骤。
+// 清洗路径点并删除连续重复坐标。
 function dedupePoints(points) {
   const result = []
   for (const point of points || []) {
@@ -331,18 +331,18 @@ function dedupePoints(points) {
   return result
 }
 
-// 讲解注释：samePoint() 封装本文件中的一个独立处理步骤。
+// 以很小容差判断两个世界坐标点是否相同。
 function samePoint(left, right) {
   return Math.abs(Number(left?.x) - Number(right?.x)) < 0.01 &&
     Math.abs(Number(left?.y) - Number(right?.y)) < 0.01
 }
 
-// 讲解注释：isFinitePoint() 封装本文件中的一个独立处理步骤。
+// 确认点对象包含可用的有限 x/y 坐标。
 function isFinitePoint(point) {
   return Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y))
 }
 
-// 讲解注释：cleanPoint() 封装本文件中的一个独立处理步骤。
+// 规范路径点精度，避免动画坐标出现长小数。
 function cleanPoint(point) {
   return {
     x: round1(point.x),
@@ -350,32 +350,32 @@ function cleanPoint(point) {
   }
 }
 
-// 讲解注释：distance() 封装本文件中的一个独立处理步骤。
+// 计算两个世界坐标点之间的欧氏距离。
 function distance(left, right) {
   return Math.hypot(Number(left.x) - Number(right.x), Number(left.y) - Number(right.y))
 }
 
-// 讲解注释：heuristic() 封装本文件中的一个独立处理步骤。
+// A* 使用曼哈顿距离估算网格代价。
 function heuristic(left, right) {
   return Math.abs(left.col - right.col) + Math.abs(left.row - right.row)
 }
 
-// 讲解注释：cellKey() 封装本文件中的一个独立处理步骤。
+// 将网格坐标转换为 Map/Set 可用的字符串 key。
 function cellKey(cell) {
   return `${cell.col}:${cell.row}`
 }
 
-// 讲解注释：lerp() 封装本文件中的一个独立处理步骤。
+// 在两个数值之间按进度线性插值。
 function lerp(start, end, amount) {
   return Number(start || 0) + (Number(end || 0) - Number(start || 0)) * amount
 }
 
-// 讲解注释：clamp() 把数值限制在允许范围内。
+// 将进度或网格下标限制在给定范围内。
 function clamp(value, lower, upper) {
   return Math.max(lower, Math.min(upper, value))
 }
 
-// 讲解注释：round1() 对数值做取整或精度处理。
+// 将路径坐标保留一位小数。
 function round1(value) {
   return Math.round(Number(value || 0) * 10) / 10
 }

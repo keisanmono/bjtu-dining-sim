@@ -52,27 +52,27 @@ app.add_middleware(
 
 # 健康检查：前端右上角状态标签只关心后端是否可连接。
 @app.get("/api/health")
-# 讲解注释：health() 返回后端连通状态。
+# health() 返回后端连通状态。
 def health() -> dict[str, str]:
     return {"group": "20 组", "status": "ok", "message": "backend ready"}
 
 
 # 参数校验：Pydantic 先保证字段范围，simulation.validate_config 再给业务错误和警告。
 @app.post("/api/config/validate", response_model=ValidationResponse)
-# 讲解注释：validate_simulation_config() 校验输入参数并返回错误或提示。
+# validate_simulation_config() 校验输入参数并返回错误或提示。
 def validate_simulation_config(config: SimulationConfig) -> ValidationResponse:
     errors, warnings = validate_config(config.to_data())
     return ValidationResponse(valid=not errors, errors=errors, warnings=warnings)
 
 
 @app.get("/api/campus/locations")
-# 讲解注释：campus_locations() 处理校园教学楼、食堂或到达数据。
+# 返回校园位置基础数据，前端用来生成食堂和教学楼选择项。
 def campus_locations() -> dict[str, Any]:
     return build_campus_locations()
 
 
 @app.post("/api/campus/occupancy")
-# 讲解注释：campus_occupancy() 处理校园教学楼、食堂或到达数据。
+# 根据前端选择的人数来源返回楼层人数，失败时由 campus 模块负责降级。
 def campus_occupancy(request: CampusOccupancyRequest) -> dict[str, Any]:
     try:
         buildings = request.buildings or None
@@ -83,7 +83,7 @@ def campus_occupancy(request: CampusOccupancyRequest) -> dict[str, Any]:
 
 # 完整仿真：一次运行到结束，保存所有 StepRecord 和最终 MetricsSummary。
 @app.post("/api/sim/run", response_model=RunResponse)
-# 讲解注释：run_full_simulation() 封装本文件中的一个独立处理步骤。
+# 接收完整配置并一次性跑完整个仿真，适合“快速完成”按钮。
 def run_full_simulation(config: SimulationConfig) -> RunResponse:
     result = run_simulation(config.to_data())
     STORE.save_result(result)
@@ -92,7 +92,7 @@ def run_full_simulation(config: SimulationConfig) -> RunResponse:
 
 # 实时单步仿真：先通过 _resolve_runner 找到当前 runner，再推进一分钟。
 @app.post("/api/sim/step", response_model=StepResponse)
-# 讲解注释：step_simulation() 封装本文件中的一个独立处理步骤。
+# 接收单步请求，找到当前仿真器后推进一分钟并返回状态快照。
 def step_simulation(request: StepRequest) -> StepResponse:
     runner = _resolve_runner(request)
     record = runner.step()
@@ -113,7 +113,7 @@ def step_simulation(request: StepRequest) -> StepResponse:
 
 
 @app.get("/api/run/{run_id}/records")
-# 讲解注释：get_run_records() 读写或展示分钟级过程记录。
+# 从 SQLite 读取指定 run_id 的分钟记录，供导出或回看使用。
 def get_run_records(run_id: str) -> list[dict[str, Any]]:
     records = STORE.get_records(run_id)
     if not records:
@@ -122,7 +122,7 @@ def get_run_records(run_id: str) -> list[dict[str, Any]]:
 
 
 @app.get("/api/run/{run_id}/metrics")
-# 讲解注释：get_run_metrics() 读取或计算指标汇总。
+# 从 SQLite 读取指定 run_id 的最终指标汇总。
 def get_run_metrics(run_id: str) -> dict[str, Any]:
     metrics = STORE.get_metrics(run_id)
     if metrics is None:
@@ -132,7 +132,7 @@ def get_run_metrics(run_id: str) -> dict[str, Any]:
 
 # 优化推荐：后端枚举候选方案并评分，前端只负责传基准配置和候选范围。
 @app.post("/api/optimize/recommend")
-# 讲解注释：recommend() 处理优化推荐相关流程。
+# 接收基准配置和候选范围，调用推荐模块返回排序后的优化方案。
 def recommend(request: RecommendationRequest) -> dict[str, Any]:
     data = RecommendationRequestData(
         base_config=request.base_config.to_data(),
@@ -160,7 +160,7 @@ def recommend(request: RecommendationRequest) -> dict[str, Any]:
 
 # 规则化解释：不调用外部大模型，只根据指标、瓶颈和推荐策略生成说明文本。
 @app.post("/api/explain", response_model=ExplanationResponse)
-# 讲解注释：explain() 处理规则化解释相关流程。
+# 保存并返回本地规则化解释文本，供结果分析页展示。
 def explain(request: ExplanationRequest) -> ExplanationResponse:
     exp_id = uuid.uuid4().hex
     response = build_rule_based_explanation(request.model_dump())
@@ -170,7 +170,7 @@ def explain(request: ExplanationRequest) -> ExplanationResponse:
 
 # CSV 导出：把已保存的每分钟 StepRecord 写成文件并返回给浏览器下载。
 @app.get("/api/export/{run_id}")
-# 讲解注释：export_records() 读写或展示分钟级过程记录。
+# 触发 storage 导出 CSV，并用 FileResponse 返回给浏览器下载。
 def export_records(run_id: str) -> FileResponse:
     output = DATA_DIR / "exports" / f"{run_id}_records.csv"
     try:
@@ -180,7 +180,7 @@ def export_records(run_id: str) -> FileResponse:
     return FileResponse(path=output, filename=output.name, media_type="text/csv")
 
 
-# 讲解注释：_resolve_runner() 封装本文件中的一个独立处理步骤。
+# 根据 reset/run_id/config 决定新建 runner、复用 runner，或恢复丢失的实时运行。
 def _resolve_runner(request: StepRequest) -> DiningSimulationRunner:
     # 首次单步或重置运行必须带 config，用它创建新的 DiningSimulationRunner。
     if request.reset or request.run_id is None:
@@ -200,7 +200,7 @@ def _resolve_runner(request: StepRequest) -> DiningSimulationRunner:
     return runner
 
 
-# 讲解注释：_run_response() 封装本文件中的一个独立处理步骤。
+# 把内部 SimulationResult dataclass 转换成 FastAPI response_model 需要的字典结构。
 def _run_response(result: Any) -> RunResponse:
     return RunResponse(
         run_id=result.run_id,

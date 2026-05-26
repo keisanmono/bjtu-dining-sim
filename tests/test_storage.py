@@ -12,9 +12,9 @@ from app.simulation import SimulationConfigData, run_simulation
 from app.storage import SimulationStore
 
 
-# 讲解注释：SimulationStoreTests 封装本文件的一组相关数据或测试行为。
+# 存储层测试，验证仿真结果写入 SQLite 后能按 run_id 读回。
 class SimulationStoreTests(unittest.TestCase):
-    # 讲解注释：test_save_and_load_run_records_and_metrics() 读取或计算指标汇总。
+    # 验证分钟记录和最终指标保存后字段完整且与原结果一致。
     def test_save_and_load_run_records_and_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "sim.sqlite"

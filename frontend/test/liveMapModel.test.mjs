@@ -1,4 +1,4 @@
-// 文件说明：前端源码文件。
+// 文件说明：实时地图模型测试，覆盖排队胶囊、小组目标和行走动画采样。
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -30,7 +30,7 @@ const blockingLayout = {
   tables: [{ id: 'T1', x: 120, y: 110, capacity: 4, table_type: 'four_seat', rotation: 0 }]
 }
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证排队可视胶囊数量受限，超出人数聚合到 overflow。
 test('buildQueueRows caps visible queue parties and aggregates hidden people', () => {
   const queueGroups = Array.from({ length: 50 }, (_item, index) => ({
     party_id: index + 1,
@@ -51,7 +51,7 @@ test('buildQueueRows caps visible queue parties and aggregates hidden people', (
   assert.equal(row.overflow.hiddenGroups, 40)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证已满足可见额度后不会继续读取多余 queue_groups。
 test('buildQueueRows stops reading queue groups after the visible window quota is filled', () => {
   const queueGroups = Array.from({ length: 50 }, (_item, index) => ({
     party_id: index + 1,
@@ -76,7 +76,7 @@ test('buildQueueRows stops reading queue groups after the visible window quota i
   assert.equal(row.overflow.hiddenPeople, 40)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证隐藏排队人数越多，溢出尾巴越长。
 test('buildQueueRows scales the overflow tail with hidden queue size', () => {
   const groups = Array.from({ length: QUEUE_VISIBLE_LIMIT }, (_item, index) => ({
     party_id: index + 1,
@@ -102,7 +102,7 @@ test('buildQueueRows scales the overflow tail with hidden queue size', () => {
   assert.equal(longTail.overflow.hiddenPeople, 70)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证同组成员分散服务时目标点仍锚定到各自实际窗口。
 test('buildLivePartyTargets keeps split party services anchored to their actual windows', () => {
   const targets = buildLivePartyTargets({
     layout: baseLayout,
@@ -123,7 +123,7 @@ test('buildLivePartyTargets keeps split party services anchored to their actual 
   assert.ok(targets.every((target) => target.y > baseLayout.windows[0].y))
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证刚入座的小组从同组服务窗口位置开始移动。
 test('buildLivePartyTransitions moves newly seated parties from a same-party service window', () => {
   const [serviceTarget] = buildLivePartyTargets({
     layout: baseLayout,
@@ -152,7 +152,7 @@ test('buildLivePartyTransitions moves newly seated parties from a same-party ser
   assert.equal(seatedTransition.from.y, serviceTarget.y)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证等座小组会作为隐藏运动锚点放在对应窗口附近。
 test('buildLivePartyTargets keeps waiting parties as hidden motion anchors near their window', () => {
   const targets = buildLivePartyTargets({
     layout: baseLayout,
@@ -170,7 +170,7 @@ test('buildLivePartyTargets keeps waiting parties as hidden motion anchors near 
   assert.ok(targets[0].y > baseLayout.windows[1].y)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证有等座锚点时，入座动画从等座点出发。
 test('buildLivePartyTransitions starts seating movement from the waiting anchor when available', () => {
   const [waitingTarget] = buildLivePartyTargets({
     layout: baseLayout,
@@ -199,7 +199,7 @@ test('buildLivePartyTransitions starts seating movement from the waiting anchor 
   assert.equal(transition.from.y, waitingTarget.y)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证过渡时长不会超过实时快照到达节奏。
 test('transitionDurationForSnapshotGap keeps animation inside the observed snapshot cadence', () => {
   assert.equal(transitionDurationForSnapshotGap(undefined), 320)
   assert.equal(transitionDurationForSnapshotGap(1000), 320)
@@ -207,7 +207,7 @@ test('transitionDurationForSnapshotGap keeps animation inside the observed snaps
   assert.equal(transitionDurationForSnapshotGap(80), 120)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证同一小组在连续分钟快照之间沿路径移动。
 test('interpolateLivePartyMarkers moves the same party between minute snapshots', () => {
   const [serviceTarget] = buildLivePartyTargets({
     layout: baseLayout,
@@ -240,7 +240,7 @@ test('interpolateLivePartyMarkers moves the same party between minute snapshots'
   assert.ok(halfway.y < Math.max(serviceTarget.y, seatedTarget.y))
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证后端行走标记按 timeline frames 采样，而不是前端重新猜目标。
 test('buildBackendWalkingMarkers samples backend timeline frames instead of inventing targets', () => {
   const timeline = {
     playback_ms: 600,
@@ -275,7 +275,7 @@ test('buildBackendWalkingMarkers samples backend timeline frames instead of inve
   assert.equal(backendTimelinePlaybackMs(timeline), 600)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证新出现小组会从入口淡入到服务点。
 test('interpolateLivePartyMarkers fades new parties in from their door', () => {
   const [target] = buildLivePartyTargets({
     layout: baseLayout,
@@ -307,7 +307,7 @@ test('interpolateLivePartyMarkers fades new parties in from their door', () => {
   assert.equal(end.opacity, 1)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证离开的小组会向入口方向淡出。
 test('interpolateLivePartyMarkers fades removed parties back toward their door', () => {
   const [target] = buildLivePartyTargets({
     layout: baseLayout,
@@ -330,7 +330,7 @@ test('interpolateLivePartyMarkers fades removed parties back toward their door',
   assert.notEqual(end.y, target.y)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证小组移动路径会绕开餐桌障碍。
 test('interpolateLivePartyMarkers follows walkable routes around table obstacles', () => {
   const [marker] = interpolateLivePartyMarkers({
     previous: [{ key: 'party-21', party_id: 21, role: 'service', member_count: 1, x: 36, y: 110, door_index: 0 }],
@@ -344,7 +344,7 @@ test('interpolateLivePartyMarkers follows walkable routes around table obstacles
   assert.notEqual(marker.y, 110)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证已稳定入座的小组不会继续产生动画任务。
 test('buildLivePartyTransitions skips stable seated parties after they settle', () => {
   const seated = {
     key: 'party-31',
@@ -365,7 +365,7 @@ test('buildLivePartyTransitions skips stable seated parties after they settle', 
   assert.equal(transitions.length, 0)
 })
 
-// 讲解注释：测试用例 封装本文件中的一个独立处理步骤。
+// 验证稳定服务中的小组仍保持可见标记。
 test('buildLivePartyTransitions keeps stable service markers visible', () => {
   const service = {
     key: 'party-32',

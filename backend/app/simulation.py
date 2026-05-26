@@ -31,7 +31,7 @@ PATH_OBSTACLE_PADDING = 7
 
 # 前端布局编辑器传来的入口、窗口、餐桌，后端用坐标计算排队选择和入座路径。
 @dataclass(frozen=True)
-# 讲解注释：LayoutDoorData 处理前端布局或后端布局数据。
+# 单个入口的坐标、墙面方向和学生到达分流比例。
 class LayoutDoorData:
     id: str
     x: float
@@ -41,7 +41,7 @@ class LayoutDoorData:
 
 
 @dataclass(frozen=True)
-# 讲解注释：LayoutWindowData 处理取餐窗口相关状态或位置。
+# 单个取餐窗口的坐标、墙面方向和服务速度系数。
 class LayoutWindowData:
     id: str
     x: float
@@ -51,7 +51,7 @@ class LayoutWindowData:
 
 
 @dataclass(frozen=True)
-# 讲解注释：LayoutTableData 处理餐桌容量、位置或占用状态。
+# 单张餐桌的几何位置、容量、类型和旋转角度。
 class LayoutTableData:
     id: str
     x: float
@@ -62,7 +62,7 @@ class LayoutTableData:
 
 
 @dataclass(frozen=True)
-# 讲解注释：DiningLayoutData 处理前端布局或后端布局数据。
+# 一份完整食堂平面布局，后端按它计算排队距离和入座路径。
 class DiningLayoutData:
     doors: list[LayoutDoorData] = field(default_factory=list)
     windows: list[LayoutWindowData] = field(default_factory=list)
@@ -71,7 +71,7 @@ class DiningLayoutData:
 
 # SimulationConfigData 是仿真内部配置，来自 schemas.SimulationConfig.to_data()。
 @dataclass(frozen=True)
-# 讲解注释：SimulationConfigData 封装本文件的一组相关数据或测试行为。
+# 仿真内部配置对象，合并手动到达、校园到达、服务时间和布局参数。
 class SimulationConfigData:
     num_windows: int = 4
     num_seats: int = 120
@@ -89,14 +89,14 @@ class SimulationConfigData:
     party_size_distribution: dict[int, float] = field(default_factory=lambda: {1: 1.0})
     campus_demand: CampusDemandConfigData | None = None
 
-    # 讲解注释：with_updates() 封装本文件中的一个独立处理步骤。
+    # 基于当前不可变配置生成字段替换后的新配置，推荐模块用于构造候选方案。
     def with_updates(self, **updates: Any) -> "SimulationConfigData":
         return replace(self, **updates)
 
 
 # Student 表示单个学生，从到达、排队、服务、入座到离开都会记录时间点。
 @dataclass
-# 讲解注释：Student 封装本文件的一组相关数据或测试行为。
+# 单个学生的生命周期记录，保存到达、排队、服务、入座和离开时间。
 class Student:
     student_id: int
     party_id: int
@@ -112,7 +112,7 @@ class Student:
 
 # DiningParty 表示结伴就餐小组；同组成员都取餐完成后才进入等座队列。
 @dataclass
-# 讲解注释：DiningParty 封装本文件的一组相关数据或测试行为。
+# 结伴就餐小组，组内成员都取餐完成后才会作为整体等座。
 class DiningParty:
     party_id: int
     arrival_time: int
@@ -123,20 +123,20 @@ class DiningParty:
     table_index: int | None = None
 
     @property
-    # 讲解注释：size() 封装本文件中的一个独立处理步骤。
+    # 小组人数直接由成员列表长度决定。
     def size(self) -> int:
         return len(self.student_ids)
 
 
 @dataclass
-# 讲解注释：WindowService 处理取餐窗口相关状态或位置。
+# 窗口当前服务中的学生和剩余服务分钟数。
 class WindowService:
     student: Student
     remaining: int
 
 
 @dataclass
-# 讲解注释：DiningSeat 处理座位、等座或入座相关状态。
+# 已入座学生对应的餐桌位置和剩余就餐分钟数。
 class DiningSeat:
     student: Student
     remaining: int
@@ -144,7 +144,7 @@ class DiningSeat:
 
 
 @dataclass
-# 讲解注释：WalkingSeatTransfer 处理座位、等座或入座相关状态。
+# 小组从取餐窗口走向餐桌的后端时间线状态。
 class WalkingSeatTransfer:
     party: DiningParty
     table_index: int
@@ -157,7 +157,7 @@ class WalkingSeatTransfer:
 
 # StepRecord 是每推进一分钟返回给前端和数据库保存的过程记录。
 @dataclass(frozen=True)
-# 讲解注释：StepRecord 读写或展示分钟级过程记录。
+# 每分钟 StepRecord 保存前端实时展示和 SQLite 持久化所需的过程状态。
 class StepRecord:
     run_id: str
     t: int
@@ -178,7 +178,7 @@ class StepRecord:
 
 # MetricsSummary 是仿真结束后的指标汇总，结果分析页和推荐模块都读取这些字段。
 @dataclass(frozen=True)
-# 讲解注释：MetricsSummary 读取或计算指标汇总。
+# 仿真结束后的指标汇总，覆盖等待、吞吐、利用率和瓶颈分类。
 class MetricsSummary:
     run_id: str
     avg_wait: float
@@ -202,7 +202,7 @@ class MetricsSummary:
 
 
 @dataclass(frozen=True)
-# 讲解注释：SimulationResult 封装本文件的一组相关数据或测试行为。
+# 一次完整仿真的返回对象，包含过程记录、最终指标和最终快照。
 class SimulationResult:
     run_id: str
     config: SimulationConfigData
@@ -211,7 +211,7 @@ class SimulationResult:
     final_state: dict[str, Any]
 
 
-# 讲解注释：validate_config() 校验输入参数并返回错误或提示。
+# validate_config() 校验输入参数并返回错误或提示。
 def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -288,7 +288,7 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
 
 
 # 完整仿真只是循环调用 runner.step()，因此与实时单步接口使用同一套核心逻辑。
-# 讲解注释：run_simulation() 循环调用 step 直到仿真结束。
+# run_simulation() 循环调用 step 直到仿真结束。
 def run_simulation(config: SimulationConfigData, run_id: str | None = None) -> SimulationResult:
     runner = DiningSimulationRunner(config, run_id=run_id)
     while not runner.done:
@@ -297,9 +297,9 @@ def run_simulation(config: SimulationConfigData, run_id: str | None = None) -> S
 
 
 # DiningSimulationRunner 保存一次仿真的全部动态状态：队列、窗口、等座、行走、入座和记录。
-# 讲解注释：DiningSimulationRunner 封装本文件的一组相关数据或测试行为。
+# 每次 step() 都在这个对象内原地推进状态。
 class DiningSimulationRunner:
-    # 讲解注释：__init__() 封装本文件中的一个独立处理步骤。
+    # 校验配置并初始化随机数、队列、窗口、餐桌占用和统计计数器。
     def __init__(self, config: SimulationConfigData, run_id: str | None = None):
         errors, _ = validate_config(config)
         if errors:
@@ -339,11 +339,11 @@ class DiningSimulationRunner:
         self.peak_fragmented_seats = 0
 
     @property
-    # 讲解注释：done() 封装本文件中的一个独立处理步骤。
+    # 到达期结束且系统内没有排队、服务、等座、行走或就餐学生时结束。
     def done(self) -> bool:
         return self.current_minute >= self.arrival_horizon_minute and not self._has_active_students()
 
-    # 讲解注释：step() 推进一分钟仿真，是实时运行最核心的单步方法。
+    # step() 推进一分钟仿真，是实时运行最核心的单步方法。
     def step(self) -> StepRecord:
         # 单步顺序用于检查讲解：
         # 1. 吃完离开；2. 推进窗口服务；3. 完成取餐的小组进入等座；
@@ -382,7 +382,7 @@ class DiningSimulationRunner:
         self.records.append(record)
         return record
 
-    # 讲解注释：result() 在仿真结束后汇总指标并生成最终返回对象。
+    # result() 在仿真结束后汇总指标并生成最终返回对象。
     def result(self) -> SimulationResult:
         metrics = self._build_metrics()
         return SimulationResult(
@@ -393,7 +393,7 @@ class DiningSimulationRunner:
             final_state=self._snapshot(),
         )
 
-    # 讲解注释：_advance_dining() 封装本文件中的一个独立处理步骤。
+    # 推进入座学生的就餐剩余时间，并释放已吃完学生占用的餐桌座位。
     def _advance_dining(self, minute: int) -> int:
         still_seated: list[DiningSeat] = []
         left_count = 0
@@ -416,7 +416,7 @@ class DiningSimulationRunner:
         self.seated = still_seated
         return left_count
 
-    # 讲解注释：_advance_windows() 处理取餐窗口相关状态或位置。
+    # 推进每个忙碌窗口的服务倒计时，返回本分钟完成取餐的学生。
     def _advance_windows(self, minute: int) -> list[Student]:
         served: list[Student] = []
         for idx, service in enumerate(self.windows):
@@ -430,7 +430,7 @@ class DiningSimulationRunner:
                 self.total_served += 1
         return served
 
-    # 讲解注释：_move_ready_parties_to_seat_wait() 处理座位、等座或入座相关状态。
+    # 检查完成取餐的学生所属小组；全员完成后把小组放入等座队列。
     def _move_ready_parties_to_seat_wait(self, served_students: list[Student], minute: int) -> None:
         for student in served_students:
             party = self.parties[student.party_id]
@@ -441,7 +441,7 @@ class DiningSimulationRunner:
                 party.ready_time = minute
                 self.waiting_for_seat.append(party)
 
-    # 讲解注释：_seat_waiting_students() 处理座位、等座或入座相关状态。
+    # 为等座小组尝试锁定餐桌；锁定成功后生成走向餐桌的时间线事件。
     def _seat_waiting_students(self, minute: int, timeline_events: list[dict[str, Any]] | None = None) -> int:
         walking_count = 0
         still_waiting: list[DiningParty] = []
@@ -466,7 +466,7 @@ class DiningSimulationRunner:
         self.waiting_for_seat = still_waiting
         return walking_count
 
-    # 讲解注释：_start_walking_to_seat() 处理座位、等座或入座相关状态。
+    # 根据最后完成取餐的窗口和目标餐桌生成行走路径与到达时间。
     def _start_walking_to_seat(
         self,
         party: DiningParty,
@@ -491,7 +491,7 @@ class DiningSimulationRunner:
             path=path,
         )
 
-    # 讲解注释：_advance_walking_to_seats() 处理座位、等座或入座相关状态。
+    # 推进正在走向餐桌的小组；到达后把成员转成正式入座状态。
     def _advance_walking_to_seats(self, end_time_sec: int) -> int:
         arrived_count = 0
         still_walking: list[WalkingSeatTransfer] = []
@@ -524,7 +524,7 @@ class DiningSimulationRunner:
         self.walking_to_seat = still_walking
         return arrived_count
 
-    # 讲解注释：_generate_arrivals() 计算或生成学生到达相关数据。
+    # 按校园到达表或手动泊松到达生成本分钟新学生。
     def _generate_arrivals(self, minute: int) -> list[Student]:
         # 到达有两种模式：校园到达使用预先生成的下课到达表，手动模式按泊松分布采样。
         if self.config.campus_demand and self.config.campus_demand.enabled:
@@ -535,7 +535,7 @@ class DiningSimulationRunner:
         count = self._poisson(self._arrival_rate_for_minute(minute))
         return self._create_party_students(minute=minute, person_count=count)
 
-    # 讲解注释：_build_campus_arrival_schedule() 处理校园教学楼、食堂或到达数据。
+    # 校园模式下把教学楼人数和步行时间展开成分钟级到达表。
     def _build_campus_arrival_schedule(self) -> dict[int, int]:
         campus = self.config.campus_demand
         if campus is None or not campus.enabled or campus.cafeteria_id is None:
@@ -546,7 +546,7 @@ class DiningSimulationRunner:
             seed=self.config.seed,
         )
 
-    # 讲解注释：_arrival_horizon_minute() 计算或生成学生到达相关数据。
+    # 计算最后一批学生到达后的仿真到达期边界。
     def _arrival_horizon_minute(self) -> int:
         if self.config.campus_demand and self.config.campus_demand.enabled:
             if not self.campus_arrival_schedule:
@@ -556,7 +556,7 @@ class DiningSimulationRunner:
             return self.config.duration_min
         return max(self.config.duration_min, max(self.campus_arrival_schedule) + 1)
 
-    # 讲解注释：_create_party_students() 创建默认对象或运行时辅助对象。
+    # 按结伴人数分布拆分本分钟到达人数，并创建学生和小组对象。
     def _create_party_students(self, minute: int, person_count: int) -> list[Student]:
         arrivals = []
         remaining = max(0, person_count)
@@ -587,14 +587,14 @@ class DiningSimulationRunner:
             remaining -= party_size
         return arrivals
 
-    # 讲解注释：_enqueue_arrivals() 计算或生成学生到达相关数据。
+    # 为新到达学生选择窗口并加入对应排队队列。
     def _enqueue_arrivals(self, arrivals: list[Student]) -> None:
         for student in arrivals:
             idx = self._choose_window_for_student(student)
             student.window_index = idx
             self.queues[idx].append(student)
 
-    # 讲解注释：_choose_window_for_student() 处理取餐窗口相关状态或位置。
+    # 结合队伍长度和入口到窗口距离选择排队窗口。
     def _choose_window_for_student(self, student: Student) -> int:
         # 学生选择窗口时同时考虑队伍长度和入口到窗口距离，队伍越短、距离越近越优。
         door = self.layout.doors[min(student.door_index, len(self.layout.doors) - 1)]
@@ -606,7 +606,7 @@ class DiningSimulationRunner:
             ),
         )
 
-    # 讲解注释：_start_window_services() 处理取餐窗口相关状态或位置。
+    # 空闲窗口从队首取学生开始服务，并按窗口速度系数采样服务时长。
     def _start_window_services(self, minute: int) -> None:
         for idx, service in enumerate(self.windows):
             if service is not None or not self.queues[idx]:
@@ -619,7 +619,7 @@ class DiningSimulationRunner:
                 remaining=self._sample_duration(self.config.service_time_mean / max(0.1, window.service_rate_factor)),
             )
 
-    # 讲解注释：_choose_table_for_party() 处理餐桌容量、位置或占用状态。
+    # 按可用容量、距离、拼桌惩罚和空座浪费为小组选择餐桌。
     def _choose_table_for_party(self, party: DiningParty) -> int | None:
         # 小组选择餐桌时考虑容量、距离、拼桌惩罚和空座浪费；没有合适桌子就继续等座。
         candidates: list[tuple[float, int]] = []
@@ -639,11 +639,11 @@ class DiningSimulationRunner:
             return None
         return min(candidates, key=lambda item: (item[0], item[1]))[1]
 
-    # 讲解注释：_party_reference_window() 处理取餐窗口相关状态或位置。
+    # 返回该小组取餐完成位置对应的窗口对象。
     def _party_reference_window(self, party: DiningParty) -> LayoutWindowData:
         return self.layout.windows[self._party_reference_window_index(party)]
 
-    # 讲解注释：_party_reference_window_index() 处理取餐窗口相关状态或位置。
+    # 用组内最晚完成取餐的成员确定小组走向餐桌的起点窗口。
     def _party_reference_window_index(self, party: DiningParty) -> int:
         if not self.layout.windows:
             return 0
@@ -663,7 +663,7 @@ class DiningSimulationRunner:
         )
         return min(max(0, int(latest.window_index or 0)), len(self.layout.windows) - 1)
 
-    # 讲解注释：_window_service_point() 处理取餐窗口相关状态或位置。
+    # 取窗口朝向内侧的一点作为学生离开窗口后的行走起点。
     def _window_service_point(self, window: LayoutWindowData) -> dict[str, float]:
         normal = self._wall_normal(window.wall_side)
         footprint = self._opening_footprint("window", window.wall_side)
@@ -673,7 +673,7 @@ class DiningSimulationRunner:
             "y": window.y + normal["y"] * (half + 6),
         })
 
-    # 讲解注释：_walking_path() 处理行走路径或路径采样。
+    # _walking_path() 处理行走路径或路径采样。
     def _walking_path(
         self,
         start: dict[str, float],
@@ -713,7 +713,7 @@ class DiningSimulationRunner:
                 return path
         return direct
 
-    # 讲解注释：_path_is_clear() 处理行走路径或路径采样。
+    # _path_is_clear() 处理行走路径或路径采样。
     def _path_is_clear(self, path: list[dict[str, float]], boxes: list[dict[str, float]]) -> bool:
         points = _dedupe_path(path)
         return all(
@@ -721,7 +721,7 @@ class DiningSimulationRunner:
             for index in range(1, len(points))
         )
 
-    # 讲解注释：_walking_duration_sec() 封装本文件中的一个独立处理步骤。
+    # 把路径长度换算成前端播放用的行走秒数，并限制最短和最长时长。
     def _walking_duration_sec(self, path: list[dict[str, float]]) -> int:
         distance = _path_length(path)
         if distance <= 0:
@@ -731,7 +731,7 @@ class DiningSimulationRunner:
             min(MAX_WALKING_DURATION_SEC, int(round(distance / WALKING_SPEED_UNITS_PER_SEC))),
         )
 
-    # 讲解注释：_table_obstacle_boxes() 处理餐桌容量、位置或占用状态。
+    # 把除目标餐桌外的桌面 footprint 转成行走避障矩形。
     def _table_obstacle_boxes(self, exclude_index: int | None = None) -> list[dict[str, float]]:
         boxes: list[dict[str, float]] = []
         for idx, table in enumerate(self.layout.tables):
@@ -747,7 +747,7 @@ class DiningSimulationRunner:
             ))
         return boxes
 
-    # 讲解注释：_table_footprint() 处理餐桌容量、位置或占用状态。
+    # 根据桌型容量和旋转角估算碰撞检测所需的桌面尺寸。
     def _table_footprint(self, table: LayoutTableData) -> dict[str, float]:
         capacity = max(1, int(table.capacity or 1))
         if capacity <= 2:
@@ -761,7 +761,7 @@ class DiningSimulationRunner:
             return {"width": footprint["height"], "height": footprint["width"]}
         return footprint
 
-    # 讲解注释：_opening_footprint() 封装本文件中的一个独立处理步骤。
+    # 根据门/窗口类型和所在墙面给出墙面开口的占位尺寸。
     def _opening_footprint(self, kind: str, wall_side: str) -> dict[str, float]:
         if kind == "door":
             horizontal = {"width": 52.0, "height": 32.0}
@@ -771,7 +771,7 @@ class DiningSimulationRunner:
             vertical = {"width": 32.0, "height": 36.0}
         return horizontal if wall_side in {"top", "bottom"} else vertical
 
-    # 讲解注释：_wall_normal() 封装本文件中的一个独立处理步骤。
+    # 返回从墙面指向食堂内部的单位方向，用于放置服务点。
     def _wall_normal(self, wall_side: str) -> dict[str, float]:
         if wall_side == "right":
             return {"x": -1.0, "y": 0.0}
@@ -781,7 +781,7 @@ class DiningSimulationRunner:
             return {"x": 1.0, "y": 0.0}
         return {"x": 0.0, "y": 1.0}
 
-    # 讲解注释：_arrival_rate_for_minute() 计算或生成学生到达相关数据。
+    # 手动模式下按高峰区间和错峰分钟数计算本分钟泊松到达率。
     def _arrival_rate_for_minute(self, minute: int) -> float:
         rate = self.config.arrival_rate
         in_peak = self.config.peak_start_min <= minute < self.config.peak_end_min
@@ -794,7 +794,7 @@ class DiningSimulationRunner:
         stagger_factor = max(0.55, 1.0 - self.config.stagger_minutes / 45)
         return rate * self.config.peak_multiplier * stagger_factor
 
-    # 讲解注释：_poisson() 封装本文件中的一个独立处理步骤。
+    # 使用 Knuth 算法采样普通到达人数，大均值时改用正态近似。
     def _poisson(self, lam: float) -> int:
         if lam <= 0:
             return 0
@@ -808,14 +808,14 @@ class DiningSimulationRunner:
             product *= self.rng.random()
         return count - 1
 
-    # 讲解注释：_sample_duration() 封装本文件中的一个独立处理步骤。
+    # 围绕均值采样服务或就餐时长，并保证至少持续一分钟。
     def _sample_duration(self, mean: float) -> int:
         if mean <= 1:
             return 1
         spread = max(0.35, mean * 0.22)
         return max(1, int(round(self.rng.gauss(mean, spread))))
 
-    # 讲解注释：_sample_party_size() 封装本文件中的一个独立处理步骤。
+    # 按归一化后的结伴人数分布随机抽取小组人数。
     def _sample_party_size(self) -> int:
         distribution = _normalized_party_distribution(self.config.party_size_distribution)
         threshold = self.rng.random()
@@ -826,7 +826,7 @@ class DiningSimulationRunner:
                 return size
         return distribution[-1][0] if distribution else 1
 
-    # 讲解注释：_sample_door_index() 封装本文件中的一个独立处理步骤。
+    # 按入口 arrival_share 权重抽取本批学生进入食堂的入口。
     def _sample_door_index(self) -> int:
         shares = [max(0.0, door.arrival_share) for door in self.layout.doors]
         total = sum(shares)
@@ -840,11 +840,11 @@ class DiningSimulationRunner:
                 return idx
         return len(shares) - 1
 
-    # 讲解注释：_waiting_for_seat_people() 处理座位、等座或入座相关状态。
+    # 统计当前等座队列中的总人数，而不是只统计小组数。
     def _waiting_for_seat_people(self) -> int:
         return sum(party.size for party in self.waiting_for_seat)
 
-    # 讲解注释：_fragmented_seats() 处理座位、等座或入座相关状态。
+    # 统计已被部分占用餐桌上的剩余空位，用来衡量拼桌碎片化。
     def _fragmented_seats(self) -> int:
         return sum(
             table.capacity - occupied
@@ -852,7 +852,7 @@ class DiningSimulationRunner:
             if 0 < occupied < table.capacity
         )
 
-    # 讲解注释：_has_active_students() 封装本文件中的一个独立处理步骤。
+    # 判断系统内是否还有处于排队、服务、等座、行走或就餐阶段的学生。
     def _has_active_students(self) -> bool:
         return (
             any(self.queues)
@@ -862,7 +862,7 @@ class DiningSimulationRunner:
             or bool(self.seated)
         )
 
-    # 讲解注释：_build_record() 读写或展示分钟级过程记录。
+    # 把当前 runner 状态整理成本分钟 StepRecord。
     def _build_record(
         self,
         t: int,
@@ -893,7 +893,7 @@ class DiningSimulationRunner:
             snapshot=snapshot,
         )
 
-    # 讲解注释：_avg_wait_so_far() 封装本文件中的一个独立处理步骤。
+    # 只用已经入座的学生计算截至当前分钟的平均等待时间。
     def _avg_wait_so_far(self) -> float:
         waits = [
             student.seat_time - student.arrival_time
@@ -902,7 +902,7 @@ class DiningSimulationRunner:
         ]
         return round(sum(waits) / len(waits), 2) if waits else 0.0
 
-    # 讲解注释：_snapshot() 把坐标或尺寸吸附到网格/范围内。
+    # 生成前端实时地图需要的当前队列、窗口、餐桌和小组状态快照。
     def _snapshot(self) -> dict[str, Any]:
         occupied = len(self.seated)
         return {
@@ -939,7 +939,7 @@ class DiningSimulationRunner:
             },
         }
 
-    # 讲解注释：_queue_groups_snapshot() 处理排队数据或队列展示。
+    # 把窗口队列里的学生按小组聚合，保留队列位置和来源入口。
     def _queue_groups_snapshot(self) -> list[dict[str, Any]]:
         groups: list[dict[str, Any]] = []
         for window_index, queue in enumerate(self.queues):
@@ -962,7 +962,7 @@ class DiningSimulationRunner:
             groups.extend(sorted(grouped.values(), key=lambda item: item["queue_position"]))
         return groups
 
-    # 讲解注释：_window_services_snapshot() 处理取餐窗口相关状态或位置。
+    # 输出每个忙碌窗口正在服务的小组、入口和剩余服务时间。
     def _window_services_snapshot(self) -> list[dict[str, Any]]:
         services: list[dict[str, Any]] = []
         for window_index, service in enumerate(self.windows):
@@ -982,7 +982,7 @@ class DiningSimulationRunner:
             )
         return services
 
-    # 讲解注释：_waiting_parties_snapshot() 把坐标或尺寸吸附到网格/范围内。
+    # 输出正在等座的小组顺序、就绪时间和参考窗口。
     def _waiting_parties_snapshot(self) -> list[dict[str, Any]]:
         return [
             {
@@ -998,7 +998,7 @@ class DiningSimulationRunner:
             for position, party in enumerate(self.waiting_for_seat)
         ]
 
-    # 讲解注释：_walking_parties_snapshot() 把坐标或尺寸吸附到网格/范围内。
+    # 按指定秒数采样正在走向餐桌的小组位置。
     def _walking_parties_snapshot(self, time_sec: int | None = None) -> list[dict[str, Any]]:
         now_sec = self.current_minute * 60 if time_sec is None else time_sec
         return [
@@ -1006,7 +1006,7 @@ class DiningSimulationRunner:
             for transfer in self.walking_to_seat
         ]
 
-    # 讲解注释：_walking_transfer_snapshot() 把坐标或尺寸吸附到网格/范围内。
+    # 把一个行走转移对象转换成前端可绘制的进度、坐标和路径信息。
     def _walking_transfer_snapshot(self, transfer: WalkingSeatTransfer, time_sec: int) -> dict[str, Any]:
         duration = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
         progress = max(0.0, min(1.0, (time_sec - transfer.start_time_sec) / duration))
@@ -1035,7 +1035,7 @@ class DiningSimulationRunner:
             "path": transfer.path,
         }
 
-    # 讲解注释：_walking_event_snapshot() 把坐标或尺寸吸附到网格/范围内。
+    # 为本分钟新发生的入座行走生成播放起止时间和逐秒帧。
     def _walking_event_snapshot(self, transfer: WalkingSeatTransfer, step_start_sec: int) -> dict[str, Any]:
         payload = self._walking_transfer_snapshot(transfer, transfer.start_time_sec)
         duration_sec = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
@@ -1055,7 +1055,7 @@ class DiningSimulationRunner:
         })
         return payload
 
-    # 讲解注释：_walking_frames() 封装本文件中的一个独立处理步骤。
+    # 沿后端路径逐秒采样坐标，供前端在一个 step 内平滑播放。
     def _walking_frames(self, transfer: WalkingSeatTransfer) -> list[dict[str, Any]]:
         duration = max(1, transfer.arrive_time_sec - transfer.start_time_sec)
         frames = []
@@ -1070,7 +1070,7 @@ class DiningSimulationRunner:
             })
         return frames
 
-    # 讲解注释：_build_step_timeline() 组装展示、请求或内部计算所需的数据结构。
+    # 把本分钟发生的行走事件包装成 snapshot.timeline。
     def _build_step_timeline(
         self,
         start_time_sec: int,
@@ -1090,7 +1090,7 @@ class DiningSimulationRunner:
             "events": events,
         }
 
-    # 讲解注释：_seated_parties_snapshot() 处理座位、等座或入座相关状态。
+    # 按小组和餐桌聚合已入座成员，便于前端显示桌面占用。
     def _seated_parties_snapshot(self) -> list[dict[str, Any]]:
         seated: dict[tuple[int, int], dict[str, Any]] = {}
         for seat in self.seated:
@@ -1117,7 +1117,7 @@ class DiningSimulationRunner:
             item["remaining"] = max(item["remaining"], seat.remaining)
         return sorted(seated.values(), key=lambda item: (item["table_index"], item["party_id"]))
 
-    # 讲解注释：_build_metrics() 读取或计算指标汇总。
+    # 从学生时间戳、分钟记录和资源占用累计值计算最终指标。
     def _build_metrics(self) -> MetricsSummary:
         # 指标汇总从所有学生、所有分钟记录和资源占用累计值中计算。
         seated_students = [student for student in self.students.values() if student.seat_time is not None]
@@ -1177,7 +1177,7 @@ class DiningSimulationRunner:
             table_utilization_by_type=table_utilization_by_type,
         )
 
-    # 讲解注释：_party_gather_wait() 封装本文件中的一个独立处理步骤。
+    # 计算同组最早和最晚取餐完成时间差，用于衡量结伴等待。
     def _party_gather_wait(self, party: DiningParty) -> float:
         service_end_times = [
             self.students[student_id].service_end_time
@@ -1188,7 +1188,7 @@ class DiningSimulationRunner:
             return 0.0
         return max(service_end_times) - min(service_end_times)
 
-    # 讲解注释：_table_utilization_by_type() 处理餐桌容量、位置或占用状态。
+    # 按餐桌类型汇总每分钟占用座位数，得到各类型利用率。
     def _table_utilization_by_type(self) -> dict[str, float]:
         capacity_by_type: dict[str, int] = {}
         occupied_minutes_by_type: dict[str, int] = {}
@@ -1205,7 +1205,7 @@ class DiningSimulationRunner:
             for table_type, capacity in capacity_by_type.items()
         }
 
-    # 讲解注释：_classify_bottleneck() 封装本文件中的一个独立处理步骤。
+    # 按排队峰值、等座峰值和资源利用率给出可解释的瓶颈标签。
     def _classify_bottleneck(
         self,
         peak_queue: int,
@@ -1225,14 +1225,14 @@ class DiningSimulationRunner:
         return "运行平衡"
 
 
-# 讲解注释：_effective_layout() 处理前端布局或后端布局数据。
+# 优先使用前端传入布局；没有布局时回退到后端默认平面。
 def _effective_layout(config: SimulationConfigData) -> DiningLayoutData:
     if config.layout is not None:
         return config.layout
     return _default_layout(config)
 
 
-# 讲解注释：_default_layout() 处理前端布局或后端布局数据。
+# 根据窗口数和座位数生成一份可运行的默认食堂布局。
 def _default_layout(config: SimulationConfigData) -> DiningLayoutData:
     doors = [LayoutDoorData(id="D1", x=18, y=145, arrival_share=1.0)]
     windows = [
@@ -1257,7 +1257,7 @@ def _default_layout(config: SimulationConfigData) -> DiningLayoutData:
     return DiningLayoutData(doors=doors, windows=windows, tables=tables)
 
 
-# 讲解注释：_default_table_capacities() 处理餐桌容量、位置或占用状态。
+# 用 2/4/4/6 的容量模式拆分默认餐桌，直到覆盖目标座位数。
 def _default_table_capacities(num_seats: int) -> list[int]:
     remaining = max(0, num_seats)
     capacities: list[int] = []
@@ -1271,7 +1271,7 @@ def _default_table_capacities(num_seats: int) -> list[int]:
     return capacities
 
 
-# 讲解注释：_table_type_for_capacity() 处理餐桌容量、位置或占用状态。
+# 把餐桌容量映射为前端和指标汇总使用的桌型名称。
 def _table_type_for_capacity(capacity: int) -> str:
     if capacity <= 1:
         return "single_seat"
@@ -1282,7 +1282,7 @@ def _table_type_for_capacity(capacity: int) -> str:
     return "six_seat"
 
 
-# 讲解注释：_normalized_party_distribution() 把输入值标准化为后续逻辑可使用的形式。
+# 清洗结伴人数权重并归一化，供随机抽样使用。
 def _normalized_party_distribution(distribution: dict[int, float]) -> list[tuple[int, float]]:
     weighted_sizes: list[tuple[int, float]] = []
     for raw_size, raw_weight in distribution.items():
@@ -1299,17 +1299,17 @@ def _normalized_party_distribution(distribution: dict[int, float]) -> list[tuple
     return [(size, weight / total) for size, weight in sorted(weighted_sizes)]
 
 
-# 讲解注释：_distance() 封装本文件中的一个独立处理步骤。
+# 计算两个带 x/y 属性布局元素之间的欧氏距离。
 def _distance(a: Any, b: Any) -> float:
     return math.hypot(float(a.x) - float(b.x), float(a.y) - float(b.y))
 
 
-# 讲解注释：_point_distance() 封装本文件中的一个独立处理步骤。
+# 计算两个字典坐标点之间的欧氏距离。
 def _point_distance(a: dict[str, float], b: dict[str, float]) -> float:
     return math.hypot(float(a["x"]) - float(b["x"]), float(a["y"]) - float(b["y"]))
 
 
-# 讲解注释：_clean_point() 封装本文件中的一个独立处理步骤。
+# 将 dict 或布局对象坐标规范成保留一位小数的点。
 def _clean_point(point: dict[str, float] | Any) -> dict[str, float]:
     if isinstance(point, dict):
         x = point.get("x", 0)
@@ -1320,7 +1320,7 @@ def _clean_point(point: dict[str, float] | Any) -> dict[str, float]:
     return {"x": round(float(x), 1), "y": round(float(y), 1)}
 
 
-# 讲解注释：_dedupe_path() 处理行走路径或路径采样。
+# _dedupe_path() 处理行走路径或路径采样。
 def _dedupe_path(path: list[dict[str, float]]) -> list[dict[str, float]]:
     cleaned: list[dict[str, float]] = []
     for point in path:
@@ -1331,13 +1331,13 @@ def _dedupe_path(path: list[dict[str, float]]) -> list[dict[str, float]]:
     return cleaned
 
 
-# 讲解注释：_path_length() 处理行走路径或路径采样。
+# _path_length() 处理行走路径或路径采样。
 def _path_length(path: list[dict[str, float]]) -> float:
     points = _dedupe_path(path)
     return sum(_point_distance(points[index - 1], points[index]) for index in range(1, len(points)))
 
 
-# 讲解注释：_sample_path() 处理行走路径或路径采样。
+# _sample_path() 处理行走路径或路径采样。
 def _sample_path(path: list[dict[str, float]], progress: float) -> dict[str, float]:
     points = _dedupe_path(path)
     if not points:
@@ -1370,18 +1370,18 @@ def _sample_path(path: list[dict[str, float]], progress: float) -> dict[str, flo
     return points[-1]
 
 
-# 讲解注释：_point_inside_box() 封装本文件中的一个独立处理步骤。
+# 判断一个点是否落在指定矩形盒内。
 def _point_inside_box(point: dict[str, float], box: dict[str, float]) -> bool:
     return box["left"] <= point["x"] <= box["right"] and box["top"] <= point["y"] <= box["bottom"]
 
 
-# 讲解注释：_segments_intersect() 封装本文件中的一个独立处理步骤。
+# 判断两条线段是否相交，包含共线重叠的边界情况。
 def _segments_intersect(a: dict[str, float], b: dict[str, float], c: dict[str, float], d: dict[str, float]) -> bool:
-    # 讲解注释：orientation() 封装本文件中的一个独立处理步骤。
+    # 用三点叉积符号判断转向关系。
     def orientation(left: dict[str, float], mid: dict[str, float], right: dict[str, float]) -> float:
         return (mid["y"] - left["y"]) * (right["x"] - mid["x"]) - (mid["x"] - left["x"]) * (right["y"] - mid["y"])
 
-    # 讲解注释：on_segment() 封装本文件中的一个独立处理步骤。
+    # 在线段端点包围盒内时，共线点视为落在线段上。
     def on_segment(left: dict[str, float], mid: dict[str, float], right: dict[str, float]) -> bool:
         return (
             min(left["x"], right["x"]) <= mid["x"] <= max(left["x"], right["x"])
@@ -1404,7 +1404,7 @@ def _segments_intersect(a: dict[str, float], b: dict[str, float], c: dict[str, f
     return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
 
 
-# 讲解注释：_segment_intersects_box() 封装本文件中的一个独立处理步骤。
+# 判断一段行走路径是否穿过餐桌避障矩形。
 def _segment_intersects_box(start: dict[str, float], end: dict[str, float], box: dict[str, float]) -> bool:
     if _point_inside_box(start, box) or _point_inside_box(end, box):
         return True
@@ -1420,7 +1420,7 @@ def _segment_intersects_box(start: dict[str, float], end: dict[str, float], box:
     )
 
 
-# 讲解注释：_box() 封装本文件中的一个独立处理步骤。
+# 生成带可选 padding 的矩形盒，用于行走路径碰撞检测。
 def _box(left: float, top: float, right: float, bottom: float, padding: float = 0.0) -> dict[str, float]:
     return {
         "left": left - padding,
@@ -1430,12 +1430,12 @@ def _box(left: float, top: float, right: float, bottom: float, padding: float = 
     }
 
 
-# 讲解注释：_average() 封装本文件中的一个独立处理步骤。
+# 对可能为空的数值序列求平均，空序列返回 0。
 def _average(values: Any) -> float:
     items = list(values)
     return sum(items) / len(items) if items else 0.0
 
 
-# 讲解注释：dataclass_to_dict() 封装本文件中的一个独立处理步骤。
+# 将仿真 dataclass 结果递归转换成可序列化字典。
 def dataclass_to_dict(value: Any) -> Any:
     return asdict(value)
