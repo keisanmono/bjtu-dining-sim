@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 
+# 本文件只做本地规则化解释：根据瓶颈、基准指标和推荐指标拼接说明文本，
+# 不调用外部大模型，核心仿真和推荐逻辑也不依赖 LLM。
 def build_rule_based_explanation(payload: dict[str, Any]) -> dict[str, Any]:
     baseline_metrics = payload.get("baseline_metrics") or {}
     best_metrics = payload.get("best_metrics") or {}
@@ -41,4 +43,3 @@ def _metric_delta(base: dict[str, Any], best: dict[str, Any], key: str) -> float
     if key not in base or key not in best:
         return 0.0
     return round(float(base[key]) - float(best[key]), 2)
-

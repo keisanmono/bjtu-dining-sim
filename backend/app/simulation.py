@@ -15,6 +15,8 @@ from .campus import (
     known_cafeteria_ids,
 )
 
+# 核心离散时间仿真模块：所有学生、队列、窗口、餐桌和指标都在这里推进。
+# 检查时重点讲 DiningSimulationRunner.step() 的分钟级顺序，而不是前端展示细节。
 WALKING_SPEED_UNITS_PER_SEC = 38.0
 MIN_WALKING_DURATION_SEC = 3
 MAX_WALKING_DURATION_SEC = 45
@@ -25,6 +27,7 @@ MAX_WALKING_PLAYBACK_MS = 900
 PATH_OBSTACLE_PADDING = 7
 
 
+# 前端布局编辑器传来的入口、窗口、餐桌，后端用坐标计算排队选择和入座路径。
 @dataclass(frozen=True)
 class LayoutDoorData:
     id: str
@@ -60,6 +63,7 @@ class DiningLayoutData:
     tables: list[LayoutTableData] = field(default_factory=list)
 
 
+# SimulationConfigData 是仿真内部配置，来自 schemas.SimulationConfig.to_data()。
 @dataclass(frozen=True)
 class SimulationConfigData:
     num_windows: int = 4
@@ -82,6 +86,7 @@ class SimulationConfigData:
         return replace(self, **updates)
 
 
+# Student 表示单个学生，从到达、排队、服务、入座到离开都会记录时间点。
 @dataclass
 class Student:
     student_id: int
@@ -96,6 +101,7 @@ class Student:
     window_index: int | None = None
 
 
+# DiningParty 表示结伴就餐小组；同组成员都取餐完成后才进入等座队列。
 @dataclass
 class DiningParty:
     party_id: int
@@ -135,6 +141,7 @@ class WalkingSeatTransfer:
     path: list[dict[str, float]]
 
 
+# StepRecord 是每推进一分钟返回给前端和数据库保存的过程记录。
 @dataclass(frozen=True)
 class StepRecord:
     run_id: str
@@ -154,6 +161,7 @@ class StepRecord:
     snapshot: dict[str, Any] = field(default_factory=dict)
 
 
+# MetricsSummary 是仿真结束后的指标汇总，结果分析页和推荐模块都读取这些字段。
 @dataclass(frozen=True)
 class MetricsSummary:
     run_id: str
@@ -261,6 +269,7 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
     return errors, warnings
 
 
+# 完整仿真只是循环调用 runner.step()，因此与实时单步接口使用同一套核心逻辑。
 def run_simulation(config: SimulationConfigData, run_id: str | None = None) -> SimulationResult:
     runner = DiningSimulationRunner(config, run_id=run_id)
     while not runner.done:
@@ -268,6 +277,7 @@ def run_simulation(config: SimulationConfigData, run_id: str | None = None) -> S
     return runner.result()
 
 
+# DiningSimulationRunner 保存一次仿真的全部动态状态：队列、窗口、等座、行走、入座和记录。
 class DiningSimulationRunner:
     def __init__(self, config: SimulationConfigData, run_id: str | None = None):
         errors, _ = validate_config(config)
@@ -312,6 +322,10 @@ class DiningSimulationRunner:
         return self.current_minute >= self.arrival_horizon_minute and not self._has_active_students()
 
     def step(self) -> StepRecord:
+        # 单步顺序用于检查讲解：
+        # 1. 吃完离开；2. 推进窗口服务；3. 完成取餐的小组进入等座；
+        # 4. 分配餐桌；5. 生成新到达；6. 选择窗口排队；
+        # 7. 空闲窗口开始服务；8. 推进入座行走；9. 生成 StepRecord。
         if self.done:
             raise RuntimeError("仿真已经结束。")
 
@@ -481,6 +495,7 @@ class DiningSimulationRunner:
         return arrived_count
 
     def _generate_arrivals(self, minute: int) -> list[Student]:
+        # 到达有两种模式：校园到达使用预先生成的下课到达表，手动模式按泊松分布采样。
         if self.config.campus_demand and self.config.campus_demand.enabled:
             count = self.campus_arrival_schedule.get(minute, 0)
             return self._create_party_students(minute=minute, person_count=count)
@@ -545,6 +560,7 @@ class DiningSimulationRunner:
             self.queues[idx].append(student)
 
     def _choose_window_for_student(self, student: Student) -> int:
+        # 学生选择窗口时同时考虑队伍长度和入口到窗口距离，队伍越短、距离越近越优。
         door = self.layout.doors[min(student.door_index, len(self.layout.doors) - 1)]
         return min(
             range(len(self.queues)),
@@ -567,6 +583,7 @@ class DiningSimulationRunner:
             )
 
     def _choose_table_for_party(self, party: DiningParty) -> int | None:
+        # 小组选择餐桌时考虑容量、距离、拼桌惩罚和空座浪费；没有合适桌子就继续等座。
         candidates: list[tuple[float, int]] = []
         party_window = self._party_reference_window(party)
         for idx, table in enumerate(self.layout.tables):
@@ -1033,6 +1050,7 @@ class DiningSimulationRunner:
         return sorted(seated.values(), key=lambda item: (item["table_index"], item["party_id"]))
 
     def _build_metrics(self) -> MetricsSummary:
+        # 指标汇总从所有学生、所有分钟记录和资源占用累计值中计算。
         seated_students = [student for student in self.students.values() if student.seat_time is not None]
         served_students = [student for student in self.students.values() if student.service_start_time is not None]
         seated_parties = [party for party in self.parties.values() if party.seat_time is not None]
@@ -1124,6 +1142,7 @@ class DiningSimulationRunner:
         seat_utilization: float,
         window_utilization: float,
     ) -> str:
+        # 瓶颈分类用于结果分析和规则化解释：座位容量、窗口服务、到达高峰或运行平衡。
         if peak_waiting_for_seat > 0 and (seat_utilization >= 0.72 or avg_seat_wait >= 1.0):
             return "座位容量"
         window_count = max(1, len(self.windows))

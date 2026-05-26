@@ -462,6 +462,8 @@ import { LIVE_TRANSITION_MS } from './liveMapModel'
 import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
 import { liveStepDelay, shouldRequestLiveStep, shouldResetStepRun } from './runControl'
 
+// 默认仿真参数：检查时可从这里说明窗口数、座位数、到达率、服务时长、
+// 就餐时长和随机种子如何组成后端 SimulationConfig。
 const defaultConfig = {
   num_windows: 4,
   num_seats: 120,
@@ -484,6 +486,9 @@ const LIVE_RECORD_LIMIT = 600
 const LIVE_CHART_RECORD_LIMIT = 240
 const LIVE_CHART_RENDER_INTERVAL_MS = 900
 
+// 页面级状态：activeView 控制四个页签，config/layout 保存用户配置，
+// runId/records/metrics/currentState 分别对应一次运行的编号、分钟记录、
+// 最终指标和地图实时状态，是检查时讲前后端数据流的主线。
 const activeView = ref('config')
 const config = reactive({ ...defaultConfig })
 const layout = ref(createDefaultLayout(defaultConfig))
@@ -512,6 +517,7 @@ const campusSourceMode = ref('manual')
 const campusLoadingSource = ref('')
 const campusWarning = ref('')
 
+// ECharts 容器和实例：records 或 metrics 变化后会触发图表刷新。
 const queueChartEl = ref(null)
 const trendChartEl = ref(null)
 const analysisChartEl = ref(null)
@@ -587,6 +593,8 @@ onBeforeUnmount(() => {
 watch(metrics, renderCharts)
 watch(activeView, renderCharts)
 
+// 布局编辑器和基础参数需要双向同步：检查时可说明窗口/餐桌拖拽后，
+// 最终仍会转成同一份 layout payload 发送给后端。
 watch(
   () => config.num_windows,
   (newCount) => {
@@ -614,6 +622,7 @@ watch(
   }
 )
 
+// 健康检查只调用 /api/health，用于确认 Vite proxy 后面的 FastAPI 是否可达。
 async function checkHealth() {
   try {
     const res = await api.health()
@@ -807,6 +816,7 @@ function resetCandidateSettings() {
   Object.assign(candidateSettings, createDefaultCandidateSettings(config))
 }
 
+// 参数校验会把当前表单和布局整理成后端请求体，再交给 FastAPI/Pydantic 校验。
 async function validateConfig() {
   refreshCampusDemandConfig()
   const result = await api.validateConfig(buildSimulationConfigPayload(config, layout.value))
@@ -817,6 +827,8 @@ async function validateConfig() {
   return result.valid
 }
 
+// 点击“开始仿真”的入口：第一次运行会 reset 并请求首个单步，
+// 后续自动运行则由定时器持续调用 singleStep(false)。
 async function startLiveRun() {
   if (isRunning.value) return
   isRunning.value = true
@@ -887,6 +899,7 @@ function resetRun(clearMessage = true) {
   renderCharts()
 }
 
+// 后端每返回一条 StepRecord，就追加到 records；指标卡片和趋势图都从这里取数据。
 function appendRunRecord(record) {
   if (!record) return
   records.value.push(record)
@@ -898,6 +911,8 @@ function appendRunRecord(record) {
   renderChartsThrottled()
 }
 
+// 实时仿真的核心前端请求：reset=true 时携带完整 config 新建 runner，
+// reset=false 时只携带 run_id，让后端继续推进同一个 DiningSimulationRunner。
 async function singleStep(reset = false, options = {}) {
   if (stepInFlight) return null
   stepInFlight = true
@@ -952,6 +967,7 @@ function applyRunResponse(response) {
   renderCharts()
 }
 
+// 优化推荐链路：前端只提交基准配置和候选范围，后端负责枚举、评分和规则化解释。
 async function generateRecommendation() {
   try {
     isRecommending.value = true
@@ -1071,6 +1087,7 @@ function renderChartsThrottled() {
   }, LIVE_CHART_RENDER_INTERVAL_MS - elapsed)
 }
 
+// 图表刷新使用 requestAnimationFrame，避免实时单步返回太快时频繁重绘。
 function renderCharts() {
   nextTick(() => {
     if (chartRenderFrame) {
@@ -1119,6 +1136,8 @@ function renderAnalysisChart() {
   analysisChart.setOption(trendOption(true))
 }
 
+// 趋势图数据优先使用后端最终 metrics.chart_data；实时运行未结束时，
+// 则从最近的 StepRecord 临时拼出队列、空座、吞吐和等座曲线。
 function trendOption(large = false) {
   const chart = metrics.value?.chart_data || {
     times: chartRecords.value.map((item) => item.t),

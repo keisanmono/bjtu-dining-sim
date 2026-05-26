@@ -18,6 +18,7 @@ from .simulation import (
 )
 
 
+# 布局相关模型直接对应前端 LayoutEditor 传来的入口、窗口和餐桌坐标。
 class LayoutDoor(BaseModel):
     id: str
     x: float
@@ -68,6 +69,7 @@ class CampusDemandConfig(BaseModel):
     buildings: list[CampusBuildingDemand] = Field(default_factory=list)
 
 
+# SimulationConfig 是前端提交的核心配置；Field 用于限制接口入参范围。
 class SimulationConfig(BaseModel):
     num_windows: int = Field(default=4, ge=1, le=30)
     num_seats: int = Field(default=120, ge=1, le=2000)
@@ -86,6 +88,7 @@ class SimulationConfig(BaseModel):
     campus_demand: CampusDemandConfig | None = None
 
     def to_data(self) -> SimulationConfigData:
+        # 接口层使用 Pydantic，仿真层使用 dataclass；这里完成两者之间的显式转换。
         payload = self.model_dump()
         layout = payload.pop("layout")
         campus_demand = payload.pop("campus_demand")
@@ -116,12 +119,14 @@ class SimulationConfig(BaseModel):
         return SimulationConfigData(**payload)
 
 
+# 参数校验接口返回：valid 表示是否可运行，warnings 用于提示潜在瓶颈。
 class ValidationResponse(BaseModel):
     valid: bool
     errors: list[str]
     warnings: list[str]
 
 
+# 完整仿真返回：包含全部过程记录、最终指标和最终状态快照。
 class RunResponse(BaseModel):
     run_id: str
     config: dict[str, Any]
@@ -130,12 +135,14 @@ class RunResponse(BaseModel):
     final_state: dict[str, Any]
 
 
+# 单步请求：首次或重置时带 config，后续请求只需 run_id 继续同一个 runner。
 class StepRequest(BaseModel):
     run_id: str | None = None
     config: SimulationConfig | None = None
     reset: bool = False
 
 
+# 单步返回：record 是本分钟记录，state 是地图实时状态，metrics 只在结束时返回。
 class StepResponse(BaseModel):
     run_id: str
     done: bool
@@ -150,6 +157,7 @@ class CampusOccupancyRequest(BaseModel):
     seed: int = 20
 
 
+# 推荐接口请求：base_config 是基准方案，其余列表是后端枚举候选范围。
 class RecommendationRequest(BaseModel):
     base_config: SimulationConfig
     window_options: list[int] = Field(default_factory=lambda: [3, 4, 5])
@@ -159,6 +167,7 @@ class RecommendationRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
 
 
+# 解释接口请求：把基准/推荐指标和策略传给规则化解释模块。
 class ExplanationRequest(BaseModel):
     run_id: str | None = None
     baseline_config: dict[str, Any] | None = None

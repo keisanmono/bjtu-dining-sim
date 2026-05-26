@@ -19,6 +19,7 @@ from .simulation import (
 )
 
 
+# 推荐请求内部模型：前端给出基准配置和候选范围，后端负责枚举比较。
 @dataclass(frozen=True)
 class RecommendationRequestData:
     base_config: SimulationConfigData
@@ -29,6 +30,7 @@ class RecommendationRequestData:
     top_k: int = 5
 
 
+# 单个候选方案的仿真估算指标、评分和可读策略名称。
 @dataclass(frozen=True)
 class CandidateResultData:
     config: SimulationConfigData
@@ -37,6 +39,7 @@ class CandidateResultData:
     strategy: str
 
 
+# 推荐结果包含基准指标、最佳候选、排序列表和展示用摘要。
 @dataclass(frozen=True)
 class RecommendationResultData:
     baseline_metrics: MetricsSummary
@@ -47,6 +50,7 @@ class RecommendationResultData:
 
 
 def recommend_config(request: RecommendationRequestData) -> RecommendationResultData:
+    # 推荐模块不重写核心仿真，也不依赖外部服务；它枚举窗口、座位、错峰和峰数候选。
     campus_mode = _uses_campus_peak_search(request.base_config)
     baseline_metrics = _estimate_recommendation_metrics(request.base_config)
     candidates: list[CandidateResultData] = []
@@ -124,6 +128,7 @@ def _is_baseline_candidate_key(
 
 
 def _score_candidate(metrics: MetricsSummary, config: SimulationConfigData, base: SimulationConfigData) -> float:
+    # 分数越低表示越优：等待、排队、等座越少越好，新增窗口/座位和错峰延迟会增加成本。
     added_window_cost = max(0, config.num_windows - base.num_windows) * 3.0
     added_seat_cost = max(0, config.num_seats - base.num_seats) * 0.05
     stagger_cost = _stagger_cost(config, base)

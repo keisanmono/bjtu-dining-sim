@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+// FastAPI 后端默认监听 8001；如需切换端口，可在启动前端时设置 VITE_API_TARGET。
 const apiTarget = process.env.VITE_API_TARGET || 'http://127.0.0.1:8001'
 
 export default defineConfig({
@@ -18,8 +19,10 @@ export default defineConfig({
     }
   },
   server: {
+    // Vite 开发服务默认给浏览器访问的端口。
     port: 5173,
     proxy: {
+      // 前端代码统一请求 /api/...，这里转发到后端 8001，避免跨域和硬编码完整地址。
       '/api': {
         target: apiTarget,
         changeOrigin: true

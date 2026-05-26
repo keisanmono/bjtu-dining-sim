@@ -12,6 +12,7 @@ from typing import Any, Iterator
 from .simulation import SimulationResult
 
 
+# SQLite 持久化层：保存配置、每分钟记录、最终指标、推荐结果和解释结果。
 class SimulationStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
@@ -19,6 +20,7 @@ class SimulationStore:
         self._init_db()
 
     def save_result(self, result: SimulationResult) -> None:
+        # 完整仿真结束后落库：先清理同 run_id 旧记录，再写配置、StepRecord 和 MetricsSummary。
         with self._connect() as conn:
             conn.execute("DELETE FROM step_record WHERE run_id = ?", (result.run_id,))
             conn.execute("DELETE FROM metrics_summary WHERE run_id = ?", (result.run_id,))
@@ -142,6 +144,7 @@ class SimulationStore:
         return data
 
     def export_records_csv(self, run_id: str, output_path: str | Path) -> Path:
+        # CSV 导出只包含每分钟过程字段，便于检查后用表格复核仿真过程。
         records = self.get_records(run_id)
         if not records:
             raise KeyError(f"run_id 不存在或没有过程记录: {run_id}")
@@ -172,6 +175,9 @@ class SimulationStore:
 
     def _init_db(self) -> None:
         with self._connect() as conn:
+            # 表结构含义：
+            # run_config 保存输入配置，step_record 保存分钟级过程，
+            # metrics_summary 保存最终指标，optimization/explanation 保存推荐与解释结果。
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS run_config (
