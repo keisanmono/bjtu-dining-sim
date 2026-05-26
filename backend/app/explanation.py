@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# 文件说明：规则化解释模块：把推荐指标和瓶颈判断转换成检查时可读的说明文字。
+# 文件说明：规则化解释模块：把推荐指标和瓶颈判断转换成展示时可读的说明文字。
 
 from typing import Any
 
@@ -16,11 +16,11 @@ def build_rule_based_explanation(payload: dict[str, Any]) -> dict[str, Any]:
     root_cause = payload.get("root_cause_summary") or _infer_root_cause(baseline_metrics)
     risk_notes = list(payload.get("risk_notes") or [])
 
-    # 正数表示推荐方案比基准更低，便于讲解“下降了多少”。
+    # 正数表示推荐方案比基准更低，便于说明“下降了多少”。
     wait_delta = _metric_delta(baseline_metrics, best_metrics, "avg_wait")
     queue_delta = _metric_delta(baseline_metrics, best_metrics, "peak_queue")
     if not risk_notes:
-        # 前端没有传风险说明时，后端补充课程检查中最常见的两类约束。
+        # 前端没有传风险说明时，后端补充课程展示中最常见的两类约束。
         risk_notes = [
             "若学生到达分布与设定参数偏差较大，推荐结果需要重新仿真校准。",
             "窗口和座位扩容会带来人力或空间成本，课程演示中应结合资源约束解释。",

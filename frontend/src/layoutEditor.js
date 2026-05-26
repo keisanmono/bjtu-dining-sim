@@ -930,7 +930,7 @@ export function itemOverlapsLayout(layout, kind, id, x, y, itemOverride = null) 
   })
 }
 
-// 缩小地面时检查餐桌是否贴墙或与被迫移动的门窗发生碰撞。
+// 缩小地面时判断餐桌是否贴墙或与被迫移动的门窗发生碰撞。
 function floorResizeConflictsWithTables(layout, changedSides = ['left', 'right', 'top', 'bottom'], previousLayout = null) {
   const tables = layout?.tables || []
   if (!tables.length) return false

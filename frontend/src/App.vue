@@ -464,7 +464,7 @@ import { LIVE_TRANSITION_MS } from './liveMapModel'
 import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
 import { liveStepDelay, shouldRequestLiveStep, shouldResetStepRun } from './runControl'
 
-// 默认仿真参数：检查时可从这里说明窗口数、座位数、到达率、服务时长、
+// 默认仿真参数：展示时可从这里说明窗口数、座位数、到达率、服务时长、
 // 就餐时长和随机种子如何组成后端 SimulationConfig。
 const defaultConfig = {
   num_windows: 4,
@@ -490,7 +490,7 @@ const LIVE_CHART_RENDER_INTERVAL_MS = 900
 
 // 页面级状态：activeView 控制四个页签，config/layout 保存用户配置，
 // runId/records/metrics/currentState 分别对应一次运行的编号、分钟记录、
-// 最终指标和地图实时状态，是检查时讲前后端数据流的主线。
+// 最终指标和地图实时状态，是展示时说明前后端数据流的主线。
 const activeView = ref('config')
 const config = reactive({ ...defaultConfig })
 const layout = ref(createDefaultLayout(defaultConfig))
@@ -608,7 +608,7 @@ onBeforeUnmount(() => {
 watch(metrics, renderCharts)
 watch(activeView, renderCharts)
 
-// 布局编辑器和基础参数需要双向同步：检查时可说明窗口/餐桌拖拽后，
+// 布局编辑器和基础参数需要双向同步：展示时可说明窗口/餐桌拖拽后，
 // 最终仍会转成同一份 layout payload 发送给后端。
 watch(
   () => config.num_windows,
@@ -637,7 +637,7 @@ watch(
   }
 )
 
-// 健康检查只调用 /api/health，用于确认 Vite proxy 后面的 FastAPI 是否可达。
+// 连通性验证只调用 /api/health，用于确认 Vite proxy 后面的 FastAPI 是否可达。
 async function checkHealth() {
   try {
     const res = await api.health()
@@ -1030,7 +1030,7 @@ async function generateRecommendation() {
       top_k: 4
     }
     recommendation.value = await api.recommend(payload)
-    // 推荐完成后，把基准/最优指标再送到解释接口生成面向检查的文字说明。
+    // 推荐完成后，把基准/最优指标再送到解释接口生成面向展示的文字说明。
     explanation.value = await api.explain({
       run_id: runId.value || null,
       baseline_config: buildSimulationConfigPayload(config, layout.value),

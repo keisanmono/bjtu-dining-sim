@@ -9,7 +9,7 @@ const client = axios.create({
 
 // 所有请求都写成 /api/...，由 Vite proxy 转发到 FastAPI，避免组件里散落后端地址。
 export const api = {
-  // /health：页面右上角后端连通性检查。
+  // /health：页面右上角后端连通性验证。
   health: () => client.get('/health').then((res) => res.data),
   // /campus/locations：加载食堂、教学楼和步行时间基础数据。
   campusLocations: () => client.get('/campus/locations').then((res) => res.data),

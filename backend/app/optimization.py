@@ -313,7 +313,7 @@ def _strategy_label(config: SimulationConfigData, base: SimulationConfigData) ->
         parts.append(f"座位 {config.num_seats}")
     peak_label = _campus_peak_strategy_label(config, base)
     if peak_label:
-        # 校园推荐优先展示“几峰下课”，比普通错峰分钟更符合检查讲解。
+        # 校园推荐优先展示“几峰下课”，比普通错峰分钟更符合现场说明。
         parts.append(peak_label)
     elif config.stagger_minutes:
         parts.append(f"错峰 {config.stagger_minutes} 分钟")

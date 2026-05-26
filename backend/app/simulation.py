@@ -18,7 +18,7 @@ from .campus import (
 )
 
 # 核心离散时间仿真模块：所有学生、队列、窗口、餐桌和指标都在这里推进。
-# 检查时重点讲 DiningSimulationRunner.step() 的分钟级顺序，而不是前端展示细节。
+# 展示时重点说明 DiningSimulationRunner.step() 的分钟级顺序，而不是前端展示细节。
 WALKING_SPEED_UNITS_PER_SEC = 38.0
 MIN_WALKING_DURATION_SEC = 3
 MAX_WALKING_DURATION_SEC = 45
@@ -348,7 +348,7 @@ class DiningSimulationRunner:
 
     # step() 推进一分钟仿真，是实时运行最核心的单步方法。
     def step(self) -> StepRecord:
-        # 单步顺序用于检查讲解：
+        # 单步顺序用于展示说明：
         # 1. 吃完离开；2. 推进窗口服务；3. 完成取餐的小组进入等座；
         # 4. 分配餐桌；5. 生成新到达；6. 选择窗口排队；
         # 7. 空闲窗口开始服务；8. 推进入座行走；9. 生成 StepRecord。
@@ -437,7 +437,7 @@ class DiningSimulationRunner:
                 self.total_served += 1
         return served
 
-    # 检查完成取餐的学生所属小组；全员完成后把小组放入等座队列。
+    # 查看完成取餐的学生所属小组；全员完成后把小组放入等座队列。
     def _move_ready_parties_to_seat_wait(self, served_students: list[Student], minute: int) -> None:
         for student in served_students:
             party = self.parties[student.party_id]

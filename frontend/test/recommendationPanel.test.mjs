@@ -1,4 +1,4 @@
-// 文件说明：推荐和配置页面结构测试，通过源码断言检查页面入口和旧 UI 移除。
+// 文件说明：推荐和配置页面结构测试，通过源码断言确认页面入口和旧 UI 移除。
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -342,7 +342,7 @@ test('campus occupancy buttons show loading only for the requested source', () =
   assert.equal(source.includes(':loading="campusLoading"'), false)
 })
 
-// 验证分析卡片使用面向检查讲解的中文指标说明。
+// 验证分析卡片使用面向展示说明的中文指标说明。
 test('analysis cards explain secondary metrics without jargon', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 

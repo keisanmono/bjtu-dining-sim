@@ -1,12 +1,12 @@
-# 检查讲解注释分支任务说明
+# 展示说明注释分支任务说明
 
-本分支 `inspection-commented` 专门用于课程检查前的讲解准备。目标是让项目代码更容易现场讲清楚，而不是重构功能或改变运行效果。
+本分支专门用于课程展示前的说明准备。目标是让项目代码更容易现场说清楚，而不是重构功能或改变运行效果。
 
 ## 总目标
 
-在不改变系统功能、不改变接口行为、不破坏现有运行方式的前提下，为关键文件补充中文讲解注释，并补充一份检查讲解文档。注释应帮助不熟悉 Python、Vue、FastAPI 的同学快速说明：这个文件负责什么、核心函数怎么被调用、一次仿真请求从前端到后端如何流转。
+在不改变系统功能、不改变接口行为、不破坏现有运行方式的前提下，为关键文件补充中文说明注释，并补充一份展示说明文档。注释应帮助不熟悉 Python、Vue、FastAPI 的同学快速说明：这个文件负责什么、核心函数怎么被调用、一次仿真请求从前端到后端如何流转。
 
-本次检查准备的第一优先级是：**把 README.md 改成项目总索引 + 检查讲解入口**。老师或组员打开 README 后，应能快速知道项目做什么、怎么启动、从哪些文件看起、一次仿真运行时数据如何从前端流到后端再回到前端。
+本次展示准备的第一优先级是：**把 README.md 改成项目总索引 + 展示说明入口**。老师或组员打开 README 后，应能快速知道项目做什么、怎么启动、从哪些文件看起、一次仿真运行时数据如何从前端流到后端再回到前端。
 
 ## 严格禁止
 
@@ -22,15 +22,15 @@
 
 ```bash
 git fetch origin
-git checkout inspection-commented
-git pull origin inspection-commented
+git checkout <work-branch>
+git pull origin <work-branch>
 ```
 
 ## 需要重点加注释和补充说明的文件
 
 ### 1. `README.md`：必须扩写成项目索引
 
-当前 README 偏简略，需要扩写成“项目地图”。它不仅要写启动命令，还要承担检查时的入口说明、文件索引、数据流转说明和常见追问回答。
+当前 README 偏简略，需要扩写成“项目地图”。它不仅要写启动命令，还要承担展示时的入口说明、文件索引、数据流转说明和常见追问回答。
 
 README 建议包含以下章节：
 
@@ -50,7 +50,7 @@ README 建议包含以下章节：
 ## 11. 指标、瓶颈判断与优化推荐
 ## 12. 关键文件阅读顺序
 ## 13. 测试与验证
-## 14. 课程检查讲解路线
+## 14. 课程展示说明路线
 ## 15. 常见问题与回答
 ```
 
@@ -165,9 +165,9 @@ flowchart TD
 
 README 还需要加入“关键文件阅读顺序”，建议写成表格：
 
-| 阅读顺序 | 文件 | 检查时怎么讲 |
+| 阅读顺序 | 文件 | 展示时怎么说 |
 |---|---|---|
-| 1 | `README.md` | 项目总览、启动方式、讲解入口 |
+| 1 | `README.md` | 项目总览、启动方式、说明入口 |
 | 2 | `frontend/src/App.vue` | 页面状态、按钮事件、实时运行入口 |
 | 3 | `frontend/src/api.js` | 前端如何调用后端接口 |
 | 4 | `frontend/vite.config.js` | `/api` 代理如何转发到后端 |
@@ -178,7 +178,7 @@ README 还需要加入“关键文件阅读顺序”，建议写成表格：
 | 9 | `backend/app/optimization.py` | 优化推荐逻辑 |
 | 10 | `backend/app/explanation.py` | 规则化解释 |
 
-README 中“课程检查讲解路线”建议写成可直接照读的版本：
+README 中“课程展示说明路线”建议写成可直接照读的版本：
 
 1. 先讲项目背景：食堂高峰期排队、座位紧张、窗口利用不均衡。
 2. 再讲项目目标：通过仿真观察过程、统计指标、提出推荐。
@@ -194,9 +194,9 @@ README 中“课程检查讲解路线”建议写成可直接照读的版本：
 README 的风格要求：
 
 - 用中文说明为主，术语可以保留英文文件名。
-- 每个章节尽量短段落 + 表格 + Mermaid 图，便于检查时快速定位。
+- 每个章节尽量短段落 + 表格 + Mermaid 图，便于展示时快速定位。
 - 不要堆砌代码；README 是索引，不是源码复制。
-- 每个关键文件说明后最好写一句“检查时可以这样说”。
+- 每个关键文件说明后最好写一句“展示时可以这样说”。
 - 明确说明“规则化解释不是外部大模型核心能力，核心仿真不依赖 LLM”。
 
 ### 2. `frontend/src/App.vue`
@@ -219,7 +219,7 @@ README 的风格要求：
 
 在每个接口旁补充用途注释：
 
-- `/health`：健康检查。
+- `/health`：连通性验证。
 - `/config/validate`：参数校验。
 - `/sim/step`：实时单步仿真。
 - `/sim/run`：完整仿真。
@@ -257,7 +257,7 @@ README 的风格要求：
 
 ### 7. `backend/app/simulation.py`
 
-这是检查最重要的文件。补充模块级注释和关键类/函数注释：
+这是展示最重要的文件。补充模块级注释和关键类/函数注释：
 
 - 文件开头说明：这是核心离散时间仿真模块。
 - `SimulationConfigData`：仿真参数。
@@ -307,14 +307,14 @@ README 的风格要求：
 - `save_result()` 保存配置、过程记录和指标。
 - `export_records_csv()` 导出每分钟记录。
 
-## 需要新增的讲解文档
+## 需要新增的说明文档
 
-新增：`doc/inspection_walkthrough.md`
+新增：`doc/walkthrough.md`
 
 建议结构：
 
 ```markdown
-# 北京交通大学就餐仿真系统检查讲解稿
+# 北京交通大学就餐仿真系统展示说明稿
 
 ## 1. 一句话介绍
 ## 2. 项目文件结构
@@ -328,7 +328,7 @@ README 的风格要求：
 ## 10. 老师可能追问的问题与回答
 ```
 
-讲解文档应与 README 互补：README 是项目索引，`inspection_walkthrough.md` 是检查现场可以照着讲的口播稿。
+说明文档应与 README 互补：README 是项目索引，`walkthrough.md` 是展示现场可以照着说的口播稿。
 
 ## 验证要求
 
@@ -346,9 +346,9 @@ cd frontend && npm run build
 提交信息建议：
 
 ```bash
-git add README.md frontend/src/App.vue frontend/src/api.js frontend/vite.config.js backend/app/main.py backend/app/schemas.py backend/app/simulation.py backend/app/optimization.py backend/app/explanation.py backend/app/storage.py doc/inspection_walkthrough.md doc/inspection_comment_task.md
-git commit -m "docs: add inspection-oriented README, comments, and walkthrough"
-git push origin inspection-commented
+git add README.md frontend/src/App.vue frontend/src/api.js frontend/vite.config.js backend/app/main.py backend/app/schemas.py backend/app/simulation.py backend/app/optimization.py backend/app/explanation.py backend/app/storage.py doc/walkthrough.md <task-file>
+git commit -m "docs: add project README, comments, and walkthrough"
+git push origin <work-branch>
 ```
 
 最终输出请包含：
@@ -357,4 +357,4 @@ git push origin inspection-commented
 - 修改了哪些代码文件的注释。
 - 没有改动哪些运行逻辑。
 - 测试/构建是否通过。
-- 检查时推荐从哪个文件开始讲。
+- 展示时推荐从哪个文件开始说。

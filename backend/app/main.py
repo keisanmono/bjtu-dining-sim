@@ -31,7 +31,7 @@ from .simulation import DiningSimulationRunner, dataclass_to_dict, run_simulatio
 from .storage import SimulationStore
 
 
-# FastAPI 应用入口会用 DATA_DIR 保存 SQLite 和导出文件；课程检查时从这里讲接口总览。
+# FastAPI 应用入口会用 DATA_DIR 保存 SQLite 和导出文件；课程展示时可从这里说明接口总览。
 DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
 # STORE 是全局持久化对象，负责保存完整仿真结果、推荐结果、解释结果和 CSV 导出。
 STORE = SimulationStore(DATA_DIR / "dining_sim.sqlite")
@@ -50,7 +50,7 @@ app.add_middleware(
 )
 
 
-# 健康检查：前端右上角状态标签只关心后端是否可连接。
+# 连通性验证：前端右上角状态标签只关心后端是否可连接。
 @app.get("/api/health")
 # health() 返回后端连通状态。
 def health() -> dict[str, str]:
@@ -147,7 +147,7 @@ def recommend(request: RecommendationRequest) -> dict[str, Any]:
     result = recommend_config(data)
     payload = dataclass_to_dict(result)
     opt_id = uuid.uuid4().hex
-    # 推荐结果也保存一份，便于检查时说明“推荐方案可以追溯”。
+    # 推荐结果也保存一份，便于展示“推荐方案可以追溯”。
     STORE.save_optimization(
         opt_id=opt_id,
         base_run_id=None,

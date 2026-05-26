@@ -201,7 +201,7 @@ function nearestWalkableCell(origin, bounds, boxes) {
   const maxRadius = Math.max(columnCount(bounds), rowCount(bounds))
   for (let radius = 1; radius <= maxRadius; radius += 1) {
     const candidates = []
-    // 按方形环逐圈扩展，只检查当前半径边界上的网格。
+    // 按方形环逐圈扩展，只判断当前半径边界上的网格。
     for (let dx = -radius; dx <= radius; dx += 1) {
       candidates.push({ col: origin.col + dx, row: origin.row - radius })
       candidates.push({ col: origin.col + dx, row: origin.row + radius })

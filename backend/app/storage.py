@@ -160,7 +160,7 @@ class SimulationStore:
 
     # export_records_csv() 把已保存的分钟记录导出为 CSV 文件。
     def export_records_csv(self, run_id: str, output_path: str | Path) -> Path:
-        # CSV 导出只包含每分钟过程字段，便于检查后用表格复核仿真过程。
+        # CSV 导出只包含每分钟过程字段，便于展示后用表格复核仿真过程。
         records = self.get_records(run_id)
         if not records:
             raise KeyError(f"run_id 不存在或没有过程记录: {run_id}")
