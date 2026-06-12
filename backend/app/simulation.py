@@ -16,6 +16,8 @@ from .campus import (
     known_building_ids,
     known_cafeteria_ids,
 )
+from .pedestrian.adapter import merge_timelines, static_floor_field_path
+from .pedestrian.engine import PedestrianEngine
 
 # 核心离散时间仿真模块：所有学生、队列、窗口、餐桌和指标都在这里推进。
 # 展示时重点说明 DiningSimulationRunner.step() 的分钟级顺序，而不是前端展示细节。
@@ -225,6 +227,10 @@ class MetricsSummary:
     blocked_party_count: int = 0
     fragmented_seats: int = 0
     table_utilization_by_type: dict[str, float] = field(default_factory=dict)
+    avg_walking_time: float = 0.0
+    movement_conflict_count: int = 0
+    avg_stuck_ticks: float = 0.0
+    max_density: int = 0
 
 
 @dataclass(frozen=True)
@@ -398,6 +404,11 @@ class DiningSimulationRunner:
         self.blocked_party_ids: set[int] = set()
         self.party_window_split_party_ids: set[int] = set()
         self.peak_fragmented_seats = 0
+        self.pedestrian_engine = (
+            PedestrianEngine(self.layout, config, self.rng)
+            if config.movement_model == "advanced_floor_field"
+            else None
+        )
 
     @property
     # 到达期结束且系统内没有排队、服务、等座、行走或就餐学生时结束。
@@ -425,6 +436,10 @@ class DiningSimulationRunner:
         arrivals = self._generate_arrivals(minute)
         self._enqueue_arrivals(arrivals)
         self._start_window_services(minute)
+        pedestrian_timeline: dict[str, Any] | None = None
+        if self.pedestrian_engine is not None:
+            pedestrian_result = self.pedestrian_engine.run_for_minute(step_start_sec, step_end_sec)
+            pedestrian_timeline = pedestrian_result.get("timeline")
         seated_count = self._advance_walking_to_seats(step_end_sec)
         self.peak_fragmented_seats = max(self.peak_fragmented_seats, self._fragmented_seats())
 
@@ -441,7 +456,10 @@ class DiningSimulationRunner:
             served_count=len(served_students),
             seated_count=seated_count,
             left_count=left_count,
-            timeline=self._build_step_timeline(step_start_sec, step_end_sec, timeline_events),
+            timeline=merge_timelines(
+                self._build_step_timeline(step_start_sec, step_end_sec, timeline_events),
+                pedestrian_timeline,
+            ),
         )
         self.records.append(record)
         return record
@@ -476,6 +494,8 @@ class DiningSimulationRunner:
                         self.table_party_ids[seat.table_index].discard(party_id)
                 self.total_left += 1
                 left_count += 1
+                if self.pedestrian_engine is not None:
+                    self.pedestrian_engine.set_agent_exited(seat.student.student_id)
             else:
                 still_seated.append(seat)
         self.seated = still_seated
@@ -493,6 +513,8 @@ class DiningSimulationRunner:
                 served.append(service.student)
                 self.windows[idx] = None
                 self.total_served += 1
+                if self.pedestrian_engine is not None:
+                    self.pedestrian_engine.set_agent_waiting_group(service.student.student_id)
         return served
 
     # 查看完成取餐的学生所属小组；全员完成后把小组放入等座队列。
@@ -506,6 +528,9 @@ class DiningSimulationRunner:
             if all(member.service_end_time is not None for member in members):
                 party.ready_time = minute
                 self.waiting_for_seat.append(party)
+                if self.pedestrian_engine is not None:
+                    for student_id in party.student_ids:
+                        self.pedestrian_engine.set_agent_waiting_group(student_id)
 
     # 为等座小组尝试锁定餐桌；锁定成功后生成走向餐桌的时间线事件。
     def _seat_waiting_students(self, minute: int, timeline_events: list[dict[str, Any]] | None = None) -> int:
@@ -532,6 +557,8 @@ class DiningSimulationRunner:
             remaining = self._sample_duration(self.config.dining_time_mean)
             transfer = self._start_walking_to_seat(party, table_index, remaining, minute)
             self.walking_to_seat.append(transfer)
+            if self.pedestrian_engine is not None:
+                self.pedestrian_engine.set_party_target_table(party, table_index)
             # 先预留座位，避免同一分钟后面的等座小组抢到同一张桌子的同一批座位。
             if not uses_preemptive_reservation:
                 self.table_reserved_seats[table_index] += party.size
@@ -613,6 +640,8 @@ class DiningSimulationRunner:
             for student_id in party.student_ids:
                 student = self.students[student_id]
                 student.seat_time = seat_minute
+                if self.pedestrian_engine is not None:
+                    self.pedestrian_engine.set_agent_seated(student_id, transfer.table_index)
                 self.seated.append(
                     DiningSeat(
                         student=student,
@@ -699,6 +728,8 @@ class DiningSimulationRunner:
             self._maybe_preempt_seat_for_party(party)
             # 同组成员共享 party_id，但后续仍会各自选择窗口排队。
             remaining -= party_size
+        if self.pedestrian_engine is not None and arrivals:
+            self.pedestrian_engine.spawn_arrivals(arrivals, door_index=arrivals[0].door_index)
         return arrivals
 
     # 为新到达学生选择窗口并加入对应排队队列。
@@ -707,6 +738,8 @@ class DiningSimulationRunner:
             idx = self._choose_window_for_student(student)
             student.window_index = idx
             self.queues[idx].append(student)
+            if self.pedestrian_engine is not None:
+                self.pedestrian_engine.set_agent_target_window(student.student_id, idx)
             self._update_party_window_split_metric(student.party_id)
 
     # 记录同行小队是否被分配到多个窗口；同一小队只计一次。
@@ -773,6 +806,8 @@ class DiningSimulationRunner:
                 student=student,
                 remaining=self._sample_duration(self.config.service_time_mean / max(0.1, window.service_rate_factor)),
             )
+            if self.pedestrian_engine is not None:
+                self.pedestrian_engine.set_agent_service(student.student_id, idx)
 
     # 按可用容量、距离、拼桌惩罚、空座浪费和拥挤度为小组选择餐桌。
     def _choose_table_for_party(self, party: DiningParty) -> int | None:
@@ -866,6 +901,10 @@ class DiningSimulationRunner:
         end: dict[str, float],
         target_table_index: int,
     ) -> list[dict[str, float]]:
+        if self.config.movement_model == "static_floor_field":
+            path = static_floor_field_path(self.layout, self.config, start, end)
+            if len(path) > 1:
+                return path
         boxes = self._table_obstacle_boxes(exclude_index=target_table_index)
         direct = _dedupe_path([start, end])
         if self._path_is_clear(direct, boxes):
@@ -1122,7 +1161,7 @@ class DiningSimulationRunner:
     def _snapshot(self) -> dict[str, Any]:
         occupied = len(self.seated)
         reserved = self._reserved_seats()
-        return {
+        snapshot = {
             "minute": self.current_minute,
             # 队列长度用于指标卡和队列图；queue_groups 用于地图按小组展示。
             "queue_lengths": [len(queue) for queue in self.queues],
@@ -1159,6 +1198,11 @@ class DiningSimulationRunner:
                 "left": self.total_left,
             },
         }
+        if self.pedestrian_engine is not None:
+            snapshot["pedestrian_agents"] = self.pedestrian_engine.agent_snapshots()
+            snapshot["density_hotspots"] = self.pedestrian_engine.density_hotspots()
+            snapshot["movement_metrics"] = self.pedestrian_engine.metrics_snapshot()
+        return snapshot
 
     # 把窗口队列里的学生按小组聚合，保留队列位置和来源入口。
     def _queue_groups_snapshot(self) -> list[dict[str, Any]]:
@@ -1373,6 +1417,7 @@ class DiningSimulationRunner:
             if party.ready_time is not None and party.seat_time is not None
         )
         table_utilization_by_type = self._table_utilization_by_type()
+        movement = self._movement_metrics()
         bottleneck = self._classify_bottleneck(
             peak_queue=peak_queue,
             peak_waiting_for_seat=peak_waiting_for_seat,
@@ -1411,7 +1456,21 @@ class DiningSimulationRunner:
             blocked_party_count=self.metrics_counters["blocked_party_count"],
             fragmented_seats=self.peak_fragmented_seats,
             table_utilization_by_type=table_utilization_by_type,
+            avg_walking_time=round(float(movement.get("avg_walking_time", 0.0)), 2),
+            movement_conflict_count=int(movement.get("movement_conflict_count", 0)),
+            avg_stuck_ticks=round(float(movement.get("avg_stuck_ticks", 0.0)), 2),
+            max_density=int(movement.get("max_density", 0)),
         )
+
+    def _movement_metrics(self) -> dict[str, float | int]:
+        if self.pedestrian_engine is None:
+            return {
+                "avg_walking_time": 0.0,
+                "movement_conflict_count": 0,
+                "avg_stuck_ticks": 0.0,
+                "max_density": 0,
+            }
+        return self.pedestrian_engine.metrics_snapshot()
 
     # 计算同组最早和最晚取餐完成时间差，用于衡量结伴等待。
     def _party_gather_wait(self, party: DiningParty) -> float:

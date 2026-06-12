@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import app.optimization as optimization_module
 from app.optimization import RecommendationRequestData, recommend_config
+from app.pedestrian.grid import grid_from_layout, point_to_cell
 from app.simulation import (
     CampusBuildingDemandData,
     CampusDemandConfigData,
@@ -38,6 +39,112 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertTrue(any("movement_model" in error for error in invalid_model_errors))
         self.assertTrue(any("movement_tick_seconds" in error for error in invalid_tick_errors))
         self.assertTrue(any("dynamic_field_decay" in error for error in invalid_decay_errors))
+
+    # 验证默认 movement_model 仍使用原有路径模型。
+    def test_default_movement_model_is_path(self):
+        config = SimulationConfigData()
+
+        self.assertEqual(config.movement_model, "path")
+        self.assertIsNone(getattr(DiningSimulationRunner(config), "pedestrian_engine", None))
+
+    # 验证 static_floor_field 模型会生成不穿越 blocked cell 的路径。
+    def test_static_floor_field_walking_path_is_not_empty_and_avoids_blocked_cells(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=64, y=160, wall_side="left")],
+            tables=[
+                LayoutTableData(id="BLOCK", x=140, y=160, table_type="six_seat", capacity=6),
+                LayoutTableData(id="TARGET", x=240, y=160, table_type="four_seat", capacity=4),
+            ],
+        )
+        config = SimulationConfigData(
+            layout=layout,
+            num_windows=1,
+            num_seats=10,
+            movement_model="static_floor_field",
+            floor_cell_size=12.0,
+        )
+        runner = DiningSimulationRunner(config)
+
+        path = runner._walking_path({"x": 48, "y": 160}, {"x": 240, "y": 160}, target_table_index=1)
+        grid = grid_from_layout(layout, config.floor_cell_size)
+        path_cells = [point_to_cell(point, grid) for point in path]
+
+        self.assertGreater(len(path), 1)
+        self.assertTrue(all(cell not in grid.blocked_cells for cell in path_cells))
+
+    # 验证高级模式的 step 快照暴露微观行人状态。
+    def test_advanced_floor_field_snapshot_contains_pedestrian_agents(self):
+        config = SimulationConfigData(
+            num_windows=1,
+            num_seats=4,
+            arrival_rate=4.0,
+            service_time_mean=1.0,
+            dining_time_mean=2.0,
+            duration_min=5,
+            seed=20260612,
+            movement_model="advanced_floor_field",
+        )
+        runner = DiningSimulationRunner(config)
+
+        record = runner.step()
+
+        self.assertIn("pedestrian_agents", record.snapshot)
+        self.assertGreater(len(record.snapshot["pedestrian_agents"]), 0)
+        self.assertIn("density_hotspots", record.snapshot)
+        self.assertIn("movement_metrics", record.snapshot)
+
+    # 验证高级模式最终指标包含移动冲突、停滞和密度指标。
+    def test_advanced_floor_field_metrics_include_movement_fields(self):
+        result = run_simulation(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=8,
+                arrival_rate=3.0,
+                service_time_mean=1.0,
+                dining_time_mean=2.0,
+                duration_min=5,
+                seed=20260613,
+                movement_model="advanced_floor_field",
+            )
+        )
+
+        self.assertIn("movement_conflict_count", result.final_state["movement_metrics"])
+        self.assertGreaterEqual(result.metrics.movement_conflict_count, 0)
+        self.assertGreaterEqual(result.metrics.avg_stuck_ticks, 0)
+        self.assertGreaterEqual(result.metrics.max_density, 0)
+
+    # 验证预占座和高级行人模式同时开启时容量不溢出，且小队能最终入座。
+    def test_preemptive_reservation_with_advanced_floor_field_keeps_capacity_and_seats_parties(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
+            tables=[
+                LayoutTableData(id="T1", x=180, y=240, table_type="four_seat", capacity=4),
+                LayoutTableData(id="T2", x=260, y=240, table_type="four_seat", capacity=4),
+            ],
+        )
+        result = run_simulation(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=8,
+                arrival_rate=2.0,
+                service_time_mean=1.0,
+                dining_time_mean=2.0,
+                duration_min=5,
+                seed=20260614,
+                party_size_distribution={2: 1.0},
+                preempt_seat_probability=1.0,
+                seat_holder_min_party_size=2,
+                movement_model="advanced_floor_field",
+            )
+        )
+
+        for record in result.records:
+            for table in record.snapshot["table_occupancy"]:
+                self.assertLessEqual(table["occupied"] + table["reserved"], table["capacity"])
+        self.assertGreater(result.metrics.throughput, 0)
 
     # 验证相同 seed 下完整仿真结果可复现。
     def test_run_is_reproducible_with_same_seed(self):
