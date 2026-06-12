@@ -1,3 +1,5 @@
+// 文件说明：实时地图模型工具：把后端 snapshot 转成队列、服务、行走和入座标记。
+
 import {
   getItemFootprint,
   tableTopForCapacity
@@ -22,11 +24,13 @@ export const LIVE_TRANSITION_MS = 320
 export const LIVE_TRANSITION_MIN_MS = 120
 export const LIVE_TRANSITION_FRAME_BUFFER_MS = 40
 
+// 将后端 queue_groups/queue_lengths 转成每个窗口外侧的可视排队胶囊。
 export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = [] } = {}) {
   const rows = []
   const buckets = new Map()
   const totals = queueLengths.map((length) => Math.max(0, Math.floor(Number(length) || 0)))
   const knownTotals = totals.length > 0
+  // queue_lengths 是总人数，queue_groups 是可视小组明细；两者都存在时以前者控制截断。
   const activeWindows = new Set(
     totals
       .map((total, index) => (total > 0 ? index : null))
@@ -43,11 +47,13 @@ export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = 
         bucket.visible.push(group)
         bucket.visiblePeople += group.member_count
       } else if (!knownTotals) {
+        // 没有 queue_lengths 时只能通过明细累计隐藏人数。
         const group = normalizeGroup(raw)
         bucket.hiddenPeople += group.member_count
         bucket.hiddenGroups += 1
       }
       if (knownTotals && activeWindows.size && allActiveWindowsFilled(buckets, activeWindows, totals)) {
+        // 已经收集到每个活跃窗口需要展示的可见小组后，后续明细无需继续遍历。
         break
       }
     }
@@ -57,6 +63,7 @@ export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = 
     if (total <= 0 || !windows[windowIndex]) return
     const bucket = bucketFor(buckets, windowIndex)
     if (!bucket.visible.length) {
+      // 后端只给人数没有小组明细时，用单人占位胶囊保证队列仍然可视化。
       const visible = Math.min(total, QUEUE_VISIBLE_LIMIT)
       for (let index = 0; index < visible; index += 1) {
         bucket.visible.push(normalizeGroup({
@@ -94,6 +101,7 @@ export function buildQueueRows({ queueGroups = [], queueLengths = [], windows = 
   return rows.sort((a, b) => a.windowIndex - b.windowIndex)
 }
 
+// 统一后端小组字段，补齐人数、窗口、队列位置和餐桌索引默认值。
 export function normalizeGroup(group) {
   const id = group?.party_id ?? 'solo'
   return {
@@ -109,6 +117,7 @@ export function normalizeGroup(group) {
   }
 }
 
+// 按小组 id 稳定映射颜色，保证同一小组在不同状态下颜色一致。
 export function partyColor(group) {
   const id = group?.party_id ?? 'solo'
   const numeric = Number(id)
@@ -118,6 +127,7 @@ export function partyColor(group) {
   return PALETTE[Math.abs(index) % PALETTE.length]
 }
 
+// 返回门窗所在墙面指向食堂内部的方向。
 export function wallNormal(item) {
   const side = item?.wall_side
   if (side === 'right') return { x: -1, y: 0 }
@@ -126,10 +136,12 @@ export function wallNormal(item) {
   return { x: 0, y: 1 }
 }
 
+// 将数值限制在指定闭区间内。
 export function clamp(value, lower, upper) {
   return Math.max(lower, Math.min(upper, value))
 }
 
+// 将后端 snapshot 中服务、等座、入座小组转换为地图目标点。
 export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   const windows = Array.isArray(layout?.windows) ? layout.windows : []
   const tables = Array.isArray(layout?.tables) ? layout.tables : []
@@ -146,12 +158,14 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   const slotsByTable = new Map()
   for (const rawGroup of snapshot.seated_parties || []) {
     const group = normalizeGroup(rawGroup)
+    // table_id 优先，旧快照或测试数据缺 id 时再按 table_index 找表。
     const table = (group.table_id && tables.find((entry) => entry.id === group.table_id))
       || (Number.isFinite(group.table_index) ? tables[group.table_index] : null)
     if (!table) continue
     const tableKey = group.table_id ?? group.table_index ?? table.id
     const slot = slotsByTable.get(tableKey) || 0
     slotsByTable.set(tableKey, slot + 1)
+    // 同桌多个小组用 slot 偏移，避免地图上圆点完全重合。
     const offset = seatedSlotOffset(table, slot)
     const key = livePartyKey(group)
     targetsByKey.set(key, {
@@ -167,6 +181,7 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   return Array.from(targetsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)))
 }
 
+// 比较上一帧和下一帧目标点，生成小组移动、出现和离开的动画路径。
 export function buildLivePartyTransitions({ previous = [], next = [], layout = {} } = {}) {
   const previousByKey = keyedTargets(previous)
   const nextByKey = keyedTargets(next)
@@ -179,9 +194,11 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
       const previousTarget = previousByKey.get(key)
       const nextTarget = nextByKey.get(key)
       if (previousTarget && !nextTarget && shouldSuppressServiceExit(previousTarget, nextByKey)) {
+        // 服务点消失但同一 party 已进入等座/入座时，不播放额外离场。
         return null
       }
       const previousMotionTarget = previousTarget || samePartyPreviousTarget(nextTarget, previousByKey)
+      // 新出现或消失的小组从入口内侧出现/离开，避免凭空闪现。
       const from = previousMotionTarget || entryPointForTarget(nextTarget, layout)
       const to = nextTarget || entryPointForTarget(previousTarget, layout)
       const basis = nextTarget || previousTarget
@@ -208,6 +225,7 @@ export function buildLivePartyTransitions({ previous = [], next = [], layout = {
     .filter(Boolean)
 }
 
+// 根据实时 step 返回间隔调整前端补间动画时长。
 export function transitionDurationForSnapshotGap(snapshotGapMs, fallbackMs = LIVE_TRANSITION_MS) {
   const fallback = Math.max(LIVE_TRANSITION_MIN_MS, Number(fallbackMs) || LIVE_TRANSITION_MS)
   const gap = Number(snapshotGapMs)
@@ -217,6 +235,7 @@ export function transitionDurationForSnapshotGap(snapshotGapMs, fallbackMs = LIV
   return clamp(gap - LIVE_TRANSITION_FRAME_BUFFER_MS, LIVE_TRANSITION_MIN_MS, LIVE_TRANSITION_MS)
 }
 
+// 读取后端 timeline 声明或事件终点，得到本 step 需要播放的总时长。
 export function backendTimelinePlaybackMs(timeline = {}) {
   const declared = Number(timeline?.playback_ms)
   const eventEnd = Math.max(0, ...(timeline?.events || []).map((event) => (
@@ -227,6 +246,7 @@ export function backendTimelinePlaybackMs(timeline = {}) {
   return Math.max(Number.isFinite(declared) ? declared : 0, eventEnd)
 }
 
+// 按播放进度从后端逐秒行走帧中采样正在移动的小组标记。
 export function buildBackendWalkingMarkers({ timeline = {}, elapsedMs = 0 } = {}) {
   const elapsed = Math.max(0, Number(elapsedMs) || 0)
   return (timeline?.events || [])
@@ -235,6 +255,7 @@ export function buildBackendWalkingMarkers({ timeline = {}, elapsedMs = 0 } = {}
       const playbackDuration = backendEventPlaybackDurationMs(event)
       const playbackEnd = playbackStart + playbackDuration
       if (elapsed < playbackStart || elapsed > playbackEnd) return null
+      // 每个事件独立计算局部 progress，支持同一分钟内多个小组错时行走。
       const progress = clamp((elapsed - playbackStart) / playbackDuration, 0, 1)
       const point = sampleBackendWalkingEvent(event, progress)
       const group = normalizeGroup(event)
@@ -253,6 +274,7 @@ export function buildBackendWalkingMarkers({ timeline = {}, elapsedMs = 0 } = {}
     .filter(Boolean)
 }
 
+// 沿补间路径采样小组当前位置，同时处理出现和离开的透明度。
 export function interpolateLivePartyMarkers({ previous = [], next = [], progress = 1, layout = {}, transitions = null } = {}) {
   const amount = clamp(Number(progress) || 0, 0, 1)
   const items = transitions || buildLivePartyTransitions({ previous, next, layout })
@@ -277,6 +299,7 @@ export function interpolateLivePartyMarkers({ previous = [], next = [], progress
   })
 }
 
+// 计算单个后端行走事件的播放时长，缺失字段时用路径秒数兜底。
 function backendEventPlaybackDurationMs(event) {
   const declared = Number(event?.playback_duration_ms)
   if (Number.isFinite(declared) && declared > 0) return declared
@@ -288,6 +311,7 @@ function backendEventPlaybackDurationMs(event) {
   )
 }
 
+// 优先按后端 frames 逐秒插值采样；没有 frames 时退回 path 采样。
 function sampleBackendWalkingEvent(event, progress) {
   const frames = Array.isArray(event?.frames)
     ? event.frames
@@ -302,6 +326,7 @@ function sampleBackendWalkingEvent(event, progress) {
       .sort((left, right) => left.time_sec - right.time_sec)
     : []
   if (frames.length) {
+    // frames 使用仿真秒作为时间轴，按 progress 换算出当前目标秒再线性插值。
     const startSec = Number(event?.start_time_sec)
     const endSec = Number(event?.arrive_time_sec)
     const first = frames[0]
@@ -316,6 +341,7 @@ function sampleBackendWalkingEvent(event, progress) {
       const next = frames[index]
       if (targetSec <= next.time_sec) {
         const span = Math.max(1, next.time_sec - previous.time_sec)
+        // 在相邻两个后端帧之间做局部插值，使动画连续而不是逐秒跳动。
         const local = clamp((targetSec - previous.time_sec) / span, 0, 1)
         return cleanPoint({
           x: previous.x + (next.x - previous.x) * local,
@@ -329,9 +355,11 @@ function sampleBackendWalkingEvent(event, progress) {
   const fallbackPath = Array.isArray(event?.path) && event.path.length
     ? event.path
     : [event?.from, event?.to].filter(Boolean)
+  // 老数据没有 frames 时，退回到路径按长度采样。
   return samplePathAtProgress(fallbackPath, progress)
 }
 
+// 把正在窗口服务的小组放到对应窗口内侧服务点。
 function buildServiceTargets(services, windows) {
   return (services || []).map((rawService) => {
     const group = normalizeGroup(rawService)
@@ -350,16 +378,19 @@ function buildServiceTargets(services, windows) {
   }).filter(Boolean)
 }
 
+// 服务状态使用 party_id 和 window_index 组成独立 key，避免与入座 key 冲突。
 function serviceTargetKey(group) {
   return `service-${group?.party_id ?? 'solo'}-${group?.window_index ?? 0}`
 }
 
+// 同一小组刚从服务转入等座/入座时，不额外播放一次离场动画。
 function shouldSuppressServiceExit(previousTarget, nextByKey) {
   if (previousTarget?.role !== 'service') return false
   const partyTarget = nextByKey.get(livePartyKey(previousTarget))
   return Boolean(partyTarget && partyTarget.role !== 'service')
 }
 
+// 为等座或入座目标寻找同组刚完成服务的位置作为动画起点。
 function samePartyPreviousTarget(nextTarget, previousByKey) {
   if (!nextTarget || nextTarget.role === 'service') return null
   const candidates = Array.from(previousByKey.values())
@@ -368,6 +399,7 @@ function samePartyPreviousTarget(nextTarget, previousByKey) {
   return candidates.sort((left, right) => pointDistance(left, nextTarget) - pointDistance(right, nextTarget))[0]
 }
 
+// 把等座小组放到对应窗口外侧的等待区。
 function buildWaitingTargets(waitingParties, windows, layout) {
   return (waitingParties || [])
     .map((rawGroup) => {
@@ -388,6 +420,7 @@ function buildWaitingTargets(waitingParties, windows, layout) {
     })
 }
 
+// 计算窗口内侧服务点，供服务中小组和行走起点使用。
 function servicePointForWindow(windowItem) {
   const normal = wallNormal(windowItem)
   const footprint = getItemFootprint('window', windowItem)
@@ -400,6 +433,7 @@ function servicePointForWindow(windowItem) {
   }
 }
 
+// 计算窗口外侧等座点，并按等待顺序横向错开。
 function waitingPointForWindow(windowItem, waitPosition = 0) {
   const base = servicePointForWindow(windowItem)
   const normal = wallNormal(windowItem)
@@ -412,6 +446,7 @@ function waitingPointForWindow(windowItem, waitPosition = 0) {
   })
 }
 
+// 为同桌多个小组提供轻微偏移，避免圆点完全重叠。
 function seatedSlotOffset(table, slot) {
   const top = tableTopForCapacity(table.capacity)
   const horizontalSpan = Math.max(0, top.width / 2 - 6)
@@ -423,6 +458,7 @@ function seatedSlotOffset(table, slot) {
   return offsets[slot % offsets.length] || { x: 0, y: 0 }
 }
 
+// 根据目标来源入口计算新出现或离开动画的门内侧端点。
 function entryPointForTarget(target, layout) {
   if (!target) return { x: 0, y: 0 }
   const doors = Array.isArray(layout?.doors) ? layout.doors : []
@@ -439,10 +475,12 @@ function entryPointForTarget(target, layout) {
   }
 }
 
+// 将小组 id 规范成地图目标点的稳定 key。
 function livePartyKey(group) {
   return `party-${group?.party_id ?? 'solo'}`
 }
 
+// 将目标数组按 key 建索引，方便比较前后快照。
 function keyedTargets(targets) {
   const map = new Map()
   for (const target of targets || []) {
@@ -452,10 +490,12 @@ function keyedTargets(targets) {
   return map
 }
 
+// 计算两个地图点之间的距离，用于判断是否需要动画。
 function pointDistance(left, right) {
   return Math.hypot(Number(left?.x) - Number(right?.x), Number(left?.y) - Number(right?.y))
 }
 
+// 规范坐标精度，避免 SVG 属性出现过长小数。
 function cleanPoint(point) {
   return {
     x: round1(point.x),
@@ -463,14 +503,17 @@ function cleanPoint(point) {
   }
 }
 
+// 将数值保留一位小数。
 function round1(value) {
   return Math.round(Number(value || 0) * 10) / 10
 }
 
+// 将数值保留两位小数。
 function round2(value) {
   return Math.round(Number(value || 0) * 100) / 100
 }
 
+// 取得某个窗口的排队聚合桶，没有时创建。
 function bucketFor(buckets, windowIndex) {
   const existing = buckets.get(windowIndex)
   if (existing) return existing
@@ -484,20 +527,24 @@ function bucketFor(buckets, windowIndex) {
   return bucket
 }
 
+// 判断活跃窗口是否已经收集到足够的可见排队信息。
 function allActiveWindowsFilled(buckets, activeWindows, totals) {
   for (const windowIndex of activeWindows) {
     const bucket = buckets.get(windowIndex)
     if (!bucket) return false
     const total = totals[windowIndex] || 0
     if (total > QUEUE_VISIBLE_LIMIT) {
+      // 大队列只需收集到可见上限，剩余人数由 overflow 胶囊表示。
       if (bucket.visible.length < QUEUE_VISIBLE_LIMIT) return false
       continue
     }
+    // 小队列要累计到总人数，避免过早停止导致少画胶囊。
     if (bucket.visiblePeople < total && bucket.visible.length < QUEUE_VISIBLE_LIMIT) return false
   }
   return true
 }
 
+// 根据窗口朝向把可见队列胶囊排在窗口外侧。
 function buildWindowQueueRow({ windowIndex, windowItem, visible, hiddenPeople, hiddenGroups }) {
   const normal = wallNormal(windowItem)
   const footprint = getItemFootprint('window', windowItem)
@@ -538,6 +585,7 @@ function buildWindowQueueRow({ windowIndex, windowItem, visible, hiddenPeople, h
   return { windowIndex, capsules, overflow }
 }
 
+// 为单个排队小组生成一个大小随人数变化的胶囊。
 function queueCapsuleFor({ group, position, windowIndex, startX, startY, normal, wide }) {
   const size = clamp(Number(group.member_count) || Number(group.size) || 1, 1, 6)
   const long = QUEUE_LONG_BASE + Math.min(4, size - 1) * QUEUE_LONG_INCREMENT
@@ -557,6 +605,7 @@ function queueCapsuleFor({ group, position, windowIndex, startX, startY, normal,
   }
 }
 
+// 根据隐藏排队人数生成溢出胶囊尺寸。
 function queueOverflowSize(wide, hiddenPeople) {
   const weight = Math.max(1, Number(hiddenPeople) || 1)
   const longGrowth = Math.min(24, Math.ceil(Math.log2(weight + 1)) * 3)

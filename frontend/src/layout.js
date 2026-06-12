@@ -1,3 +1,5 @@
+// 文件说明：布局请求转换工具：把前端布局和基础参数整理成后端 SimulationConfig。
+
 import {
   buildTableCapacities,
   createDefaultLayout,
@@ -17,16 +19,20 @@ export const defaultPartySizeDistribution = {
 
 export { buildTableCapacities, tableTypeForCapacity }
 
+// 根据当前参数生成一份可直接提交给后端的默认布局。
 export function buildLayoutFromConfig(config) {
   return createDefaultLayout(config)
 }
 
+// buildSimulationConfigPayload() 把页面配置和布局整理为后端仿真接口请求体。
 export function buildSimulationConfigPayload(config, layout = null) {
+  // 若当前布局不完整，则用基础参数生成默认布局，保证后端总能收到可仿真的 layout。
   const effectiveLayout = isUsableLayout(layout)
     ? normalizeLayout(layout)
     : buildLayoutFromConfig(config)
   return {
     ...config,
+    // 后端以 layout 为准，所以窗口数和座位数要由实际布局反算。
     num_seats: totalLayoutSeats(effectiveLayout),
     num_windows: effectiveLayout.windows.length,
     layout: effectiveLayout,
@@ -34,6 +40,7 @@ export function buildSimulationConfigPayload(config, layout = null) {
   }
 }
 
+// 判断布局是否包含仿真必需的入口、窗口和餐桌。
 function isUsableLayout(layout) {
   return Boolean(
     layout &&
@@ -43,7 +50,9 @@ function isUsableLayout(layout) {
   )
 }
 
+// 清洗布局坐标、容量和旋转角，输出后端 schema 可接收的字段。
 function normalizeLayout(layout) {
+  // 门和窗口保留墙面方向，后端路径和入口/服务点会用到 wall_side。
   const doors = layout.doors.map((door) => ({
     id: door.id,
     x: round1(door.x),
@@ -72,8 +81,10 @@ function normalizeLayout(layout) {
   return { doors, windows, tables }
 }
 
+// 根据最大餐桌容量裁剪结伴人数分布，避免出现坐不下的小组。
 function partyDistributionForLayout(layout) {
   const maxCapacity = Math.max(1, ...layout.tables.map((table) => table.capacity))
+  // 只保留当前布局能坐下的小组规模，避免后端生成无法同桌入座的小组。
   return Object.fromEntries(
     Object.entries(defaultPartySizeDistribution)
       .filter(([size]) => Number(size) <= maxCapacity)
@@ -81,12 +92,14 @@ function partyDistributionForLayout(layout) {
   )
 }
 
+// 将布局坐标保留一位小数，减少请求体中的浮点噪声。
 function round1(value) {
   const number = Number(value)
   if (!Number.isFinite(number)) return 0
   return Math.round(number * 10) / 10
 }
 
+// 对外暴露布局总座位数，内部复用布局编辑器的统计函数。
 export function totalSeatsFromLayout(layout) {
   return totalLayoutSeats(layout)
 }

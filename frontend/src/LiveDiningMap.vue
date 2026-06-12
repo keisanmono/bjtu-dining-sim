@@ -1,3 +1,5 @@
+<!-- 文件说明：实时地图组件：把后端状态快照渲染成窗口、队列、餐桌和学生动画。 -->
+
 <template>
   <div class="live-dining-map-shell">
     <svg
@@ -242,21 +244,29 @@ const emit = defineEmits(['transition-settled'])
 const DETAIL_CAPSULE_BASE_PX = 18
 const DETAIL_CAPSULE_INC_PX = 6
 
+// 计算食堂地面边界，用于绘制地面和网格。
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
+// 将自动适配后的 viewBox 转成 SVG 属性字符串。
 const viewBoxString = computed(() => {
   const viewBox = fitViewBoxForLayout(props.layout, 24)
   return `${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`
 })
+// 读取后端实时状态快照，缺省时使用空对象避免模板报错。
 const snapshot = computed(() => props.state || {})
+// 读取布局中的餐桌列表。
 const tables = computed(() => props.layout?.tables || [])
+// 读取布局中的取餐窗口列表。
 const windows = computed(() => props.layout?.windows || [])
+// 读取布局中的入口列表。
 const doors = computed(() => props.layout?.doors || [])
+// 当前快照中的餐桌占用数组，动画落定后写入显示态。
 const snapshotTableOccupancy = computed(() => snapshot.value.table_occupancy || [])
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
 const walkingPartyMarkers = ref([])
 const displayedTableOccupancy = ref([])
+// 将后端 snapshot 转成实时地图中小组应处的位置。
 const livePartyTargets = computed(() => buildLivePartyTargets({
   snapshot: snapshot.value,
   layout: props.layout
@@ -286,22 +296,26 @@ onBeforeUnmount(() => {
   cancelPartyAnimation()
 })
 
+// 点击窗口时打开或关闭该窗口的排队详情。
 function toggleWindowSelection(idx) {
   selectedWindowIndex.value = selectedWindowIndex.value === idx ? null : idx
 }
 
+// 点击空白区域时清除当前窗口详情选择。
 function clearSelection() {
   if (selectedWindowIndex.value !== null) {
     selectedWindowIndex.value = null
   }
 }
 
+// 将后端 busy_windows 数组转换成忙碌窗口下标集合。
 const busyWindowIndexes = computed(() => new Set(
   (snapshot.value.busy_windows || [])
     .map((busy, idx) => (busy ? idx : null))
     .filter((idx) => idx !== null)
 ))
 
+// 按窗口聚合排队人数，优先使用 queue_lengths，缺失时从 queue_groups 回算。
 const queueLengthByWindow = computed(() => {
   const map = new Map()
   ;(snapshot.value.queue_lengths || []).forEach((length, idx) => {
@@ -318,6 +332,7 @@ const queueLengthByWindow = computed(() => {
   return map
 })
 
+// 按窗口聚合排队小组，并按队列位置排序。
 const queueGroupsByWindow = computed(() => {
   const map = new Map()
   for (const raw of snapshot.value.queue_groups || []) {
@@ -330,6 +345,7 @@ const queueGroupsByWindow = computed(() => {
   return map
 })
 
+// 将显示中的餐桌占用同时按 table.id 和数组下标建立索引。
 const tableOccupancyById = computed(() => {
   const map = new Map()
   ;(displayedTableOccupancy.value || []).forEach((entry, idx) => {
@@ -340,6 +356,7 @@ const tableOccupancyById = computed(() => {
   return map
 })
 
+// 为选中窗口的详情面板准备可见小组、隐藏人数和服务状态。
 const selectedWindowDetail = computed(() => {
   if (selectedWindowIndex.value === null) return null
   const idx = selectedWindowIndex.value
@@ -383,10 +400,12 @@ const selectedWindowDetail = computed(() => {
   }
 })
 
+// 当前正在窗口服务的小组标记。
 const serviceMarkers = computed(() => (
   animatedPartyMarkers.value.filter((marker) => marker.role === 'service' && marker.opacity > 0)
 ))
 
+// 已入座小组的圆点簇，按小组人数生成成员点和连接线。
 const seatedClusters = computed(() => {
   return animatedPartyMarkers.value
     .filter((marker) => marker.role === 'seated' && marker.opacity > 0)
@@ -402,6 +421,7 @@ const seatedClusters = computed(() => {
     })
 })
 
+// 正在从窗口走向餐桌的小组圆点簇。
 const walkingClusters = computed(() => {
   return walkingPartyMarkers.value
     .filter((marker) => marker.opacity > 0)
@@ -417,11 +437,13 @@ const walkingClusters = computed(() => {
     })
 })
 
+// 根据新快照启动小组位置过渡；若后端提供 timeline 则优先播放后端帧。
 function startPartyTransition(nextTargets, timeline = null) {
   cancelPartyAnimation()
   walkingPartyMarkers.value = []
   const backendPlaybackMs = backendTimelinePlaybackMs(timeline)
   if (backendPlaybackMs > 0) {
+    // 后端 timeline 包含真实路径帧时，优先播放它而不是前端补间估算。
     startBackendTimelineTransition(nextTargets, timeline, backendPlaybackMs)
     return
   }
@@ -430,6 +452,7 @@ function startPartyTransition(nextTargets, timeline = null) {
     ? snapshotArrivedAt - lastSnapshotArrivedAt
     : LIVE_TRANSITION_MS
   lastSnapshotArrivedAt = snapshotArrivedAt
+  // 根据快照实际到达间隔压缩动画时长，避免自动运行时越播越慢。
   const transitionDurationMs = transitionDurationForSnapshotGap(snapshotIntervalMs)
   const previousTargets = transitionStartTargets(lastSettledPartyTargets, animatedPartyMarkers.value)
   const transitions = buildLivePartyTransitions({
@@ -438,6 +461,7 @@ function startPartyTransition(nextTargets, timeline = null) {
     layout: props.layout
   })
   if (!transitions.length) {
+    // 没有移动、出现或离开时直接固化快照，并通知父组件可以请求下一步。
     lastSettledPartyTargets = nextTargets
     animatedPartyMarkers.value = settledMarkers(nextTargets)
     settleTableOccupancy()
@@ -454,6 +478,7 @@ function startPartyTransition(nextTargets, timeline = null) {
   }
 
   const startedAt = snapshotArrivedAt
+  // 每帧按补间进度更新服务、等座和入座标记。
   const render = (timestamp) => {
     const progress = clamp((timestamp - startedAt) / transitionDurationMs, 0, 1)
     animatedPartyMarkers.value = interpolateLivePartyMarkers({
@@ -480,7 +505,9 @@ function startPartyTransition(nextTargets, timeline = null) {
   partyAnimationFrame = window.requestAnimationFrame(render)
 }
 
+// 播放后端单步仿真返回的入座行走 timeline。
 function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
+  // 服务和已入座标记先按目标态展示，walkingPartyMarkers 单独负责播放行走学生。
   animatedPartyMarkers.value = settledMarkers(nextTargets)
 
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -492,14 +519,17 @@ function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   }
 
   let timelinePlaybackStartedAt = null
+  // 每帧按后端 timeline 的 elapsedMs 采样行走标记。
   const render = (timestamp) => {
     if (timelinePlaybackStartedAt === null) {
       timelinePlaybackStartedAt = timestamp
+      // 第一帧固定 elapsed=0，保证学生从后端给出的起点开始。
       walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs: 0 })
       partyAnimationFrame = window.requestAnimationFrame(render)
       return
     }
     const elapsedMs = clamp(timestamp - timelinePlaybackStartedAt, 0, playbackMs)
+    // 每帧按 elapsedMs 在后端 frames/path 中采样，得到当前行走位置。
     walkingPartyMarkers.value = buildBackendWalkingMarkers({ timeline, elapsedMs })
     if (elapsedMs < playbackMs) {
       partyAnimationFrame = window.requestAnimationFrame(render)
@@ -517,16 +547,20 @@ function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   partyAnimationFrame = window.requestAnimationFrame(render)
 }
 
+// 动画完成后将快照餐桌占用固化到显示态，避免行走中提前占座。
 function settleTableOccupancy() {
   displayedTableOccupancy.value = snapshotTableOccupancy.value.map((entry) => ({ ...entry }))
 }
 
+// 过渡完成后只保留服务中的小组作为稳定标记。
 function settledMarkers(targets) {
+  // 过渡结束后隐藏等待和入座目标，只保留窗口服务中的点，座位占用由椅子颜色表达。
   return targets
     .filter((target) => target.role === 'service')
     .map((target) => ({ ...target, opacity: 1, progress: 1 }))
 }
 
+// 合并已稳定目标和当前可见标记，作为下一轮补间起点。
 function transitionStartTargets(settledTargets, visibleMarkers) {
   const targets = new Map()
   for (const target of settledTargets || []) {
@@ -538,6 +572,7 @@ function transitionStartTargets(settledTargets, visibleMarkers) {
   return Array.from(targets.values())
 }
 
+// 取消上一轮 requestAnimationFrame，避免新快照和旧动画叠加。
 function cancelPartyAnimation() {
   if (partyAnimationFrame && typeof window !== 'undefined') {
     window.cancelAnimationFrame(partyAnimationFrame)
@@ -545,12 +580,14 @@ function cancelPartyAnimation() {
   partyAnimationFrame = 0
 }
 
+// 优先使用 performance.now() 计算动画时间，测试环境下回退到 Date.now()。
 function now() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now()
 }
 
+// 按小组人数生成最多四个成员圆点的局部坐标。
 function clusterDots(group) {
   const size = clamp(Number(group?.member_count) || Number(group?.size) || 1, 1, 4)
   if (size === 1) return [{ key: 'p0', x: 0, y: 0 }]
@@ -571,6 +608,7 @@ function clusterDots(group) {
   ]
 }
 
+// 用线段把同组成员点连接起来，突出结伴关系。
 function clusterLinks(dots) {
   if (!Array.isArray(dots) || dots.length < 2) return []
   return dots.slice(1).map((dot, idx) => ({
@@ -582,6 +620,7 @@ function clusterLinks(dots) {
   }))
 }
 
+// 根据图元 footprint 返回可绘制的局部矩形。
 function itemRectFor(kind, item) {
   const footprint = getItemFootprint(kind, item)
   return {
@@ -592,6 +631,7 @@ function itemRectFor(kind, item) {
   }
 }
 
+// 根据入口所在墙面生成门缝标记矩形。
 function doorMarkerFor(door) {
   const footprint = getItemFootprint('door', door)
   if (door.wall_side === 'top' || door.wall_side === 'bottom') {
@@ -600,6 +640,7 @@ function doorMarkerFor(door) {
   return { x: -3, y: -footprint.height / 2 + 8, width: 6, height: footprint.height - 16 }
 }
 
+// 根据窗口所在墙面生成窗口开口标记矩形。
 function windowMarkerFor(window) {
   const footprint = getItemFootprint('window', window)
   if (window.wall_side === 'left' || window.wall_side === 'right') {
@@ -608,29 +649,35 @@ function windowMarkerFor(window) {
   return { x: -footprint.width / 2 + 6, y: -3, width: footprint.width - 12, height: 6 }
 }
 
+// 根据餐桌容量返回桌面可视尺寸。
 function tableTopFor(table) {
   return tableTopForCapacity(table.capacity)
 }
 
+// 根据餐桌容量返回椅子局部矩形。
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
 }
 
+// 将餐桌旋转角转换成 SVG transform。
 function tableTransformFor(table) {
   return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
+// 按 table.id 或下标读取餐桌占用，缺失时回退为空桌。
 function tableOccupancyFor(table, index = 0) {
   return tableOccupancyById.value.get(table.id)
     || tableOccupancyById.value.get(index)
     || { capacity: table.capacity, occupied: 0 }
 }
 
+// 根据 table_occupancy 判断指定椅子是否已被占用。
 function isChairOccupied(table, chairIndex, tableIndex = 0) {
   const occupied = Number(tableOccupancyFor(table, tableIndex).occupied) || 0
   return chairIndex < occupied
 }
 
+// 根据忙碌、排队和选中状态生成窗口 CSS 类。
 function windowStateClasses(idx) {
   return {
     'is-busy': busyWindowIndexes.value.has(idx),
@@ -639,6 +686,7 @@ function windowStateClasses(idx) {
   }
 }
 
+// 为窗口交互区域生成包含排队人数的可访问文本。
 function windowAriaLabel(window, idx) {
   const total = queueLengthByWindow.value.get(idx) || 0
   return total > 0

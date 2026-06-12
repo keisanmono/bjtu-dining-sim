@@ -1,3 +1,5 @@
+# 文件说明：存储测试：验证 SQLite 保存、读取和 CSV 导出。
+
 import sys
 import tempfile
 import unittest
@@ -10,7 +12,9 @@ from app.simulation import SimulationConfigData, run_simulation
 from app.storage import SimulationStore
 
 
+# 存储层测试，验证仿真结果写入 SQLite 后能按 run_id 读回。
 class SimulationStoreTests(unittest.TestCase):
+    # 验证分钟记录和最终指标保存后字段完整且与原结果一致。
     def test_save_and_load_run_records_and_metrics(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "sim.sqlite"

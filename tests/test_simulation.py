@@ -1,3 +1,5 @@
+# 文件说明：仿真核心测试：验证排队、座位、推荐、结伴和实时地图快照行为。
+
 import sys
 import unittest
 from pathlib import Path
@@ -17,11 +19,14 @@ from app.simulation import (
     LayoutTableData,
     LayoutWindowData,
     SimulationConfigData,
+    WindowService,
     run_simulation,
 )
 
 
+# 仿真核心测试，覆盖到达、排队、入座、推荐估算和实时地图快照。
 class DiningSimulationTests(unittest.TestCase):
+    # 验证相同 seed 下完整仿真结果可复现。
     def test_run_is_reproducible_with_same_seed(self):
         config = SimulationConfigData(
             num_windows=3,
@@ -42,6 +47,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(first.metrics.peak_queue, second.metrics.peak_queue)
         self.assertEqual(first.metrics.total_left, first.metrics.total_arrived)
 
+    # 验证到达期结束后系统会继续运行，直到所有已到达学生离开。
     def test_simulation_drains_all_arrivals_after_arrival_period(self):
         config = SimulationConfigData(
             num_windows=1,
@@ -64,6 +70,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(result.final_state["waiting_for_seat_count"], 0)
         self.assertNotIn("seat_matrix", result.final_state)
 
+    # 验证窗口不足时峰值队列和瓶颈类型会体现窗口服务压力。
     def test_window_capacity_pressure_is_reported(self):
         result = run_simulation(
             SimulationConfigData(
@@ -81,6 +88,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(result.metrics.bottleneck_type, "窗口服务")
         self.assertGreater(result.metrics.window_utilization, 0.85)
 
+    # 验证座位不足时会出现等座，并把瓶颈归因为座位容量。
     def test_seat_capacity_pressure_is_reported(self):
         result = run_simulation(
             SimulationConfigData(
@@ -98,6 +106,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(result.metrics.bottleneck_type, "座位容量")
         self.assertGreater(result.metrics.seat_utilization, 0.75)
 
+    # 验证推荐排序会优先给出比基准等待更低的方案。
     def test_recommendation_ranks_lower_waiting_plan_first(self):
         base = SimulationConfigData(
             num_windows=2,
@@ -125,6 +134,7 @@ class DiningSimulationTests(unittest.TestCase):
         )
         self.assertIn(recommendation.best.config.num_windows, [3, 4])
 
+    # 验证推荐候选改变窗口和座位数时会同步扩展布局资源。
     def test_recommendation_resizes_layout_for_candidate_resource_counts(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -156,6 +166,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(len(recommendation.best.config.layout.windows), 2)
         self.assertEqual(sum(table.capacity for table in recommendation.best.config.layout.tables), 8)
 
+    # 验证推荐生成候选布局时保留已有自定义坐标和餐桌旋转。
     def test_recommendation_preserves_custom_layout_coordinates_for_candidates(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=35, y=155)],
@@ -196,6 +207,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(candidate_layout.tables[0].x, 90)
         self.assertEqual(candidate_layout.tables[0].rotation, 90)
 
+    # 验证座位数不变时推荐不会重建已有餐桌类型和容量。
     def test_recommendation_keeps_custom_table_types_when_seat_count_is_unchanged(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=35, y=155)],
@@ -231,6 +243,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual([table.capacity for table in candidate_layout.tables], [6, 2])
         self.assertEqual([table.table_type for table in candidate_layout.tables], ["six_seat", "two_seat"])
 
+    # 验证校园推荐会把教学楼分配到多个错峰下课时间。
     def test_recommendation_splits_campus_buildings_into_dismissal_peaks(self):
         campus = CampusDemandConfigData(
             enabled=True,
@@ -285,6 +298,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertIn("3 峰下课", recommendation.best.strategy)
         self.assertIn("间隔 10 分钟", recommendation.best.strategy)
 
+    # 验证校园推荐候选使用快速估算器，不为每个候选跑完整仿真。
     def test_campus_recommendation_uses_fast_estimator_for_candidates(self):
         campus = CampusDemandConfigData(
             enabled=True,
@@ -328,6 +342,7 @@ class DiningSimulationTests(unittest.TestCase):
             peak_count_options=[1, 2, 3, 4],
             top_k=4,
         )
+        # 若候选枚举误调用完整仿真，测试应立即失败。
         def fail_if_full_simulation_runs(config):
             raise AssertionError("校园推荐候选应使用快速估算器，而不是完整仿真。")
 
@@ -342,6 +357,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any("峰下课" in candidate.strategy for candidate in recommendation.ranking))
 
+    # 验证手动到达模式下推荐候选同样走快速估算器。
     def test_manual_recommendation_uses_fast_estimator_for_candidates(self):
         request = RecommendationRequestData(
             base_config=SimulationConfigData(
@@ -362,6 +378,7 @@ class DiningSimulationTests(unittest.TestCase):
             top_k=3,
         )
 
+        # 若手动候选枚举误调用完整仿真，测试应立即失败。
         def fail_if_full_simulation_runs(config):
             raise AssertionError("手动平均推荐候选应使用快速估算器，而不是完整仿真。")
 
@@ -376,6 +393,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any(candidate.config.num_windows > request.base_config.num_windows for candidate in recommendation.ranking))
 
+    # 验证同一小组内的成员仍会按窗口队列和距离独立选择排队窗口。
     def test_party_members_choose_windows_independently(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -401,7 +419,60 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(students[0].party_id, students[1].party_id)
         self.assertEqual([len(queue) for queue in runner.queues], [1, 1])
         self.assertEqual({student.window_index for student in students}, {0, 1})
+        self.assertEqual(runner.metrics_counters["party_window_split_count"], 1)
 
+    # 验证窗口选择使用预计完成排队成本，而不是只看队伍长度。
+    def test_window_choice_avoids_short_queue_with_long_remaining_service(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[
+                LayoutWindowData(id="W1", x=10, y=0),
+                LayoutWindowData(id="W2", x=20, y=0),
+            ],
+            tables=[LayoutTableData(id="T1", x=30, y=30, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=2,
+                num_seats=4,
+                service_time_mean=3.0,
+                layout=layout,
+                seed=101,
+            )
+        )
+        busy_student = runner._create_party_students(minute=0, person_count=1)[0]
+        runner.windows[0] = WindowService(student=busy_student, remaining=30)
+        runner.queues[1] = runner._create_party_students(minute=0, person_count=2)
+        candidate = runner._create_party_students(minute=1, person_count=1)[0]
+
+        self.assertEqual(runner._choose_window_for_student(candidate), 1)
+
+    # 验证相同队长下，服务能力更高的窗口有更低预计完成成本。
+    def test_window_choice_prefers_faster_window_with_equal_queue_length(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[
+                LayoutWindowData(id="W1", x=10, y=0, service_rate_factor=0.5),
+                LayoutWindowData(id="W2", x=100, y=0, service_rate_factor=2.0),
+            ],
+            tables=[LayoutTableData(id="T1", x=30, y=30, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=2,
+                num_seats=4,
+                service_time_mean=4.0,
+                layout=layout,
+                seed=102,
+            )
+        )
+        runner.queues[0] = runner._create_party_students(minute=0, person_count=2)
+        runner.queues[1] = runner._create_party_students(minute=0, person_count=2)
+        candidate = runner._create_party_students(minute=1, person_count=1)[0]
+
+        self.assertEqual(runner._choose_window_for_student(candidate), 1)
+
+    # 验证实时地图快照暴露排队、等座、入座小组和餐桌占用信息。
     def test_snapshot_exposes_party_locations_for_live_map(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -451,6 +522,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(seated_snapshot["seated_parties"][0]["table_id"], "T1")
         self.assertEqual(seated_snapshot["table_occupancy"][0]["party_count"], 1)
 
+    # 验证结伴小组入座时会被安排到同一张有足够容量的餐桌。
     def test_party_seating_keeps_companions_at_one_table(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -485,6 +557,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual({student.seat_time for student in students}, {5})
         self.assertEqual(runner.metrics_counters["party_split_count"], 0)
 
+    # 验证单人学生在有空桌时优先选择空桌而不是拼桌。
     def test_solo_student_prefers_empty_table_before_sharing(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=0)],
@@ -518,6 +591,127 @@ class DiningSimulationTests(unittest.TestCase):
 
         self.assertEqual(party.table_index, 1)
 
+    # 验证选座随机效用模型在固定 seed 下可复现。
+    def test_table_choice_temperature_is_reproducible_with_seed(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[
+                LayoutTableData(id="T1", x=20, y=20, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T2", x=20, y=-20, table_type="two_seat", capacity=2),
+            ],
+        )
+
+        def choices_for_seed(seed: int) -> list[int]:
+            runner = DiningSimulationRunner(
+                SimulationConfigData(
+                    num_windows=1,
+                    num_seats=4,
+                    layout=layout,
+                    table_choice_temperature=1.0,
+                    party_size_distribution={1: 1.0},
+                    seed=seed,
+                )
+            )
+            student = runner._create_party_students(minute=0, person_count=1)[0]
+            student.window_index = 0
+            student.service_end_time = 1
+            party = runner.parties[student.party_id]
+            party.ready_time = 1
+            return [runner._choose_table_for_party(party) for _ in range(6)]
+
+        first = choices_for_seed(1)
+        second = choices_for_seed(1)
+
+        self.assertEqual(first, second)
+        self.assertGreater(len(set(first)), 1)
+
+    # 验证碎片化座位统计覆盖“总空座足够，但没有单桌可容纳小队”的场景。
+    def test_fragmented_seats_counts_scattered_empty_tables_for_waiting_party(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[
+                LayoutTableData(id="T1", x=20, y=20, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T2", x=80, y=20, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T3", x=140, y=20, table_type="three_seat", capacity=3),
+            ],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=7,
+                layout=layout,
+                party_size_distribution={3: 1.0},
+                seed=26,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=3)
+        party = runner.parties[students[0].party_id]
+        party.ready_time = 2
+        runner.waiting_for_seat.append(party)
+        runner.table_occupied_seats[2] = 1
+
+        self.assertEqual(runner._fragmented_seats(), 6)
+
+    # 验证同行服务结束时间不同会进入集合等待指标。
+    def test_party_gather_and_seat_wait_metrics_are_reported(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[LayoutTableData(id="T1", x=30, y=30, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                layout=layout,
+                party_size_distribution={2: 1.0},
+                seed=27,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+        party = runner.parties[students[0].party_id]
+        for index, student in enumerate(students):
+            student.window_index = 0
+            student.service_end_time = 2 + index * 3
+        party.ready_time = 5
+        runner.waiting_for_seat.append(party)
+
+        runner._seat_waiting_students(minute=5)
+        runner._advance_walking_to_seats(end_time_sec=6 * 60)
+        metrics = runner._build_metrics()
+
+        self.assertGreater(metrics.avg_party_gather_wait, 0)
+        self.assertGreater(metrics.avg_party_seat_wait, 0)
+
+    # 验证默认关闭的占座实验功能开启后会提前预留座位，且不超过桌面容量。
+    def test_preempt_seat_probability_reserves_table_capacity_when_enabled(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=0, y=0)],
+            windows=[LayoutWindowData(id="W1", x=10, y=0)],
+            tables=[LayoutTableData(id="T1", x=30, y=30, table_type="two_seat", capacity=2)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=2,
+                layout=layout,
+                party_size_distribution={2: 1.0},
+                preempt_seat_probability=1.0,
+                seat_holder_min_party_size=2,
+                seed=28,
+            )
+        )
+
+        students = runner._create_party_students(minute=0, person_count=2)
+        party = runner.parties[students[0].party_id]
+
+        self.assertEqual(party.reserved_table_index, 0)
+        self.assertEqual(runner.table_reserved_seats, [2])
+        self.assertLessEqual(runner.table_occupied_seats[0] + runner.table_reserved_seats[0], layout.tables[0].capacity)
+
+    # 验证取餐完成小组通过后端 timeline 行走到餐桌并最终入座。
     def test_ready_party_walks_to_seat_through_backend_timeline(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=0, y=120)],

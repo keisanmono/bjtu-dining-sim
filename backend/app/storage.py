@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# 文件说明：本地存储模块：用 SQLite 保存仿真配置、过程记录、指标、推荐和解释。
+
 import csv
 import json
 import sqlite3
@@ -12,14 +14,20 @@ from typing import Any, Iterator
 from .simulation import SimulationResult
 
 
+# SQLite 持久化层：保存配置、每分钟记录、最终指标、推荐结果和解释结果。
+# SimulationStore 负责连接数据库、初始化表结构，以及读写仿真相关数据。
 class SimulationStore:
+    # 保存数据库路径，确保目录存在，并在首次使用时创建表结构。
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    # save_result() 保存一次完整仿真的配置、过程记录和最终指标。
     def save_result(self, result: SimulationResult) -> None:
+        # 完整仿真结束后落库：先清理同 run_id 旧记录，再写配置、StepRecord 和 MetricsSummary。
         with self._connect() as conn:
+            # run_id 可能被重新运行覆盖，先删明细和指标可以避免旧分钟记录残留。
             conn.execute("DELETE FROM step_record WHERE run_id = ?", (result.run_id,))
             conn.execute("DELETE FROM metrics_summary WHERE run_id = ?", (result.run_id,))
             conn.execute(
@@ -41,6 +49,7 @@ class SimulationStore:
                 """,
                 [_record_row(record) for record in result.records],
             )
+            # 指标表保存常用字段；不常用于筛选的派生指标统一放入 extra_metrics_json。
             conn.execute(
                 """
                 INSERT OR REPLACE INTO metrics_summary (
@@ -68,6 +77,8 @@ class SimulationStore:
                     _json(
                         {
                             "avg_party_gather_wait": result.metrics.avg_party_gather_wait,
+                            "avg_party_seat_wait": result.metrics.avg_party_seat_wait,
+                            "party_window_split_count": result.metrics.party_window_split_count,
                             "party_split_count": result.metrics.party_split_count,
                             "shared_table_count": result.metrics.shared_table_count,
                             "blocked_party_count": result.metrics.blocked_party_count,
@@ -78,8 +89,10 @@ class SimulationStore:
                 ),
             )
 
+    # 保存一次优化推荐结果，包括候选方案、最佳配置和排序明细。
     def save_optimization(self, opt_id: str, base_run_id: str | None, payload: dict[str, Any]) -> None:
         with self._connect() as conn:
+            # 推荐结果按 opt_id 覆盖写入，便于重复请求时保持一条最新记录。
             conn.execute(
                 """
                 INSERT OR REPLACE INTO optimization_result (
@@ -97,8 +110,10 @@ class SimulationStore:
                 ),
             )
 
+    # 保存规则化解释请求和响应，便于之后按 exp_id 或 run_id 追溯。
     def save_explanation(self, exp_id: str, run_id: str | None, request: dict[str, Any], response: dict[str, Any]) -> None:
         with self._connect() as conn:
+            # request_json 保存原始解释上下文，response_text/risk_notes 保存可直接展示的结果。
             conn.execute(
                 """
                 INSERT OR REPLACE INTO explanation_result (
@@ -116,6 +131,7 @@ class SimulationStore:
                 ),
             )
 
+    # 按 run_id 读取所有分钟级过程记录，并恢复 JSON 字段。
     def get_records(self, run_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -128,6 +144,7 @@ class SimulationStore:
             ).fetchall()
         return [_record_dict(row) for row in rows]
 
+    # 按 run_id 读取最终指标汇总，并合并额外指标 JSON。
     def get_metrics(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -137,16 +154,21 @@ class SimulationStore:
         if row is None:
             return None
         data = dict(row)
+        # JSON 字段在接口层恢复成普通 dict，调用方不需要了解数据库列名。
         data["chart_data"] = json.loads(data.pop("chart_data_json"))
+        # extra_metrics_json 是兼容扩展字段，展开后与基础指标处于同一层。
         data.update(json.loads(data.pop("extra_metrics_json", "{}") or "{}"))
         return data
 
+    # export_records_csv() 把已保存的分钟记录导出为 CSV 文件。
     def export_records_csv(self, run_id: str, output_path: str | Path) -> Path:
+        # CSV 导出只包含每分钟过程字段，便于展示后用表格复核仿真过程。
         records = self.get_records(run_id)
         if not records:
             raise KeyError(f"run_id 不存在或没有过程记录: {run_id}")
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
+        # CSV 只导出标量和队列长度摘要，完整前端快照仍保留在 SQLite 的 snapshot_json。
         fieldnames = [
             "run_id",
             "t",
@@ -170,8 +192,12 @@ class SimulationStore:
                 writer.writerow({key: record.get(key) for key in fieldnames})
         return output
 
+    # 创建或补齐 SQLite 表结构，兼容已有数据库缺少 extra_metrics_json 的情况。
     def _init_db(self) -> None:
         with self._connect() as conn:
+            # 表结构含义：
+            # run_config 保存输入配置，step_record 保存分钟级过程，
+            # metrics_summary 保存最终指标，optimization/explanation 保存推荐与解释结果。
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS run_config (
@@ -238,16 +264,20 @@ class SimulationStore:
             _ensure_column(conn, "metrics_summary", "extra_metrics_json", "TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
+    # 提供自动 commit/close 的 SQLite 连接上下文。
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
+        # 使用 Row 后，读取时可以按列名取值，_record_dict/get_metrics 更清晰。
         conn.row_factory = sqlite3.Row
         try:
             yield conn
+            # 所有写入函数共用这个上下文，正常退出时统一提交事务。
             conn.commit()
         finally:
             conn.close()
 
 
+# 把 StepRecord dataclass 压平成 step_record 表的一行。
 def _record_row(record: Any) -> tuple[Any, ...]:
     return (
         record.run_id,
@@ -268,22 +298,28 @@ def _record_row(record: Any) -> tuple[Any, ...]:
     )
 
 
+# 把数据库行恢复成前端接口使用的记录字典。
 def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
+    # 数据库保存紧凑 JSON，接口返回时恢复为前端可直接使用的对象。
     data["queue_lengths"] = json.loads(data.pop("queue_lengths_json"))
     data["snapshot"] = json.loads(data.pop("snapshot_json"))
     return data
 
 
+# 用紧凑 JSON 保存嵌套配置、快照和指标，保留中文字符。
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+# 如果旧表缺少字段，则用 ALTER TABLE 做一次轻量迁移。
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    # PRAGMA 读取当前列集合，避免对新数据库重复执行 ALTER TABLE。
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+# 生成 UTC ISO 时间戳，供 run/optimization/explanation 记录创建时间。
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

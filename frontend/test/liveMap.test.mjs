@@ -1,3 +1,5 @@
+// 文件说明：实时地图组件源码测试，验证运行页挂载、快照字段和旧座位矩阵移除。
+
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
@@ -7,6 +9,7 @@ const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8
 const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 const modelSource = readFileSync(new URL('../src/liveMapModel.js', import.meta.url), 'utf8')
 
+// 验证运行页已挂载 LiveDiningMap，并传入布局和当前状态。
 test('App.vue mounts the LiveDiningMap on the live run page', () => {
   assert.equal(appSource.includes("import LiveDiningMap from './LiveDiningMap.vue'"), true)
   assert.equal(appSource.includes('<LiveDiningMap'), true)
@@ -14,6 +17,7 @@ test('App.vue mounts the LiveDiningMap on the live run page', () => {
   assert.equal(appSource.includes(':state="currentState"'), true)
 })
 
+// 验证旧版座位矩阵入口已经从运行页移除。
 test('live run page no longer renders the legacy seat matrix or seat-grid', () => {
   assert.equal(appSource.includes('class="seat-grid"'), false)
   assert.equal(appSource.includes('seat_matrix'), false)
@@ -22,6 +26,7 @@ test('live run page no longer renders the legacy seat matrix or seat-grid', () =
   assert.equal(appSource.includes('seatGridStyle'), false)
 })
 
+// 验证实时地图读取后端结构化快照字段。
 test('LiveDiningMap consumes the structured snapshot fields from the backend', () => {
   assert.equal(mapSource.includes('queue_groups'), true)
   assert.equal(mapSource.includes('buildLivePartyTargets'), true)
@@ -34,6 +39,7 @@ test('LiveDiningMap consumes the structured snapshot fields from the backend', (
   assert.equal(modelSource.includes('waiting_parties'), true)
 })
 
+// 验证餐桌占用显示会等小组移动动画完成后再更新。
 test('LiveDiningMap delays table occupancy changes until party movement settles', () => {
   assert.equal(mapSource.includes('displayedTableOccupancy'), true)
   assert.equal(mapSource.includes('settleTableOccupancy'), true)
@@ -43,6 +49,7 @@ test('LiveDiningMap delays table occupancy changes until party movement settles'
   assert.equal(mapSource.includes('snapshot.value.table_occupancy'), true)
 })
 
+// 验证分钟快照之间的小组位置由 requestAnimationFrame 补间。
 test('LiveDiningMap interpolates party positions between minute snapshots', () => {
   assert.equal(mapSource.includes('animatedPartyMarkers'), true)
   assert.equal(mapSource.includes('requestAnimationFrame'), true)
@@ -61,6 +68,7 @@ test('LiveDiningMap interpolates party positions between minute snapshots', () =
   assert.equal(mapSource.includes("emit('transition-settled')"), true)
 })
 
+// 验证入座移动优先使用后端 walking timeline。
 test('LiveDiningMap renders backend walking timeline as the source of seat movement', () => {
   assert.equal(mapSource.includes('backendTimelinePlaybackMs'), true)
   assert.equal(mapSource.includes('buildBackendWalkingMarkers'), true)
@@ -70,17 +78,20 @@ test('LiveDiningMap renders backend walking timeline as the source of seat movem
   assert.equal(modelSource.includes('playback_duration_ms'), true)
 })
 
+// 验证后端 timeline 播放从第一帧开始计时。
 test('LiveDiningMap starts backend timeline playback on the first animation frame', () => {
   assert.equal(mapSource.includes('timelinePlaybackStartedAt'), true)
   assert.equal(mapSource.includes('timelinePlaybackStartedAt = timestamp'), true)
   assert.equal(mapSource.includes('elapsedMs: 0'), true)
 })
 
+// 验证实时地图仅用图形展示，不依赖 SVG 文本或座位矩阵。
 test('LiveDiningMap is purely visual and never relies on <text> or seat matrix', () => {
   assert.equal(mapSource.includes('<text'), false)
   assert.equal(mapSource.includes('seat_matrix'), false)
 })
 
+// 验证排队详情会限制可见小组数量，并在面板中显示溢出。
 test('LiveDiningMap caps how many parties it emits and bounds the queue panel', () => {
   // The queue cap lives in the model file (used by the detail panel).
   assert.match(modelSource, /QUEUE_VISIBLE_LIMIT\s*=\s*\d+/)
@@ -88,6 +99,7 @@ test('LiveDiningMap caps how many parties it emits and bounds the queue panel', 
   assert.equal(mapSource.includes('window-detail-overflow'), true)
 })
 
+// 验证地图命名图层只保留服务中和已入座小组。
 test('LiveDiningMap renders only the seated and service layers as named groups', () => {
   // No queue, no waiting parties on the map: queues live in the detail panel,
   // and waiting count is reported by the metric card outside this component.
@@ -106,6 +118,7 @@ test('LiveDiningMap renders only the seated and service layers as named groups',
   assert.equal(mapSource.includes('service-mark'), true)
 })
 
+// 验证排队胶囊不会渲染到 SVG 地图内。
 test('LiveDiningMap keeps the queue out of the SVG entirely', () => {
   // Selecting a window must not paint capsules onto the map; the queue is
   // shown only in the detail panel below.
@@ -114,6 +127,7 @@ test('LiveDiningMap keeps the queue out of the SVG entirely', () => {
   assert.equal(mapSource.includes('selectedWindowDetail'), true)
 })
 
+// 验证窗口可点击，并能切换选中窗口详情。
 test('LiveDiningMap windows are clickable and toggle the selected window', () => {
   assert.equal(mapSource.includes('live-clickable-item'), true)
   assert.equal(mapSource.includes('@click.stop="toggleWindowSelection(idx)"'), true)
@@ -123,6 +137,7 @@ test('LiveDiningMap windows are clickable and toggle the selected window', () =>
   assert.match(mapSource, /class="live-dining-map[^"]*"[\s\S]{0,200}@click="clearSelection"/)
 })
 
+// 验证选中窗口后，排队详情显示在 SVG 外部面板中。
 test('LiveDiningMap surfaces queue details outside the SVG when a window is selected', () => {
   assert.equal(mapSource.includes('window-detail-panel'), true)
   assert.equal(mapSource.includes('window-detail-header'), true)
@@ -133,6 +148,7 @@ test('LiveDiningMap surfaces queue details outside the SVG when a window is sele
   assert.equal(mapSource.includes('selectedWindowDetail'), true)
 })
 
+// 验证窗口忙碌、排队和选中状态都有对应 class 和样式。
 test('LiveDiningMap exposes window state classes for queue, busy, selected', () => {
   assert.equal(mapSource.includes("'is-busy'"), true)
   assert.equal(mapSource.includes("'has-queue'"), true)
@@ -142,6 +158,7 @@ test('LiveDiningMap exposes window state classes for queue, busy, selected', () 
   assert.equal(styleSource.includes('.layout-window.is-selected'), true)
 })
 
+// 验证队列胶囊按窗口内侧法线方向排布。
 test('LiveDiningMap places queue capsules on the inner side of each window', () => {
   // The queue computation should anchor on the window position and walk along
   // its inward normal, not scatter parties freely across the floor.
@@ -150,6 +167,7 @@ test('LiveDiningMap places queue capsules on the inner side of each window', () 
   assert.equal(modelSource.includes('QUEUE_STEP'), true)
 })
 
+// 验证小组颜色来自有限且克制的调色板。
 test('LiveDiningMap uses a small finite color palette', () => {
   const paletteMatch = modelSource.match(/PALETTE\s*=\s*\[([^\]]+)\]/)
   assert.notEqual(paletteMatch, null)
@@ -157,6 +175,7 @@ test('LiveDiningMap uses a small finite color palette', () => {
   assert.ok(colors.length >= 4 && colors.length <= 8, `expected 4-8 palette colors, got ${colors.length}`)
 })
 
+// 验证实时地图绘制静态布局层，但不暴露拖拽交互。
 test('LiveDiningMap renders the static layout layers without dragging', () => {
   assert.equal(mapSource.includes('layout-door'), true)
   assert.equal(mapSource.includes('layout-window'), true)
@@ -168,6 +187,7 @@ test('LiveDiningMap renders the static layout layers without dragging', () => {
   assert.equal(mapSource.includes('live-layout-item'), true)
 })
 
+// 验证等座状态只由指标卡呈现，地图不重复绘制等座区域。
 test('LiveDiningMap does not render a waiting zone or waiting parties', () => {
   // The waiting-for-seat count is shown by the metric card outside this
   // component, so the map should not duplicate it with shapes or clusters.
@@ -179,11 +199,13 @@ test('LiveDiningMap does not render a waiting zone or waiting parties', () => {
   assert.equal(mapSource.includes('waitingMarkers'), false)
 })
 
+// 验证忙碌窗口可以通过 class 和样式高亮。
 test('busy windows can be highlighted by class and stylesheet', () => {
   assert.equal(mapSource.includes('is-busy'), true)
   assert.equal(styleSource.includes('.layout-window.is-busy'), true)
 })
 
+// 验证实时地图样式包含当前需要的图层，并清理了旧队列/等座规则。
 test('styles.css declares the live map layers with restrained visuals', () => {
   assert.equal(styleSource.includes('.live-dining-map'), true)
   assert.equal(styleSource.includes('.seated-group'), true)
@@ -204,6 +226,7 @@ test('styles.css declares the live map layers with restrained visuals', () => {
   assert.equal(styleSource.includes('.waiting-overflow'), false)
 })
 
+// 验证旧版重光晕和调试感队列圆点样式已移除。
 test('styles.css drops the legacy heavy halo and noisy queue dot rules', () => {
   // Old visuals that produced the colorful debug-scatter look are gone.
   assert.equal(styleSource.includes('.window-service-dot'), false)

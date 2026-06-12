@@ -1,3 +1,5 @@
+# 文件说明：接口集成测试：验证 FastAPI 主要接口从运行到推荐解释的完整链路。
+
 import sys
 import unittest
 from pathlib import Path
@@ -5,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+import app.main as main_module
 from app.main import (
     campus_locations,
     campus_occupancy,
@@ -15,10 +18,12 @@ from app.main import (
     run_full_simulation,
     validate_simulation_config,
 )
-from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig
+from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig, StepRequest
 
 
+# 接口层集成测试，直接调用 FastAPI handler 验证主要业务链路。
 class ApiTests(unittest.TestCase):
+    # 每个用例共用一份规模较小但能完整跑完的基础仿真配置。
     def setUp(self):
         self.config = {
             "num_windows": 3,
@@ -35,6 +40,26 @@ class ApiTests(unittest.TestCase):
             "seat_columns": 10,
         }
 
+    def tearDown(self):
+        main_module.ACTIVE_RUNS.clear()
+
+    # 验证默认数据目录不随启动工作目录漂移。
+    def test_default_data_dir_is_repo_root_data_directory(self):
+        self.assertTrue(main_module.DATA_DIR.is_absolute())
+        self.assertEqual((ROOT / "data").resolve(), main_module.DATA_DIR)
+
+    # 验证实时运行表会清理长时间未访问的 runner，避免内存状态无限保留。
+    def test_stale_active_runs_are_pruned_before_creating_new_runner(self):
+        first = main_module._resolve_runner(StepRequest(config=SimulationConfig(**self.config), reset=True))
+        first.last_access_monotonic = -1_000_000.0
+
+        second = main_module._resolve_runner(StepRequest(config=SimulationConfig(**self.config), reset=True))
+
+        self.assertNotEqual(first.run_id, second.run_id)
+        self.assertNotIn(first.run_id, main_module.ACTIVE_RUNS)
+        self.assertIn(second.run_id, main_module.ACTIVE_RUNS)
+
+    # 验证参数校验、完整仿真、记录查询、指标查询、推荐和解释能串联执行。
     def test_run_records_metrics_recommendation_and_explanation(self):
         validation = validate_simulation_config(SimulationConfig(**self.config))
         self.assertTrue(validation.valid)
@@ -72,6 +97,7 @@ class ApiTests(unittest.TestCase):
         )
         self.assertIn("建议采用", explanation.text)
 
+    # 验证校园推荐接口会接收 peak_count_options 并把教学楼拆成多个下课峰。
     def test_recommendation_accepts_campus_peak_count_options(self):
         rec_body = recommend(
             RecommendationRequest(
@@ -116,6 +142,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(sorted({building["dismissal_minute"] for building in buildings}), [0, 10, 20])
         self.assertIn("3 峰下课", rec_body["best"]["strategy"])
 
+    # 验证前端布局 payload 会影响最终餐桌状态和分桌类型指标。
     def test_layout_payload_drives_table_state_and_metrics(self):
         config = {
             **self.config,
@@ -147,6 +174,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("two_seat", body["metrics"]["table_utilization_by_type"])
         self.assertIn("avg_party_gather_wait", body["metrics"])
 
+    # 验证校园位置接口暴露主校区教学楼、食堂和步行时间表。
     def test_campus_locations_expose_main_campus_buildings_and_cafeterias(self):
         payload = campus_locations()
 
@@ -155,6 +183,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual({item["id"] for item in payload["cafeterias"]}, {"xuehuo", "minghu", "xuesi", "xueyuan"})
         self.assertIn("walk_times", payload)
 
+    # 验证随机校园人数接口返回按楼层组织的人数行。
     def test_random_campus_occupancy_returns_floor_rows(self):
         payload = campus_occupancy(CampusOccupancyRequest(source_mode="random", buildings=["no9"], seed=7))
 

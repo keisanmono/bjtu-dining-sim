@@ -1,7 +1,10 @@
+// 文件说明：推荐和配置页面结构测试，通过源码断言确认页面入口和旧 UI 移除。
+
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
+// 验证配置页推荐面板不再渲染冗余候选预览列表。
 test('config recommendation panel does not render redundant candidate preview list', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -9,6 +12,7 @@ test('config recommendation panel does not render redundant candidate preview li
   assert.equal(source.includes('configCandidateGroups'), false)
 })
 
+// 验证推荐结果留在配置页内展示，没有独立推荐 tab 或旧布局样式。
 test('recommendations stay inside config page without a separate tab or page', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -25,6 +29,7 @@ test('recommendations stay inside config page without a separate tab or page', (
   assert.equal(styleSource.includes('.recommend-grid'), false)
 })
 
+// 验证场景预览页通过 LayoutEditor 渲染真实可编辑食堂平面图。
 test('simulation preview renders a realistic cafeteria floor plan via LayoutEditor', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const editorSource = readFileSync(new URL('../src/LayoutEditor.vue', import.meta.url), 'utf8')
@@ -156,6 +161,7 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(styleSource.includes('.preview-grid'), false)
 })
 
+// 验证仿真、校验、推荐和解释接口都使用当前可编辑布局 payload。
 test('frontend sends the editable dining layout to simulation APIs', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -169,6 +175,7 @@ test('frontend sends the editable dining layout to simulation APIs', () => {
   assert.equal(source.includes('baseline_config: buildSimulationConfigPayload(config, layout.value)'), true)
 })
 
+// 验证门窗点击热区不会作为可见图形误显示。
 test('door and window hit areas are not rendered as visible sprites', () => {
   const editorSource = readFileSync(new URL('../src/LayoutEditor.vue', import.meta.url), 'utf8')
   const mapSource = readFileSync(new URL('../src/LiveDiningMap.vue', import.meta.url), 'utf8')
@@ -185,6 +192,7 @@ test('door and window hit areas are not rendered as visible sprites', () => {
   assert.equal(styleSource.includes('rect:first-child'), false)
 })
 
+// 验证配置页推荐面板会展示候选效果指标。
 test('config recommendation panel shows effect metrics for alternatives', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -195,6 +203,7 @@ test('config recommendation panel shows effect metrics for alternatives', () => 
   assert.equal(source.includes('label="评分"'), true)
 })
 
+// 验证推荐主方案和备选方案都可以应用回当前配置。
 test('config recommendation panel can apply recommended and alternative plans', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -203,6 +212,7 @@ test('config recommendation panel can apply recommended and alternative plans', 
   assert.equal(source.includes('applyRecommendationConfig'), true)
 })
 
+// 验证基础参数表单使用更明确的到达人数标签。
 test('config form uses a clear arrival volume label', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -210,6 +220,7 @@ test('config form uses a clear arrival volume label', () => {
   assert.equal(source.includes('label="到达率"'), false)
 })
 
+// 验证校园到达模式下手动到达相关控件会隐藏。
 test('campus mode hides manual arrival controls from base parameters', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -222,6 +233,7 @@ test('campus mode hides manual arrival controls from base parameters', () => {
   assert.equal(source.includes('label="高峰结束"'), true)
 })
 
+// 验证基础配置控件按手动到达和服务随机性分组对齐。
 test('config form groups base controls into aligned sections', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -238,6 +250,7 @@ test('config form groups base controls into aligned sections', () => {
   assert.equal(styleSource.includes('.config-action-bar'), true)
 })
 
+// 验证校园到达配置提供实时数据和随机生成人数入口。
 test('config form exposes campus demand controls with live and random buttons', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -249,6 +262,7 @@ test('config form exposes campus demand controls with live and random buttons', 
   assert.equal(source.includes('loadCampusOccupancy'), true)
 })
 
+// 验证校园楼层人数表按内容自然展开，而不是固定高度滚动。
 test('campus floor population table expands vertically instead of scrolling', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -257,6 +271,7 @@ test('campus floor population table expands vertically instead of scrolling', ()
   assert.equal(source.includes('class="campus-table" size="small" max-height='), false)
 })
 
+// 验证校园配置和推荐候选编辑区使用对齐的网格外壳。
 test('campus and recommendation controls use aligned grid shells', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
@@ -273,6 +288,7 @@ test('campus and recommendation controls use aligned grid shells', () => {
   assert.equal(styleSource.includes('.candidate-editor-row-single'), true)
 })
 
+// 验证推荐候选范围行保持单列全宽排布。
 test('recommendation candidate editor keeps range rows full width', () => {
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
@@ -282,6 +298,7 @@ test('recommendation candidate editor keeps range rows full width', () => {
   assert.equal(styleSource.includes('grid-template-columns: repeat(2, minmax(220px, 1fr));'), false)
 })
 
+// 验证推荐请求会提交下课峰数候选。
 test('recommendation panel sends dismissal peak count candidates', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -292,6 +309,7 @@ test('recommendation panel sends dismissal peak count candidates', () => {
   assert.equal(source.includes('peak_count_options: peakCountCandidates.value'), true)
 })
 
+// 验证应用校园推荐后会把高峰排程写回可编辑教学楼表格。
 test('applying campus recommendation writes peak schedule back to editable rows', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -301,6 +319,7 @@ test('applying campus recommendation writes peak schedule back to editable rows'
   assert.equal(source.includes('release_percent: releasePercentFromRatio(building.release_ratio ?? 1)'), true)
 })
 
+// 验证校园就餐比例在页面上按百分比编辑并转换为后端比例。
 test('campus release control is edited as a percentage', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -312,6 +331,7 @@ test('campus release control is edited as a percentage', () => {
   assert.equal(source.includes('v-model="row.release_ratio" :min="0" :max="1"'), false)
 })
 
+// 验证校园人数加载按钮只对当前请求来源显示 loading。
 test('campus occupancy buttons show loading only for the requested source', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -322,6 +342,7 @@ test('campus occupancy buttons show loading only for the requested source', () =
   assert.equal(source.includes(':loading="campusLoading"'), false)
 })
 
+// 验证分析卡片使用面向展示说明的中文指标说明。
 test('analysis cards explain secondary metrics without jargon', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -334,6 +355,7 @@ test('analysis cards explain secondary metrics without jargon', () => {
   assert.equal(source.includes('`吞吐 ${'), false)
 })
 
+// 验证座位利用率标签明确表示运行平均值。
 test('seat utilization label states it is an average over the run', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -342,6 +364,7 @@ test('seat utilization label states it is an average over the run', () => {
   assert.equal(source.includes('`当前等座 ${record?.waiting_for_seat_count || 0} 人`'), true)
 })
 
+// 验证运行页排队卡片优先显示当前排队，并把峰值作为提示。
 test('live run queue card shows current queue first and peak queue as context', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
@@ -351,6 +374,7 @@ test('live run queue card shows current queue first and peak queue as context', 
   assert.equal(source.includes('hint: `当前 ${queue} 人`'), false)
 })
 
+// 验证实时运行页使用可编辑布局地图展示小组状态，而不是座位矩阵。
 test('live run renders the editable layout as a live dining map with party groups', () => {
   const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const mapSource = readFileSync(new URL('../src/LiveDiningMap.vue', import.meta.url), 'utf8')

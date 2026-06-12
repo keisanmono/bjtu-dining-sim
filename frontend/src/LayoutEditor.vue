@@ -1,3 +1,5 @@
+<!-- 文件说明：布局编辑组件：处理入口、窗口、餐桌和食堂尺寸的交互编辑。 -->
+
 <template>
   <div class="layout-editor" :class="{ 'is-dragging': isInteracting }">
     <div class="layout-editor-toolbar">
@@ -353,21 +355,30 @@ const keepViewportFitted = ref(true)
 
 const capacityOptions = TABLE_CAPACITY_OPTIONS
 
+// 统计当前布局中所有餐桌容量，用于和配置座位数保持同步。
 const totalSeats = computed(() => totalLayoutSeats(props.layout))
+// 读取当前食堂地面尺寸，缺省时使用编辑器默认尺寸。
 const floorSize = computed(() => props.layout.floor || LAYOUT_DEFAULT_FLOOR)
+// 根据最大面积约束计算宽度输入框的上限。
 const floorWidthMax = computed(() => maxFloorDimensionForArea('width', floorSize.value))
+// 根据最大面积约束计算高度输入框的上限。
 const floorHeightMax = computed(() => maxFloorDimensionForArea('height', floorSize.value))
+// 将 floor 的 x/y/width/height 转成拖拽和碰撞需要的边界。
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
+// 判断当前是否处于拖拽、缩放地面或平移视野的交互中。
 const isInteracting = computed(() => Boolean(dragState.value || resizeState.value || panState.value))
+// 把响应式 viewBox 对象转成 SVG 属性字符串。
 const viewBoxString = computed(() => (
   `${viewBox.value.x} ${viewBox.value.y} ${viewBox.value.width} ${viewBox.value.height}`
 ))
 
+// 仅当选中对象是餐桌时返回对应餐桌，供容量和旋转控件使用。
 const selectedTable = computed(() => {
   if (!selection.value || selection.value.kind !== 'table') return null
   return props.layout.tables.find((table) => table.id === selection.value.id) || null
 })
 
+// 将当前选中对象转换成人可读的侧栏状态文本。
 const selectionLabel = computed(() => {
   if (!selection.value) return '未选中对象'
   const sel = selection.value
@@ -394,10 +405,12 @@ watch(
   { deep: true }
 )
 
+// 判断给定图元是否为当前选中对象。
 function isSelected(kind, id) {
   return selection.value?.kind === kind && selection.value?.id === id
 }
 
+// 拖拽过程中当候选位置与其他图元碰撞时高亮当前图元。
 function isCollisionHighlighted(kind, id) {
   const state = dragState.value
   if (!state) return false
@@ -408,6 +421,7 @@ function isCollisionHighlighted(kind, id) {
   return itemOverlapsLayout(candidateLayout, kind, id, current.x, current.y, current)
 }
 
+// 生成门、窗口或餐桌主体在本地坐标中的 SVG 矩形。
 function itemRectFor(kind, item) {
   const footprint = getItemFootprint(kind, item)
   return {
@@ -418,6 +432,7 @@ function itemRectFor(kind, item) {
   }
 }
 
+// 给图元增加点击热区，避免小窗口和小门难以选中。
 function itemHitRectFor(kind, item) {
   const rect = itemRectFor(kind, item)
   const padding = kind === 'table' ? 12 : 10
@@ -429,6 +444,7 @@ function itemHitRectFor(kind, item) {
   }
 }
 
+// 根据门所在墙面生成门缝标记的局部矩形。
 function doorMarkerFor(door) {
   const footprint = getItemFootprint('door', door)
   if (door.wall_side === 'top' || door.wall_side === 'bottom') {
@@ -447,6 +463,7 @@ function doorMarkerFor(door) {
   }
 }
 
+// 根据窗口所在墙面生成服务窗口标记的局部矩形。
 function windowMarkerFor(window) {
   const footprint = getItemFootprint('window', window)
   if (window.wall_side === 'left' || window.wall_side === 'right') {
@@ -465,18 +482,22 @@ function windowMarkerFor(window) {
   }
 }
 
+// 根据餐桌容量返回桌面可视尺寸。
 function tableTopFor(table) {
   return tableTopForCapacity(table.capacity)
 }
 
+// 根据餐桌容量返回椅子在餐桌局部坐标中的矩形列表。
 function chairLayoutFor(table) {
   return tableChairRectsForCapacity(table.capacity)
 }
 
+// 将餐桌旋转角转换成 SVG transform。
 function tableTransformFor(table) {
   return `rotate(${normalizeTableRotation(table.rotation)})`
 }
 
+// 把浏览器 client 坐标转换为当前 SVG viewBox 坐标。
 function clientToSvgPoint(clientX, clientY) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
@@ -484,6 +505,7 @@ function clientToSvgPoint(clientX, clientY) {
   return clientPointToViewBoxPoint(clientX, clientY, rect, viewBox.value)
 }
 
+// 把浏览器拖动距离转换成当前 SVG viewBox 下的距离。
 function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   const svg = svgRef.value
   if (!svg) return { x: 0, y: 0 }
@@ -491,6 +513,7 @@ function clientDeltaToSvg(deltaX, deltaY, sourceViewBox) {
   return clientDeltaToViewBoxDelta(deltaX, deltaY, rect, sourceViewBox)
 }
 
+// 开始拖拽门、窗口或餐桌，并记录指针到图元中心的偏移。
 function onItemPointerDown(event, kind, id) {
   selection.value = { kind, id }
   const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
@@ -512,6 +535,7 @@ function onItemPointerDown(event, kind, id) {
   event.preventDefault()
 }
 
+// 开始拖拽地面尺寸控制点，并记录当前边界偏移。
 function onResizePointerDown(event, handle) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const bounds = floorBounds.value
@@ -528,6 +552,7 @@ function onResizePointerDown(event, handle) {
   event.preventDefault()
 }
 
+// 在空白地面按下时清除选择并进入 SVG 视野平移模式。
 function onSvgPointerDown(event) {
   // Clicking on background clears selection (only if we didn't start a drag).
   if (event.target === svgRef.value || event.target?.classList?.contains('floor-grid') || event.target?.classList?.contains('floor-fill')) {
@@ -546,10 +571,12 @@ function onSvgPointerDown(event) {
   }
 }
 
+// 根据当前交互状态分别处理地面缩放、视野平移或图元拖拽。
 function onPointerMove(event) {
   if (resizeState.value) {
     const state = resizeState.value
     const point = clientToSvgPoint(event.clientX, event.clientY)
+    // 地面缩放使用当前指针位置减去初始偏移，保证拖住手柄时边界不跳动。
     const next = resizeLayoutFloorFromHandle(
       state.latestLayout || props.layout,
       state.handle,
@@ -563,6 +590,7 @@ function onPointerMove(event) {
   }
   if (panState.value) {
     const state = panState.value
+    // 平移视野只改变 viewBox，不修改任何布局对象。
     const delta = clientDeltaToSvg(event.clientX - state.startClientX, event.clientY - state.startClientY, state.startViewBox)
     viewBox.value = {
       ...state.startViewBox,
@@ -577,18 +605,21 @@ function onPointerMove(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   const targetX = point.x - state.offsetX
   const targetY = point.y - state.offsetY
+  // 拖拽中允许临时重叠，用高亮提示；最终是否接受在 pointerup 里判断。
   const next = setItemPosition(state.latestLayout || props.layout, state.kind, state.id, targetX, targetY, { allowOverlap: true })
   state.latestLayout = next
   emit('update:layout', next, { source: 'item', kind: state.kind, transient: true })
   event.preventDefault()
 }
 
+// 结束当前指针交互，并在拖拽图元碰撞时回滚位置。
 function onPointerUp(event) {
   if (resizeState.value) {
     const state = resizeState.value
     if (event.target?.releasePointerCapture && event.pointerId) {
       try { event.target.releasePointerCapture(event.pointerId) } catch (_error) { /* ignore */ }
     }
+    // 缩放结束后强制父组件重新计算座位上限。
     emit('update:layout', state.latestLayout || props.layout, { source: 'resize', transient: false, forceSeatLimit: true })
     resizeState.value = null
     return
@@ -607,6 +638,7 @@ function onPointerUp(event) {
   }
   const reverted = revertInvalidDrag(state)
   if (!reverted) {
+    // 门窗移动可能改变可用座位上限，餐桌移动只影响自身位置。
     emit('update:layout', state.latestLayout || props.layout, {
       source: 'item',
       kind: state.kind,
@@ -617,6 +649,7 @@ function onPointerUp(event) {
   dragState.value = null
 }
 
+// 兼容不支持 pointer capture 的环境，必要时清理拖拽状态。
 function onPointerLeave() {
   // Keep drag if pointer is captured; only clear when pointer truly leaves
   // and the drag state is no longer reachable. Pointer capture handles most
@@ -626,27 +659,32 @@ function onPointerLeave() {
   }
 }
 
+// onWheelZoom() 处理 SVG 视野缩放。
 function onWheelZoom(event) {
   const point = clientToSvgPoint(event.clientX, event.clientY)
   zoomViewport(event.deltaY < 0 ? 0.86 : 1.16, point)
 }
 
+// zoomViewport() 处理 SVG 视野缩放。
 function zoomViewport(factor, focusPoint = null) {
   keepViewportFitted.value = false
   viewBox.value = zoomViewBox(viewBox.value, factor, focusPoint)
 }
 
+// 将 SVG 视野重新对齐到当前食堂地面范围。
 function fitViewportToLayout() {
   keepViewportFitted.value = true
   viewBox.value = fitViewBoxForLayout(props.layout)
 }
 
+// 用户修改餐桌容量时同步更新选中餐桌并触发父组件保存。
 function onSelectedCapacityChange(value) {
   if (!selectedTable.value) return
   const next = setTableCapacity(props.layout, selectedTable.value.id, Number(value))
   emit('update:layout', next)
 }
 
+// 在 0 度和 90 度之间切换选中餐桌的摆放方向。
 function rotateSelectedTable() {
   if (!selectedTable.value) return
   const nextRotation = Number(selectedTable.value.rotation) === 90 ? 0 : 90
@@ -654,37 +692,45 @@ function rotateSelectedTable() {
   emit('update:layout', next)
 }
 
+// 增减入口数量，并让布局工具自动选择不碰撞的墙面位置。
 function changeDoorCount(delta) {
   const next = adjustLayoutDoorCount(props.layout, props.layout.doors.length + delta)
   emit('update:layout', next)
 }
 
+// 把窗口数量变更交给父组件配置，再由 watch 同步布局。
 function changeWindowCount(value) {
   emit('update:window-count', Number(value))
 }
 
+// 把座位总数变更交给父组件配置，再重建餐桌布局。
 function changeSeatCount(value) {
   emit('update:seat-count', Number(value))
 }
 
+// 按紧凑或分散模式重新排列现有餐桌。
 function autoArrangeTables(mode) {
   const next = arrangeLayoutTables(props.layout, mode)
   emit('update:layout', next, { source: 'arrange', transient: false })
 }
 
+// 修改食堂地面宽高，并在缩小时阻止会压住餐桌的变更。
 function changeFloorSize(axis, value) {
   const nextSize = {
     ...floorSize.value,
     [axis]: Number(value)
   }
+  // 输入框修改和拖拽缩放共用 resizeLayoutFloor，保持碰撞策略一致。
   emit('update:layout', resizeLayoutFloor(props.layout, nextSize, { blockTableConflicts: true }))
 }
 
+// revertInvalidDrag() 处理拖拽交互过程中的状态。
 function revertInvalidDrag(state) {
   const candidateLayout = state.latestLayout || props.layout
   const current = findItem(candidateLayout, state.kind, state.id)
   if (!current) return false
   if (!itemOverlapsLayout(candidateLayout, state.kind, state.id, current.x, current.y, current)) return false
+  // 只有落点仍发生碰撞时才回滚到 pointerdown 记录的原始位置。
   emit('update:layout', replaceLayoutItem(candidateLayout, state.kind, state.originalItem), {
     source: 'item',
     kind: state.kind,
@@ -694,6 +740,7 @@ function revertInvalidDrag(state) {
   return true
 }
 
+// 将某个布局图元替换回指定版本，用于非法拖拽回滚。
 function replaceLayoutItem(layout, kind, replacement) {
   const collectionKey = kind === 'door' ? 'doors' : kind === 'window' ? 'windows' : 'tables'
   return {
