@@ -21,11 +21,24 @@ from app.simulation import (
     SimulationConfigData,
     WindowService,
     run_simulation,
+    validate_config,
 )
 
 
 # 仿真核心测试，覆盖到达、排队、入座、推荐估算和实时地图快照。
 class DiningSimulationTests(unittest.TestCase):
+    # 验证行人移动模型配置的默认值和业务校验边界。
+    def test_movement_model_config_validation(self):
+        valid_errors, _ = validate_config(SimulationConfigData(movement_model="advanced_floor_field"))
+        invalid_model_errors, _ = validate_config(SimulationConfigData(movement_model="invalid"))
+        invalid_tick_errors, _ = validate_config(SimulationConfigData(movement_tick_seconds=0))
+        invalid_decay_errors, _ = validate_config(SimulationConfigData(dynamic_field_decay=1.2))
+
+        self.assertEqual(valid_errors, [])
+        self.assertTrue(any("movement_model" in error for error in invalid_model_errors))
+        self.assertTrue(any("movement_tick_seconds" in error for error in invalid_tick_errors))
+        self.assertTrue(any("dynamic_field_decay" in error for error in invalid_decay_errors))
+
     # 验证相同 seed 下完整仿真结果可复现。
     def test_run_is_reproducible_with_same_seed(self):
         config = SimulationConfigData(

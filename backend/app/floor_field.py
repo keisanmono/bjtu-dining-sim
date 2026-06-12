@@ -1,86 +1,41 @@
 from __future__ import annotations
 
-# 文件说明：Floor Field / Cellular Automaton 行人移动模型的轻量骨架。
+# 文件说明：Floor Field / Cellular Automaton 兼容入口。
 
-import math
-from collections import deque
 from typing import Any
 
+from .pedestrian.fields import build_static_field
+from .pedestrian.grid import (
+    Cell,
+    GridData,
+    cell_to_point,
+    grid_from_layout as pedestrian_grid_from_layout,
+    is_walkable,
+    nearest_walkable_cell,
+    neighbors,
+    point_to_cell,
+)
 
-DEFAULT_CELL_SIZE = 20.0
 DEFAULT_WIDTH = 360.0
 DEFAULT_HEIGHT = 640.0
-
-Cell = tuple[int, int]
+DEFAULT_CELL_SIZE = 20.0
 
 
 def grid_from_layout(layout: Any, cell_size: float = DEFAULT_CELL_SIZE) -> dict[str, Any]:
-    """Convert a dining layout into a coarse CA grid with table cells marked blocked."""
-    cell_size = float(cell_size)
-    if not math.isfinite(cell_size) or cell_size <= 0:
-        raise ValueError("cell_size must be a positive finite number")
-    floor = _field(layout, "floor", {}) or {}
-    width = float(_field(floor, "width", DEFAULT_WIDTH) or DEFAULT_WIDTH)
-    height = float(_field(floor, "height", DEFAULT_HEIGHT) or DEFAULT_HEIGHT)
-    cols = max(1, int(round(width / cell_size)))
-    rows = max(1, int(round(height / cell_size)))
-    blocked: set[Cell] = set()
-
-    for table in _field(layout, "tables", []) or []:
-        capacity = max(1, int(_field(table, "capacity", 4) or 4))
-        if capacity <= 2:
-            table_width, table_height = 52.0, 26.0
-        elif capacity <= 4:
-            table_width, table_height = 64.0, 50.0
-        else:
-            table_width, table_height = 76.0, 50.0
-        x = float(_field(table, "x", 0.0) or 0.0)
-        y = float(_field(table, "y", 0.0) or 0.0)
-        left = x - table_width / 2
-        right = x + table_width / 2
-        top = y - table_height / 2
-        bottom = y + table_height / 2
-        for row in range(rows):
-            for col in range(cols):
-                center_x = (col + 0.5) * cell_size
-                center_y = (row + 0.5) * cell_size
-                if left <= center_x <= right and top <= center_y <= bottom:
-                    blocked.add((col, row))
-
-    return {
-        "cell_size": cell_size,
-        "cols": cols,
-        "rows": rows,
-        "blocked": blocked,
-    }
+    """Convert a dining layout into a CA grid with table cells marked blocked."""
+    grid = pedestrian_grid_from_layout(layout, cell_size=cell_size)
+    return _grid_to_legacy_dict(grid)
 
 
 def build_static_floor_field(layout: Any, target: Any) -> dict[str, Any]:
     """Build a static distance field from every reachable grid cell to target."""
-    grid = grid_from_layout(layout)
-    return _build_floor_field_for_grid(grid, target)
-
-
-def _build_floor_field_for_grid(grid: dict[str, Any], target: Any) -> dict[str, Any]:
-    target_cell = _to_cell(target, grid)
-    blocked = set(grid["blocked"])
-    blocked.discard(target_cell)
-    distances: dict[Cell, int] = {target_cell: 0}
-    frontier: deque[Cell] = deque([target_cell])
-
-    while frontier:
-        cell = frontier.popleft()
-        for neighbor in _neighbors(cell, grid):
-            if neighbor in blocked or neighbor in distances:
-                continue
-            distances[neighbor] = distances[cell] + 1
-            frontier.append(neighbor)
-
+    grid = pedestrian_grid_from_layout(layout, cell_size=DEFAULT_CELL_SIZE)
+    target_cell = nearest_walkable_cell(point_to_cell(target, grid), grid)
+    distance = build_static_field(grid, {target_cell})
     return {
-        **grid,
-        "blocked": blocked,
+        **_grid_to_legacy_dict(grid),
         "target_cell": target_cell,
-        "distance": distances,
+        "distance": distance,
     }
 
 
@@ -92,52 +47,81 @@ def next_cell_by_floor_field(
 ) -> Cell:
     """Return the next CA cell that best follows the static floor field."""
     occupied = occupied_cells or set()
-    field = grid if "distance" in grid else _build_floor_field_for_grid(grid, target)
-    current = _to_cell(agent, field)
-    if current == field["target_cell"]:
+    field = grid if "distance" in grid else _build_floor_field_for_grid(_legacy_grid_to_data(grid), target)
+    grid_data = _legacy_grid_to_data(field)
+    current = point_to_cell(agent, grid_data)
+    target_cell = field["target_cell"]
+    if current == target_cell:
         return current
-
-    candidates = [current, *_neighbors(current, field)]
+    candidates = [current, *neighbors(current, grid_data, allow_diagonal=False)]
     candidates = [
         cell
         for cell in candidates
-        if cell not in field["blocked"] and (cell == current or cell not in occupied)
+        if is_walkable(cell, grid_data) and (cell == current or cell not in occupied)
     ]
+    if not candidates:
+        return current
     distances = field["distance"]
     return min(
         candidates,
         key=lambda cell: (
             distances.get(cell, float("inf")),
-            abs(cell[0] - field["target_cell"][0]) + abs(cell[1] - field["target_cell"][1]),
+            abs(cell[0] - target_cell[0]) + abs(cell[1] - target_cell[1]),
             cell[1],
             cell[0],
         ),
     )
 
 
-def _neighbors(cell: Cell, grid: dict[str, Any]) -> list[Cell]:
-    col, row = cell
-    raw = [(col + 1, row), (col - 1, row), (col, row + 1), (col, row - 1)]
-    return [
-        (next_col, next_row)
-        for next_col, next_row in raw
-        if 0 <= next_col < grid["cols"] and 0 <= next_row < grid["rows"]
-    ]
+def _build_floor_field_for_grid(grid: GridData, target: Any) -> dict[str, Any]:
+    target_cell = nearest_walkable_cell(point_to_cell(target, grid), grid)
+    distances = build_static_field(grid, {target_cell})
+    return {
+        **_grid_to_legacy_dict(grid),
+        "target_cell": target_cell,
+        "distance": distances,
+    }
+
+
+def _grid_to_legacy_dict(grid: GridData) -> dict[str, Any]:
+    return {
+        "cell_size": grid.cell_size,
+        "cols": grid.cols,
+        "rows": grid.rows,
+        "blocked": set(grid.blocked_cells),
+        "blocked_cells": set(grid.blocked_cells),
+        "door_cells": dict(grid.door_cells),
+        "window_cells": {idx: set(cells) for idx, cells in grid.window_cells.items()},
+        "table_cells": {idx: set(cells) for idx, cells in grid.table_cells.items()},
+        "table_approach_cells": {idx: set(cells) for idx, cells in grid.table_approach_cells.items()},
+        "exit_cells": set(grid.exit_cells),
+        "service_cells": dict(grid.service_cells),
+        "queue_cells_by_window": {idx: list(cells) for idx, cells in grid.queue_cells_by_window.items()},
+    }
+
+
+def _legacy_grid_to_data(grid: dict[str, Any]) -> GridData:
+    return GridData(
+        cell_size=float(grid.get("cell_size") or DEFAULT_CELL_SIZE),
+        cols=int(grid["cols"]),
+        rows=int(grid["rows"]),
+        blocked_cells=set(grid.get("blocked_cells") or grid.get("blocked") or set()),
+        door_cells=dict(grid.get("door_cells") or {}),
+        window_cells={idx: set(cells) for idx, cells in (grid.get("window_cells") or {}).items()},
+        table_cells={idx: set(cells) for idx, cells in (grid.get("table_cells") or {}).items()},
+        table_approach_cells={idx: set(cells) for idx, cells in (grid.get("table_approach_cells") or {}).items()},
+        exit_cells=set(grid.get("exit_cells") or set()),
+        service_cells=dict(grid.get("service_cells") or {}),
+        queue_cells_by_window={idx: list(cells) for idx, cells in (grid.get("queue_cells_by_window") or {}).items()},
+    )
 
 
 def _to_cell(point: Any, grid: dict[str, Any]) -> Cell:
-    if isinstance(point, tuple) and len(point) == 2:
-        return (
-            max(0, min(grid["cols"] - 1, int(point[0]))),
-            max(0, min(grid["rows"] - 1, int(point[1]))),
-        )
-    cell_size = float(grid.get("cell_size") or DEFAULT_CELL_SIZE)
-    x = float(_field(point, "x", 0.0) or 0.0)
-    y = float(_field(point, "y", 0.0) or 0.0)
-    return (
-        max(0, min(grid["cols"] - 1, int(x // cell_size))),
-        max(0, min(grid["rows"] - 1, int(y // cell_size))),
-    )
+    return point_to_cell(point, _legacy_grid_to_data(grid))
+
+
+def _neighbors(cell: Cell, grid: dict[str, Any]) -> list[Cell]:
+    return neighbors(cell, _legacy_grid_to_data(grid))
 
 
 def _field(value: Any, key: str, default: Any = None) -> Any:

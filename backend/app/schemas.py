@@ -98,6 +98,23 @@ class SimulationConfig(BaseModel):
     table_choice_temperature: float = Field(default=0.0, ge=0)
     preempt_seat_probability: float = Field(default=0.0, ge=0, le=1)
     seat_holder_min_party_size: int = Field(default=2, ge=1)
+    movement_model: str = "path"
+    movement_tick_seconds: int = Field(default=5, gt=0, le=15)
+    floor_cell_size: float = Field(default=12.0, gt=0)
+    floor_allow_diagonal: bool = False
+    floor_static_weight: float = Field(default=1.0, ge=0)
+    floor_density_weight: float = Field(default=1.2, ge=0)
+    floor_dynamic_weight: float = Field(default=0.35, ge=0)
+    floor_wall_weight: float = Field(default=0.6, ge=0)
+    floor_inertia_weight: float = Field(default=0.25, ge=0)
+    floor_group_weight: float = Field(default=0.8, ge=0)
+    floor_randomness: float = Field(default=0.05, ge=0)
+    dynamic_field_decay: float = Field(default=0.85, ge=0, le=1)
+    dynamic_field_diffusion: float = Field(default=0.10, ge=0, le=1)
+    max_movement_ticks_per_minute: int = Field(default=12, ge=1)
+    queue_spacing_cells: int = Field(default=1, ge=0)
+    personal_space_radius_cells: int = Field(default=1, ge=0)
+    congestion_density_threshold: int = Field(default=3, ge=0)
 
     # 把接口层 Pydantic 模型转换为仿真层 dataclass，同时递归转换 layout/campus_demand。
     def to_data(self) -> SimulationConfigData:

@@ -92,6 +92,23 @@ class SimulationConfigData:
     table_choice_temperature: float = 0.0
     preempt_seat_probability: float = 0.0
     seat_holder_min_party_size: int = 2
+    movement_model: str = "path"
+    movement_tick_seconds: int = 5
+    floor_cell_size: float = 12.0
+    floor_allow_diagonal: bool = False
+    floor_static_weight: float = 1.0
+    floor_density_weight: float = 1.2
+    floor_dynamic_weight: float = 0.35
+    floor_wall_weight: float = 0.6
+    floor_inertia_weight: float = 0.25
+    floor_group_weight: float = 0.8
+    floor_randomness: float = 0.05
+    dynamic_field_decay: float = 0.85
+    dynamic_field_diffusion: float = 0.10
+    max_movement_ticks_per_minute: int = 12
+    queue_spacing_cells: int = 1
+    personal_space_radius_cells: int = 1
+    congestion_density_threshold: int = 3
 
     # 基于当前不可变配置生成字段替换后的新配置，推荐模块用于构造候选方案。
     def with_updates(self, **updates: Any) -> "SimulationConfigData":
@@ -259,6 +276,28 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
         errors.append("预占座概率应在 0 到 1 之间。")
     if config.seat_holder_min_party_size < 1:
         errors.append("预占座最小小组人数必须大于等于 1。")
+    if config.movement_model not in {"path", "static_floor_field", "advanced_floor_field"}:
+        errors.append("movement_model 必须是 path、static_floor_field 或 advanced_floor_field。")
+    if config.movement_tick_seconds <= 0 or config.movement_tick_seconds > 15:
+        errors.append("movement_tick_seconds 必须大于 0 且不超过 15。")
+    if config.floor_cell_size <= 0:
+        errors.append("floor_cell_size 必须大于 0。")
+    movement_weights = {
+        "floor_static_weight": config.floor_static_weight,
+        "floor_density_weight": config.floor_density_weight,
+        "floor_dynamic_weight": config.floor_dynamic_weight,
+        "floor_wall_weight": config.floor_wall_weight,
+        "floor_inertia_weight": config.floor_inertia_weight,
+        "floor_group_weight": config.floor_group_weight,
+        "floor_randomness": config.floor_randomness,
+    }
+    for name, value in movement_weights.items():
+        if value < 0:
+            errors.append(f"{name} 必须大于等于 0。")
+    if config.dynamic_field_decay < 0 or config.dynamic_field_decay > 1:
+        errors.append("dynamic_field_decay 必须在 0 到 1 之间。")
+    if config.dynamic_field_diffusion < 0 or config.dynamic_field_diffusion > 1:
+        errors.append("dynamic_field_diffusion 必须在 0 到 1 之间。")
     if config.duration_min < 5 or config.duration_min > 360:
         errors.append("手动到达持续时间应在 5 到 360 分钟之间。")
     if config.peak_start_min >= config.peak_end_min:
