@@ -9,6 +9,9 @@ data/*.sqlite
 data/*.sqlite-*
 data/exports/
 backend/data/
+deliverables/
+授课讲义/
+软件综合实训_20组_开发阶段文档/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/

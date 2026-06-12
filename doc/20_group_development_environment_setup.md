@@ -50,7 +50,7 @@
 结合规格说明书和小组已确定方案，第 20 组的开发路线为：浏览器端采用 Vue 3 + Element Plus + ECharts 实现参数配置、运行监控与结果展示；Python 后端采用 FastAPI + Uvicorn 提供仿真计算、过程记录、指标分析、优化推荐与解释生成服务；SQLite/CSV/JSON 用于保存配置快照、过程记录和导出数据。该路线已作为小组统一实施方案执行，不再保留前端技术栈分支选择。
 
 - 前端统一采用 Node.js 20 LTS + Vite 工程构建方式，负责参数输入、状态刷新、结果展示与推荐说明等交互页面。
-- 后端统一采用 Python 3.11 + venv + FastAPI + Uvicorn + Pydantic + pytest + pandas，优先完成参数校验、连通性验证接口、仿真运行、结果汇总与导出。
+- 后端统一采用 Python 3.11 + venv + FastAPI + Uvicorn + Pydantic + pytest，优先完成参数校验、连通性验证接口、仿真运行、结果汇总与导出。
 - 增强说明模块：LLM 只作为解释增强层，不参与核心仿真计算；即使外部模型不可用，系统也必须能输出规则化说明。
 
 # 2 开发环境与软件清单
@@ -155,7 +155,7 @@ DiningSimulation20/
 
 ## 4.2 后端虚拟环境与依赖
 
-后端初始化采用 venv 虚拟环境。第 20 组当前版本统一安装 FastAPI、Uvicorn、Pydantic、pytest 和 pandas；SQLite 以及 json、csv 等标准库无需单独安装。
+后端初始化采用 venv 虚拟环境。第 20 组当前版本统一安装 FastAPI、Uvicorn、Pydantic 和 pytest；SQLite 以及 json、csv 等标准库无需单独安装。
 
 ```bash
 cd DiningSimulation20/backend
@@ -168,7 +168,7 @@ python -m venv .venv
 source .venv/bin/activate
 
 python -m pip install --upgrade pip
-pip install fastapi uvicorn pydantic pytest pandas
+pip install fastapi uvicorn pydantic pytest
 pip freeze > requirements.txt
 ```
 
@@ -180,7 +180,6 @@ pip freeze > requirements.txt
 | uvicorn | 是 | 启动本地开发服务器 |
 | pydantic | 是 | 进行配置项和 DTO 的结构化校验 |
 | pytest | 是 | 编写并执行单元测试 |
-| pandas | 是 | 用于过程记录汇总、指标统计与结果导出 |
 
 ## 4.3 前端工程初始化
 

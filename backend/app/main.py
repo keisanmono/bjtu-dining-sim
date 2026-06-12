@@ -3,6 +3,7 @@ from __future__ import annotations
 # 文件说明：FastAPI 接口模块：串联前端请求、仿真器、推荐模块和 SQLite 存储。
 
 import os
+import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
@@ -31,12 +32,24 @@ from .simulation import DiningSimulationRunner, dataclass_to_dict, run_simulatio
 from .storage import SimulationStore
 
 
-# FastAPI 应用入口会用 DATA_DIR 保存 SQLite 和导出文件；课程展示时可从这里说明接口总览。
-DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+# FastAPI 应用入口会用 DATA_DIR 保存 SQLite 和导出文件；相对路径按仓库根目录解析。
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_data_dir(value: str | None = None) -> Path:
+    raw = value if value is not None else os.getenv("DATA_DIR", "data")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path.resolve()
+
+
+DATA_DIR = _resolve_data_dir()
 # STORE 是全局持久化对象，负责保存完整仿真结果、推荐结果、解释结果和 CSV 导出。
 STORE = SimulationStore(DATA_DIR / "dining_sim.sqlite")
 # ACTIVE_RUNS 保存实时仿真的 runner。/api/sim/step 多次请求靠 run_id 找回同一份状态。
 ACTIVE_RUNS: dict[str, DiningSimulationRunner] = {}
+ACTIVE_RUN_TTL_SECONDS = int(os.getenv("ACTIVE_RUN_TTL_SECONDS", "1800"))
 
 
 app = FastAPI(title="北京交通大学就餐仿真系统", version="0.1.0")
@@ -185,6 +198,8 @@ def export_records(run_id: str) -> FileResponse:
 
 # 根据 reset/run_id/config 决定新建 runner、复用 runner，或恢复丢失的实时运行。
 def _resolve_runner(request: StepRequest) -> DiningSimulationRunner:
+    now = time.monotonic()
+    _prune_inactive_runs(now)
     # 首次单步或重置运行必须带 config，用它创建新的 DiningSimulationRunner。
     if request.reset or request.run_id is None:
         if request.config is None:
@@ -192,7 +207,7 @@ def _resolve_runner(request: StepRequest) -> DiningSimulationRunner:
         runner = DiningSimulationRunner(request.config.to_data())
         # ACTIVE_RUNS 是实时仿真的内存运行表，run_id 是前端后续 step 的定位依据。
         ACTIVE_RUNS[runner.run_id] = runner
-        return runner
+        return _touch_runner(runner, now)
 
     runner = ACTIVE_RUNS.get(request.run_id)
     if runner is None:
@@ -201,7 +216,25 @@ def _resolve_runner(request: StepRequest) -> DiningSimulationRunner:
             raise HTTPException(status_code=404, detail="运行已结束或不存在，请重新提供 config 开始单步运行。")
         runner = DiningSimulationRunner(request.config.to_data(), run_id=request.run_id)
         ACTIVE_RUNS[runner.run_id] = runner
+    return _touch_runner(runner, now)
+
+
+def _touch_runner(runner: DiningSimulationRunner, now: float | None = None) -> DiningSimulationRunner:
+    runner.last_access_monotonic = time.monotonic() if now is None else now
     return runner
+
+
+def _prune_inactive_runs(now: float | None = None) -> None:
+    if ACTIVE_RUN_TTL_SECONDS <= 0:
+        return
+    current = time.monotonic() if now is None else now
+    expired = [
+        run_id
+        for run_id, runner in ACTIVE_RUNS.items()
+        if current - float(getattr(runner, "last_access_monotonic", current)) > ACTIVE_RUN_TTL_SECONDS
+    ]
+    for run_id in expired:
+        ACTIVE_RUNS.pop(run_id, None)
 
 
 # 把内部 SimulationResult dataclass 转换成 FastAPI response_model 需要的字典结构。

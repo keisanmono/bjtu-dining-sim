@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+import app.main as main_module
 from app.main import (
     campus_locations,
     campus_occupancy,
@@ -17,7 +18,7 @@ from app.main import (
     run_full_simulation,
     validate_simulation_config,
 )
-from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig
+from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig, StepRequest
 
 
 # 接口层集成测试，直接调用 FastAPI handler 验证主要业务链路。
@@ -38,6 +39,25 @@ class ApiTests(unittest.TestCase):
             "stagger_minutes": 0,
             "seat_columns": 10,
         }
+
+    def tearDown(self):
+        main_module.ACTIVE_RUNS.clear()
+
+    # 验证默认数据目录不随启动工作目录漂移。
+    def test_default_data_dir_is_repo_root_data_directory(self):
+        self.assertTrue(main_module.DATA_DIR.is_absolute())
+        self.assertEqual((ROOT / "data").resolve(), main_module.DATA_DIR)
+
+    # 验证实时运行表会清理长时间未访问的 runner，避免内存状态无限保留。
+    def test_stale_active_runs_are_pruned_before_creating_new_runner(self):
+        first = main_module._resolve_runner(StepRequest(config=SimulationConfig(**self.config), reset=True))
+        first.last_access_monotonic = -1_000_000.0
+
+        second = main_module._resolve_runner(StepRequest(config=SimulationConfig(**self.config), reset=True))
+
+        self.assertNotEqual(first.run_id, second.run_id)
+        self.assertNotIn(first.run_id, main_module.ACTIVE_RUNS)
+        self.assertIn(second.run_id, main_module.ACTIVE_RUNS)
 
     # 验证参数校验、完整仿真、记录查询、指标查询、推荐和解释能串联执行。
     def test_run_records_metrics_recommendation_and_explanation(self):
