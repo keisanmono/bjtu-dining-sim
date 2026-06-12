@@ -11,6 +11,8 @@ import {
   interpolateLivePartyMarkers,
   backendTimelinePlaybackMs,
   buildBackendWalkingMarkers,
+  buildDensityHotspotMarkers,
+  buildPedestrianAgentMarkers,
   transitionDurationForSnapshotGap
 } from '../src/liveMapModel.js'
 
@@ -121,6 +123,41 @@ test('buildLivePartyTargets keeps split party services anchored to their actual 
   assert.equal(targets[0].x, baseLayout.windows[0].x)
   assert.equal(targets[1].x, baseLayout.windows[1].x)
   assert.ok(targets.every((target) => target.y > baseLayout.windows[0].y))
+})
+
+// 验证高级行人快照优先使用后端 agent cell 坐标。
+test('buildPedestrianAgentMarkers uses backend pedestrian agent coordinates', () => {
+  const markers = buildPedestrianAgentMarkers({
+    snapshot: {
+      pedestrian_agents: [
+        { agent_id: 3, student_id: 9, party_id: 2, state: 'TO_WINDOW', cell: [4, 7], x: 54, y: 90 },
+        { student_id: 10, party_id: 2, state: 'QUEUEING', cell: [5, 7], x: 66, y: 90 }
+      ]
+    }
+  })
+
+  assert.deepEqual(markers.map((marker) => marker.key), ['agent-3', 'agent-10'])
+  assert.deepEqual(markers.map((marker) => marker.role), ['pedestrian', 'pedestrian'])
+  assert.equal(markers[0].x, 54)
+  assert.equal(markers[1].y, 90)
+  assert.equal(markers[0].color, markers[1].color)
+})
+
+// 验证拥堵热力点从后端 density_hotspots 规范化为可绘制 marker。
+test('buildDensityHotspotMarkers normalizes density hotspots for map rendering', () => {
+  const markers = buildDensityHotspotMarkers({
+    snapshot: {
+      density_hotspots: [
+        { cell: [4, 7], x: 54, y: 90, density: 5 },
+        { cell: [5, 7], x: 66, y: 90, density: 2 }
+      ]
+    }
+  })
+
+  assert.equal(markers.length, 2)
+  assert.equal(markers[0].key, 'density-4-7')
+  assert.ok(markers[0].radius > markers[1].radius)
+  assert.ok(markers[0].opacity > markers[1].opacity)
 })
 
 // 验证刚入座的小组从同组服务窗口位置开始移动。

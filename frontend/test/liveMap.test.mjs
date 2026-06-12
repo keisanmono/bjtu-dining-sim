@@ -39,6 +39,29 @@ test('LiveDiningMap consumes the structured snapshot fields from the backend', (
   assert.equal(modelSource.includes('waiting_parties'), true)
 })
 
+// 验证高级行人引擎快照会驱动独立 agent 图层和拥堵热力层。
+test('LiveDiningMap renders pedestrian agents and density hotspots when provided', () => {
+  assert.equal(mapSource.includes('pedestrian_agents'), true)
+  assert.equal(mapSource.includes('buildPedestrianAgentMarkers'), true)
+  assert.equal(mapSource.includes('pedestrian-agent-group'), true)
+  assert.equal(mapSource.includes('pedestrian-agent-dot'), true)
+  assert.equal(mapSource.includes('density_hotspots'), true)
+  assert.equal(mapSource.includes('buildDensityHotspotMarkers'), true)
+  assert.equal(mapSource.includes('density-heat-layer'), true)
+  assert.equal(mapSource.includes('density-hotspot'), true)
+  assert.equal(styleSource.includes('.pedestrian-agent-dot'), true)
+  assert.equal(styleSource.includes('.density-hotspot'), true)
+})
+
+// 验证运行页指标卡包含高级移动指标。
+test('App.vue exposes advanced movement metrics in metric cards', () => {
+  assert.equal(appSource.includes('movementMetricsForCards'), true)
+  assert.equal(appSource.includes('平均步行时间'), true)
+  assert.equal(appSource.includes('移动冲突次数'), true)
+  assert.equal(appSource.includes('平均停滞 tick'), true)
+  assert.equal(appSource.includes('最大局部密度'), true)
+})
+
 // 验证餐桌占用显示会等小组移动动画完成后再更新。
 test('LiveDiningMap delays table occupancy changes until party movement settles', () => {
   assert.equal(mapSource.includes('displayedTableOccupancy'), true)

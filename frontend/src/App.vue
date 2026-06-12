@@ -63,6 +63,19 @@
                 <el-form-item label="随机种子">
                   <el-input-number v-model="config.seed" :min="1" controls-position="right" />
                 </el-form-item>
+                <el-form-item label="内部移动模型">
+                  <el-select v-model="config.movement_model">
+                    <el-option label="路径规则" value="path" />
+                    <el-option label="静态 Floor Field" value="static_floor_field" />
+                    <el-option label="高级 Floor Field CA" value="advanced_floor_field" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="移动 tick 秒">
+                  <el-input-number v-model="config.movement_tick_seconds" :min="1" :max="15" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="网格边长">
+                  <el-input-number v-model="config.floor_cell_size" :min="4" :step="2" controls-position="right" />
+                </el-form-item>
               </div>
             </div>
           </el-form>
@@ -482,6 +495,23 @@ const defaultConfig = {
   stagger_minutes: 0,
   seat_columns: 12,
   campus_demand: null,
+  movement_model: 'path',
+  movement_tick_seconds: 5,
+  floor_cell_size: 12,
+  floor_allow_diagonal: false,
+  floor_static_weight: 1.0,
+  floor_density_weight: 1.2,
+  floor_dynamic_weight: 0.35,
+  floor_wall_weight: 0.6,
+  floor_inertia_weight: 0.25,
+  floor_group_weight: 0.8,
+  floor_randomness: 0.05,
+  dynamic_field_decay: 0.85,
+  dynamic_field_diffusion: 0.10,
+  max_movement_ticks_per_minute: 12,
+  queue_spacing_cells: 1,
+  personal_space_radius_cells: 1,
+  congestion_density_threshold: 3,
   floor_width: LAYOUT_DEFAULT_FLOOR.width,
   floor_height: LAYOUT_DEFAULT_FLOOR.height
 }
@@ -554,6 +584,12 @@ const staggerCandidates = computed(() => recommendationCandidates.value.staggers
 // 校园模式下推荐接口枚举的下课高峰批次数候选。
 const peakCountCandidates = computed(() => recommendationCandidates.value.peakCounts.length ? recommendationCandidates.value.peakCounts : [1])
 const layoutSeatLimit = ref(calculateLayoutSeatLimit(layout.value))
+const movementMetricsForCards = computed(() => (
+  metrics.value
+  || currentState.value?.movement_metrics
+  || currentRecord.value?.snapshot?.movement_metrics
+  || {}
+))
 // 运行页四张指标卡，实时运行时用最新记录，结束后用最终 metrics。
 const runCards = computed(() => {
   const record = currentRecord.value
@@ -562,11 +598,16 @@ const runCards = computed(() => {
   const physicalEmptySeats = record?.empty_seats ?? currentState.value?.empty_seats ?? config.num_seats
   const reservedSeats = record?.reserved_seats ?? currentState.value?.reserved_seats ?? 0
   const availableSeats = record?.available_seats ?? currentState.value?.available_seats ?? physicalEmptySeats
+  const movement = movementMetricsForCards.value
   return [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
     { label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` },
-    { label: '物理空座', value: physicalEmptySeats, hint: `可用 ${availableSeats} / 预留 ${reservedSeats}` },
-    { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
+    { label: '物理空座', value: physicalEmptySeats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
+    { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` },
+    { label: '平均步行时间', value: formatSeconds(movement.avg_walking_time || 0), hint: `可用 ${availableSeats} / 预留 ${reservedSeats}` },
+    { label: '移动冲突次数', value: movement.movement_conflict_count ?? 0, hint: '同 tick 目标格冲突' },
+    { label: '平均停滞 tick', value: formatNumber(movement.avg_stuck_ticks || 0), hint: '无法移动或等待的 tick' },
+    { label: '最大局部密度', value: movement.max_density ?? 0, hint: '邻域内最高人数' }
   ]
 })
 // 分析页指标卡，展示最终等待、排队、利用率、同行行为和座位碎片化。
@@ -581,7 +622,11 @@ const analysisCards = computed(() => {
     { label: '同行分流次数', value: partySplitCount, hint: '小队成员分配到多个窗口' },
     { label: '同行集合等待', value: formatMinutes(m?.avg_party_gather_wait || 0), hint: `等座等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}` },
     { label: '等座小队数', value: m?.blocked_party_count ?? 0, hint: `实际拼桌 ${m?.shared_table_count || 0} 次` },
-    { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' }
+    { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' },
+    { label: '平均步行时间', value: formatSeconds(m?.avg_walking_time || 0), hint: '高级移动模型统计' },
+    { label: '移动冲突次数', value: m?.movement_conflict_count ?? 0, hint: '并行 CA 冲突解决次数' },
+    { label: '平均停滞 tick', value: formatNumber(m?.avg_stuck_ticks || 0), hint: '移动等待强度' },
+    { label: '最大局部密度', value: m?.max_density ?? 0, hint: '拥堵热力峰值' }
   ]
 })
 // 运行记录表格倒序展示最近 80 条。
@@ -1261,6 +1306,11 @@ function totalQueue(record) {
 // 将分钟数格式化为指标卡展示文本。
 function formatMinutes(value) {
   return `${formatNumber(value)} min`
+}
+
+// 将秒数格式化为移动指标展示文本。
+function formatSeconds(value) {
+  return `${formatNumber(value)} s`
 }
 
 // 将 0-1 比例格式化为百分比展示文本。

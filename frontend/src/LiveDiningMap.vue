@@ -44,6 +44,18 @@
         :height="floorBounds.bottom - floorBounds.y"
       />
 
+      <g v-if="densityMarkers.length" class="density-heat-layer">
+        <circle
+          v-for="hotspot in densityMarkers"
+          :key="hotspot.key"
+          class="density-hotspot"
+          :cx="hotspot.x"
+          :cy="hotspot.y"
+          :r="hotspot.radius"
+          :style="{ opacity: hotspot.opacity }"
+        />
+      </g>
+
       <g
         v-for="door in doors"
         :key="door.id"
@@ -104,7 +116,20 @@
       </g>
 
       <g class="live-party-layer">
-        <g class="party-group service-group">
+        <g v-if="hasPedestrianAgents" class="party-group pedestrian-agent-group">
+          <circle
+            v-for="agent in pedestrianAgentMarkers"
+            :key="agent.key"
+            class="pedestrian-agent-dot"
+            :class="`state-${String(agent.state).toLowerCase()}`"
+            :cx="agent.x"
+            :cy="agent.y"
+            r="3"
+            :style="{ fill: agent.color }"
+          />
+        </g>
+
+        <g v-if="!hasPedestrianAgents" class="party-group service-group">
           <circle
             v-for="dot in serviceMarkers"
             :key="dot.key"
@@ -116,7 +141,7 @@
           />
         </g>
 
-        <g class="party-group walking-group">
+        <g v-if="!hasPedestrianAgents" class="party-group walking-group">
           <g
             v-for="cluster in walkingClusters"
             :key="cluster.key"
@@ -146,7 +171,7 @@
           </g>
         </g>
 
-        <g class="party-group seated-group">
+        <g v-if="!hasPedestrianAgents" class="party-group seated-group">
           <g
             v-for="cluster in seatedClusters"
             :key="cluster.key"
@@ -226,8 +251,10 @@ import {
   QUEUE_VISIBLE_LIMIT,
   backendTimelinePlaybackMs,
   buildBackendWalkingMarkers,
+  buildDensityHotspotMarkers,
   buildLivePartyTargets,
   buildLivePartyTransitions,
+  buildPedestrianAgentMarkers,
   clamp,
   interpolateLivePartyMarkers,
   normalizeGroup,
@@ -261,6 +288,15 @@ const windows = computed(() => props.layout?.windows || [])
 const doors = computed(() => props.layout?.doors || [])
 // 当前快照中的餐桌占用数组，动画落定后写入显示态。
 const snapshotTableOccupancy = computed(() => snapshot.value.table_occupancy || [])
+const backendPedestrianAgents = computed(() => snapshot.value.pedestrian_agents || [])
+const backendDensityHotspots = computed(() => snapshot.value.density_hotspots || [])
+const pedestrianAgentMarkers = computed(() => buildPedestrianAgentMarkers({
+  snapshot: { pedestrian_agents: backendPedestrianAgents.value }
+}))
+const hasPedestrianAgents = computed(() => pedestrianAgentMarkers.value.length > 0)
+const densityMarkers = computed(() => buildDensityHotspotMarkers({
+  snapshot: { density_hotspots: backendDensityHotspots.value }
+}))
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
@@ -268,7 +304,7 @@ const walkingPartyMarkers = ref([])
 const displayedTableOccupancy = ref([])
 // 将后端 snapshot 转成实时地图中小组应处的位置。
 const livePartyTargets = computed(() => buildLivePartyTargets({
-  snapshot: snapshot.value,
+  snapshot: hasPedestrianAgents.value ? {} : snapshot.value,
   layout: props.layout
 }))
 let lastSettledPartyTargets = []

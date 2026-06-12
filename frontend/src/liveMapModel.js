@@ -181,6 +181,53 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
   return Array.from(targetsByKey.values()).sort((a, b) => String(a.key).localeCompare(String(b.key)))
 }
 
+// 将高级行人引擎的 agent 快照转换为直接绘制的地图 marker。
+export function buildPedestrianAgentMarkers({ snapshot = {} } = {}) {
+  return (snapshot?.pedestrian_agents || [])
+    .map((rawAgent) => {
+      const studentId = rawAgent?.student_id ?? rawAgent?.agent_id
+      const key = `agent-${rawAgent?.agent_id ?? studentId}`
+      const x = Number(rawAgent?.x)
+      const y = Number(rawAgent?.y)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+      return {
+        key,
+        role: 'pedestrian',
+        agent_id: rawAgent?.agent_id ?? studentId,
+        student_id: studentId,
+        party_id: rawAgent?.party_id ?? studentId,
+        state: rawAgent?.state || 'UNKNOWN',
+        cell: rawAgent?.cell || null,
+        x: round1(x),
+        y: round1(y),
+        color: partyColor({ party_id: rawAgent?.party_id ?? studentId })
+      }
+    })
+    .filter(Boolean)
+}
+
+// 将后端拥堵热点转换为 SVG 热力点。
+export function buildDensityHotspotMarkers({ snapshot = {} } = {}) {
+  return (snapshot?.density_hotspots || [])
+    .map((rawHotspot, index) => {
+      const x = Number(rawHotspot?.x)
+      const y = Number(rawHotspot?.y)
+      const density = Math.max(0, Number(rawHotspot?.density) || 0)
+      if (!Number.isFinite(x) || !Number.isFinite(y) || density <= 0) return null
+      const cell = Array.isArray(rawHotspot?.cell) ? rawHotspot.cell : [index, 0]
+      return {
+        key: `density-${cell[0]}-${cell[1]}`,
+        cell,
+        x: round1(x),
+        y: round1(y),
+        density,
+        radius: 5 + Math.min(18, density * 2.4),
+        opacity: clamp(0.16 + density * 0.055, 0.18, 0.58)
+      }
+    })
+    .filter(Boolean)
+}
+
 // 比较上一帧和下一帧目标点，生成小组移动、出现和离开的动画路径。
 export function buildLivePartyTransitions({ previous = [], next = [], layout = {} } = {}) {
   const previousByKey = keyedTargets(previous)
