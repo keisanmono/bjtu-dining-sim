@@ -94,6 +94,10 @@ class SimulationConfig(BaseModel):
     layout: DiningLayout | None = None
     party_size_distribution: dict[int, float] = Field(default_factory=lambda: {1: 1.0})
     campus_demand: CampusDemandConfig | None = None
+    window_choice_temperature: float = Field(default=0.0, ge=0)
+    table_choice_temperature: float = Field(default=0.0, ge=0)
+    preempt_seat_probability: float = Field(default=0.0, ge=0, le=1)
+    seat_holder_min_party_size: int = Field(default=2, ge=1)
 
     # 把接口层 Pydantic 模型转换为仿真层 dataclass，同时递归转换 layout/campus_demand。
     def to_data(self) -> SimulationConfigData:

@@ -88,6 +88,10 @@ class SimulationConfigData:
     layout: DiningLayoutData | None = None
     party_size_distribution: dict[int, float] = field(default_factory=lambda: {1: 1.0})
     campus_demand: CampusDemandConfigData | None = None
+    window_choice_temperature: float = 0.0
+    table_choice_temperature: float = 0.0
+    preempt_seat_probability: float = 0.0
+    seat_holder_min_party_size: int = 2
 
     # 基于当前不可变配置生成字段替换后的新配置，推荐模块用于构造候选方案。
     def with_updates(self, **updates: Any) -> "SimulationConfigData":
@@ -121,6 +125,7 @@ class DiningParty:
     ready_time: int | None = None
     seat_time: int | None = None
     table_index: int | None = None
+    reserved_table_index: int | None = None
 
     @property
     # 小组人数直接由成员列表长度决定。
@@ -194,6 +199,8 @@ class MetricsSummary:
     bottleneck_type: str
     chart_data: dict[str, list[Any]]
     avg_party_gather_wait: float = 0.0
+    avg_party_seat_wait: float = 0.0
+    party_window_split_count: int = 0
     party_split_count: int = 0
     shared_table_count: int = 0
     blocked_party_count: int = 0
@@ -242,6 +249,14 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
         errors.append("平均打饭时长必须大于 0。")
     if config.dining_time_mean <= 0:
         errors.append("平均就餐时长必须大于 0。")
+    if config.window_choice_temperature < 0:
+        errors.append("窗口选择温度不能为负数。")
+    if config.table_choice_temperature < 0:
+        errors.append("餐桌选择温度不能为负数。")
+    if config.preempt_seat_probability < 0 or config.preempt_seat_probability > 1:
+        errors.append("预占座概率应在 0 到 1 之间。")
+    if config.seat_holder_min_party_size < 1:
+        errors.append("预占座最小小组人数必须大于等于 1。")
     if config.duration_min < 5 or config.duration_min > 360:
         errors.append("手动到达持续时间应在 5 到 360 分钟之间。")
     if config.peak_start_min >= config.peak_end_min:
@@ -335,10 +350,12 @@ class DiningSimulationRunner:
         self.seat_occupied_minutes = 0
         self.metrics_counters: dict[str, int] = {
             "party_split_count": 0,
+            "party_window_split_count": 0,
             "shared_table_count": 0,
             "blocked_party_count": 0,
         }
         self.blocked_party_ids: set[int] = set()
+        self.party_window_split_party_ids: set[int] = set()
         self.peak_fragmented_seats = 0
 
     @property
@@ -454,27 +471,66 @@ class DiningSimulationRunner:
         walking_count = 0
         still_waiting: list[DiningParty] = []
         for party in self.waiting_for_seat:
-            table_index = self._choose_table_for_party(party)
+            table_index = self._reserved_table_for_party(party)
+            uses_preemptive_reservation = table_index is not None
+            if table_index is None:
+                table_index = self._choose_table_for_party(party)
             if table_index is None:
                 # 找不到能容纳整组的餐桌时继续等待，并记录 blocked_party_count 指标。
                 still_waiting.append(party)
                 self.blocked_party_ids.add(party.party_id)
                 self.metrics_counters["blocked_party_count"] = len(self.blocked_party_ids)
                 continue
-            occupied_before = self.table_occupied_seats[table_index] + self.table_reserved_seats[table_index]
+            own_reserved = party.size if uses_preemptive_reservation else 0
+            occupied_before = self.table_occupied_seats[table_index] + max(
+                0,
+                self.table_reserved_seats[table_index] - own_reserved,
+            )
             if occupied_before > 0:
                 self.metrics_counters["shared_table_count"] += 1
             remaining = self._sample_duration(self.config.dining_time_mean)
             transfer = self._start_walking_to_seat(party, table_index, remaining, minute)
             self.walking_to_seat.append(transfer)
             # 先预留座位，避免同一分钟后面的等座小组抢到同一张桌子的同一批座位。
-            self.table_reserved_seats[table_index] += party.size
+            if not uses_preemptive_reservation:
+                self.table_reserved_seats[table_index] += party.size
             party.table_index = table_index
             walking_count += party.size
             if timeline_events is not None:
                 timeline_events.append(self._walking_event_snapshot(transfer, step_start_sec=minute * 60))
         self.waiting_for_seat = still_waiting
         return walking_count
+
+    # 默认关闭的预占座实验：满足人数和概率条件时，为整个小组预留同一张桌的容量。
+    def _maybe_preempt_seat_for_party(self, party: DiningParty) -> None:
+        if self.config.preempt_seat_probability <= 0:
+            return
+        if party.size < self.config.seat_holder_min_party_size:
+            return
+        if self.rng.random() >= self.config.preempt_seat_probability:
+            return
+        table_index = self._choose_table_for_party(party)
+        if table_index is None:
+            return
+        table = self.layout.tables[table_index]
+        occupied = self.table_occupied_seats[table_index] + self.table_reserved_seats[table_index]
+        if table.capacity - occupied < party.size:
+            return
+        self.table_reserved_seats[table_index] += party.size
+        party.reserved_table_index = table_index
+
+    # 若小组已提前预留餐桌，等取餐完成后优先使用该桌，不再次增加 reserved seats。
+    def _reserved_table_for_party(self, party: DiningParty) -> int | None:
+        if party.reserved_table_index is None:
+            return None
+        if party.reserved_table_index < 0 or party.reserved_table_index >= len(self.layout.tables):
+            return None
+        table = self.layout.tables[party.reserved_table_index]
+        if self.table_reserved_seats[party.reserved_table_index] < party.size:
+            return None
+        if self.table_occupied_seats[party.reserved_table_index] + self.table_reserved_seats[party.reserved_table_index] > table.capacity:
+            return None
+        return party.reserved_table_index
 
     # 根据最后完成取餐的窗口和目标餐桌生成行走路径与到达时间。
     def _start_walking_to_seat(
@@ -592,12 +648,14 @@ class DiningSimulationRunner:
                 self.next_student_id += 1
                 student_ids.append(student.student_id)
                 arrivals.append(student)
-            self.parties[party_id] = DiningParty(
+            party = DiningParty(
                 party_id=party_id,
                 arrival_time=minute,
                 door_index=door_index,
                 student_ids=student_ids,
             )
+            self.parties[party_id] = party
+            self._maybe_preempt_seat_for_party(party)
             # 同组成员共享 party_id，但后续仍会各自选择窗口排队。
             remaining -= party_size
         return arrivals
@@ -608,18 +666,59 @@ class DiningSimulationRunner:
             idx = self._choose_window_for_student(student)
             student.window_index = idx
             self.queues[idx].append(student)
+            self._update_party_window_split_metric(student.party_id)
 
-    # 结合队伍长度和入口到窗口距离选择排队窗口。
+    # 记录同行小队是否被分配到多个窗口；同一小队只计一次。
+    def _update_party_window_split_metric(self, party_id: int) -> None:
+        party = self.parties.get(party_id)
+        if party is None:
+            return
+        assigned_windows = {
+            self.students[student_id].window_index
+            for student_id in party.student_ids
+            if self.students[student_id].window_index is not None
+        }
+        if len(assigned_windows) > 1:
+            self.party_window_split_party_ids.add(party_id)
+        split_count = len(self.party_window_split_party_ids)
+        self.metrics_counters["party_window_split_count"] = split_count
+        # party_split_count 是旧字段，保留为窗口分流次数的兼容别名。
+        self.metrics_counters["party_split_count"] = split_count
+
+    # 从当前学生索引重新计算窗口分流小队数，覆盖手动构造测试或后续状态修正。
+    def _refresh_party_window_split_metrics(self) -> int:
+        split_party_ids = {
+            party.party_id
+            for party in self.parties.values()
+            if len({
+                self.students[student_id].window_index
+                for student_id in party.student_ids
+                if self.students[student_id].window_index is not None
+            }) > 1
+        }
+        self.party_window_split_party_ids.update(split_party_ids)
+        split_count = len(self.party_window_split_party_ids)
+        self.metrics_counters["party_window_split_count"] = split_count
+        self.metrics_counters["party_split_count"] = split_count
+        return split_count
+
+    # 结合预计剩余服务、队伍长度、窗口服务速度和步行时间选择排队窗口。
     def _choose_window_for_student(self, student: Student) -> int:
-        # 学生选择窗口时同时考虑队伍长度和入口到窗口距离，队伍越短、距离越近越优。
+        # 默认 temperature=0 时确定性选择最低预计完成成本；温度大于 0 时用 softmax 模拟有限理性。
+        candidates = [
+            (self._window_choice_cost(student, idx), idx)
+            for idx in range(len(self.queues))
+        ]
+        return self._choose_by_softmax_cost(candidates, self.config.window_choice_temperature)
+
+    # 预计完成排队成本：当前服务剩余时间 + 队列服务时间 + 从入口走到窗口的时间。
+    def _window_choice_cost(self, student: Student, window_index: int) -> float:
         door = self.layout.doors[min(student.door_index, len(self.layout.doors) - 1)]
-        return min(
-            range(len(self.queues)),
-            key=lambda idx: (
-                len(self.queues[idx]) * 5.0 + _distance(door, self.layout.windows[idx]) * 0.02,
-                idx,
-            ),
-        )
+        window = self.layout.windows[window_index]
+        current_remaining = self.windows[window_index].remaining if self.windows[window_index] is not None else 0.0
+        average_service = self.config.service_time_mean / max(0.1, window.service_rate_factor)
+        walking_minutes = _distance(door, window) / WALKING_SPEED_UNITS_PER_SEC / 60
+        return current_remaining + len(self.queues[window_index]) * average_service + walking_minutes
 
     # 空闲窗口从队首取学生开始服务，并按窗口速度系数采样服务时长。
     def _start_window_services(self, minute: int) -> None:
@@ -634,26 +733,55 @@ class DiningSimulationRunner:
                 remaining=self._sample_duration(self.config.service_time_mean / max(0.1, window.service_rate_factor)),
             )
 
-    # 按可用容量、距离、拼桌惩罚和空座浪费为小组选择餐桌。
+    # 按可用容量、距离、拼桌惩罚、空座浪费和拥挤度为小组选择餐桌。
     def _choose_table_for_party(self, party: DiningParty) -> int | None:
         # 小组选择餐桌时考虑容量、距离、拼桌惩罚和空座浪费；没有合适桌子就继续等座。
         candidates: list[tuple[float, int]] = []
-        party_window = self._party_reference_window(party)
         for idx, table in enumerate(self.layout.tables):
             occupied = self.table_occupied_seats[idx] + self.table_reserved_seats[idx]
             available = table.capacity - occupied
             if available < party.size:
                 continue
-            is_empty = occupied == 0
-            # 成本项越小越优：近距离、少拼桌、少浪费空座；单人额外偏好空桌。
-            distance_cost = _distance(party_window, table) * 0.015
-            share_penalty = 0.0 if is_empty else (6.0 if party.size == 1 else 3.0)
-            waste_penalty = max(0, available - party.size) * (0.7 if party.size == 1 else 0.35)
-            single_empty_bonus = -2.0 if party.size == 1 and is_empty else 0.0
-            candidates.append((distance_cost + share_penalty + waste_penalty + single_empty_bonus, idx))
+            candidates.append((self._table_choice_cost(party, idx), idx))
         if not candidates:
             return None
-        return min(candidates, key=lambda item: (item[0], item[1]))[1]
+        return self._choose_by_softmax_cost(candidates, self.config.table_choice_temperature)
+
+    # 随机效用模型中的餐桌成本项，保留原有距离、拼桌、浪费和单人空桌偏好。
+    def _table_choice_cost(self, party: DiningParty, table_index: int) -> float:
+        party_window = self._party_reference_window(party)
+        table = self.layout.tables[table_index]
+        occupied = self.table_occupied_seats[table_index] + self.table_reserved_seats[table_index]
+        available = max(0, table.capacity - occupied)
+        is_empty = occupied == 0
+        distance_cost = _distance(party_window, table) * 0.015
+        sharing_penalty = 0.0 if is_empty else (6.0 if party.size == 1 else 3.0)
+        seat_waste = max(0, available - party.size)
+        waste_penalty = seat_waste * (0.7 if party.size == 1 else 0.35)
+        empty_table_bonus = 2.0 if party.size == 1 and is_empty else 0.0
+        crowd_penalty = (occupied / max(1, table.capacity)) * (0.5 if party.size == 1 else 0.25)
+        return distance_cost + sharing_penalty + waste_penalty - empty_table_bonus + crowd_penalty
+
+    # 对成本越低越优的候选集合做选择；温度为 0 时完全确定，温度大于 0 时按 softmax 概率抽样。
+    def _choose_by_softmax_cost(self, candidates: list[tuple[float, int]], temperature: float) -> int:
+        if not candidates:
+            raise ValueError("候选集合不能为空。")
+        ordered = sorted(candidates, key=lambda item: item[1])
+        if temperature <= 0:
+            return min(ordered, key=lambda item: (item[0], item[1]))[1]
+        min_cost = min(cost for cost, _idx in ordered)
+        scale = max(1e-9, temperature)
+        weights = [math.exp(-(cost - min_cost) / scale) for cost, _idx in ordered]
+        total = sum(weights)
+        if total <= 0:
+            return min(ordered, key=lambda item: (item[0], item[1]))[1]
+        threshold = self.rng.random() * total
+        cumulative = 0.0
+        for (_cost, idx), weight in zip(ordered, weights):
+            cumulative += weight
+            if threshold <= cumulative:
+                return idx
+        return ordered[-1][1]
 
     # 返回该小组取餐完成位置对应的窗口对象。
     def _party_reference_window(self, party: DiningParty) -> LayoutWindowData:
@@ -870,11 +998,24 @@ class DiningSimulationRunner:
 
     # 统计已被部分占用餐桌上的剩余空位，用来衡量拼桌碎片化。
     def _fragmented_seats(self) -> int:
-        return sum(
-            table.capacity - occupied
-            for table, occupied in zip(self.layout.tables, self.table_occupied_seats)
-            if 0 < occupied < table.capacity
-        )
+        available_by_table: list[int] = []
+        partial_empty = 0
+        for idx, table in enumerate(self.layout.tables):
+            used = self.table_occupied_seats[idx] + self.table_reserved_seats[idx]
+            available = max(0, table.capacity - used)
+            available_by_table.append(available)
+            if 0 < used < table.capacity:
+                partial_empty += available
+
+        blocked_by_fragmentation = 0
+        total_available = sum(available_by_table)
+        for party in self.waiting_for_seat:
+            if total_available < party.size:
+                continue
+            if any(available >= party.size for available in available_by_table):
+                continue
+            blocked_by_fragmentation = max(blocked_by_fragmentation, total_available)
+        return max(partial_empty, blocked_by_fragmentation)
 
     # 判断系统内是否还有处于排队、服务、等座、行走或就餐阶段的学生。
     def _has_active_students(self) -> bool:
@@ -1170,7 +1311,13 @@ class DiningSimulationRunner:
         # 利用率 = 资源被占用的分钟数 / 资源总分钟数。
         window_utilization = self.window_busy_minutes / denominator_windows
         seat_utilization = self.seat_occupied_minutes / denominator_seats
+        party_window_split_count = self._refresh_party_window_split_metrics()
         avg_party_gather_wait = _average(self._party_gather_wait(party) for party in seated_parties)
+        avg_party_seat_wait = _average(
+            party.seat_time - party.ready_time
+            for party in seated_parties
+            if party.ready_time is not None and party.seat_time is not None
+        )
         table_utilization_by_type = self._table_utilization_by_type()
         bottleneck = self._classify_bottleneck(
             peak_queue=peak_queue,
@@ -1203,6 +1350,8 @@ class DiningSimulationRunner:
             bottleneck_type=bottleneck,
             chart_data=chart_data,
             avg_party_gather_wait=round(avg_party_gather_wait, 2),
+            avg_party_seat_wait=round(avg_party_seat_wait, 2),
+            party_window_split_count=party_window_split_count,
             party_split_count=self.metrics_counters["party_split_count"],
             shared_table_count=self.metrics_counters["shared_table_count"],
             blocked_party_count=self.metrics_counters["blocked_party_count"],

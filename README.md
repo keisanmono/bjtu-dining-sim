@@ -197,6 +197,8 @@ flowchart TD
 
 指标汇总由 `MetricsSummary` 表示，主要包括平均等待时间、取餐排队等待、入座等待、峰值排队、峰值等座、吞吐量、座位利用率、窗口利用率和瓶颈类型。
 
+模型理论说明见 [`docs/model_theory.md`](docs/model_theory.md)。当前仿真采用排队论、离散时间 DES、Agent-Based Modeling、同行小队同步、随机效用选座和 Floor Field / CA 预留骨架组成的混合模型。
+
 `optimization.py` 不调用外部优化器，而是枚举候选配置，对每个候选估算指标并计算综合评分。评分越低表示方案越优。`explanation.py` 根据瓶颈、基准指标和推荐指标生成规则化说明；它不是外部大模型核心能力，核心仿真不依赖 LLM。
 
 ```mermaid

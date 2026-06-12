@@ -77,6 +77,8 @@ class SimulationStore:
                     _json(
                         {
                             "avg_party_gather_wait": result.metrics.avg_party_gather_wait,
+                            "avg_party_seat_wait": result.metrics.avg_party_seat_wait,
+                            "party_window_split_count": result.metrics.party_window_split_count,
                             "party_split_count": result.metrics.party_split_count,
                             "shared_table_count": result.metrics.shared_table_count,
                             "blocked_party_count": result.metrics.blocked_party_count,

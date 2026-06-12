@@ -564,14 +564,19 @@ const runCards = computed(() => {
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
   ]
 })
-// 分析页指标卡，展示最终等待、排队、利用率和瓶颈判断。
+// 分析页指标卡，展示最终等待、排队、利用率、同行行为和座位碎片化。
 const analysisCards = computed(() => {
   const m = metrics.value
+  const partySplitCount = m?.party_window_split_count ?? m?.party_split_count ?? 0
   return [
     { label: '平均等待', value: formatMinutes(m?.avg_wait || 0), hint: `取餐排队等待 ${formatMinutes(m?.avg_queue_wait || 0)}` },
     { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `高峰最多等座 ${m?.peak_waiting_for_seat || 0} 人` },
     { label: '窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: `瓶颈判断：${m?.bottleneck_type || '待分析'}` },
-    { label: '平均座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` }
+    { label: '平均座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` },
+    { label: '同行分流次数', value: partySplitCount, hint: '小队成员分配到多个窗口' },
+    { label: '同行集合等待', value: formatMinutes(m?.avg_party_gather_wait || 0), hint: `等座等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}` },
+    { label: '等座小队数', value: m?.blocked_party_count ?? 0, hint: `实际拼桌 ${m?.shared_table_count || 0} 次` },
+    { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' }
   ]
 })
 // 运行记录表格倒序展示最近 80 条。
