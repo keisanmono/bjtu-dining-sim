@@ -56,17 +56,38 @@ table_cost =
 
 容量约束始终优先：单桌可用座位不足以容纳整个 `party` 时不能选择该桌，因此随机性不会把一个同行小队拆到不同餐桌。
 
-## 6. 食堂内部移动：路径规则与 Floor Field CA
+## 6. 食堂内部移动：三种 movement_model
 
-当前版本仍采用“路径规则 + 动画帧”：取餐完成后，后端根据窗口服务点、餐桌坐标和餐桌障碍生成一条行走路径，再输出 `walking_to_seat`、`path` 和 `frames` 给前端播放。这保证了现有实时地图稳定。
+食堂内部移动现在支持三种模型，默认仍是稳定的几何路径规则：
 
-后续可以替换为 Cellular Automaton / Floor Field 模型。CA 模型把食堂空间离散成网格，静态 Floor Field 表示每个格子到目标的距离势能，动态占用格子表示人群拥堵。学生每一步选择势能更低且未被占用的相邻格，从而自然形成绕行、避让和局部拥堵。项目已预留 `backend/app/floor_field.py`，包含：
+1. `path`：原有“路径规则 + 动画帧”。后端根据窗口服务点、餐桌坐标和餐桌障碍生成行走路径，再输出 `walking_to_seat`、`path` 和 `frames` 给前端播放。该模式是默认值，用于保证既有仿真结果和实时地图行为不被高级模型影响。
+2. `static_floor_field`：静态 Floor Field 路径。后端把布局离散成网格，餐桌主体为 blocked cell，餐桌周围 approach cell 可达；然后从目标格反向 BFS 构造静态距离场，行走路径按距离场下降生成，避免穿过 blocked cell。
+3. `advanced_floor_field`：动态 Floor Field / Cellular Automaton 微观移动。`DiningSimulationRunner.step()` 仍按分钟推进 DES/ABM 主流程，但 `PedestrianEngine` 在每分钟内部运行多个 movement tick，用于更新学生在网格中的微观位置、冲突、拥堵和热力图。
 
-- `grid_from_layout(layout)`：把布局转换为网格和障碍。
-- `build_static_floor_field(layout, target)`：构造到目标的静态距离场。
-- `next_cell_by_floor_field(agent, grid, target, occupied_cells)`：给出下一步候选格。
+高级 CA 模型包括：
 
-该模块暂不接入主流程，避免重写动画和仿真器；它是后续从规则路径升级到 Floor Field CA 的最小稳定骨架。
+- 静态场：由目标集合反向扩散，表示到窗口、队列格、餐桌 approach cell 或出口的距离。
+- 动态场：行人每 tick 在当前格 deposit，随后按 `dynamic_field_decay` 衰减并按 `dynamic_field_diffusion` 扩散。
+- 密度惩罚：按邻域占用计算局部密度，使候选格成本随拥堵升高。
+- 并行更新：所有可移动 agent 先同时选择 intended cell，再统一解决冲突。
+- 冲突解决：多个 agent 选择同一目标格时，低成本者进入，其余等待并累计 `conflict_count`。
+- 同伴凝聚：同一 `party_id` 的成员按 group center 产生凝聚成本，减少同行小队无限分散。
+- 物理队列位置：窗口 service cell 和 queue cells 会作为微观目标，前端可直接绘制 agent cell 坐标。
+
+高级模型的候选格成本采用 Social-Force-inspired 项，而不是完整连续 Social Force 或 ORCA：
+
+```text
+cost(cell, agent) =
+    floor_static_weight * static_distance(cell, target)
+  + floor_density_weight * density_penalty(cell)
+  - floor_dynamic_weight * dynamic_field_value(cell)
+  + floor_wall_weight * wall_penalty(cell)
+  + floor_inertia_weight * turn_penalty(previous, current, cell)
+  + floor_group_weight * group_distance_penalty(party, cell)
+  + random_noise
+```
+
+因此当前实现是 Floor Field CA 主体加上 Social-Force-inspired 成本项：它能表达目标吸引、局部避让、墙体/障碍惩罚和同伴吸引，但不求解连续速度、加速度或 ORCA 半平面避碰。
 
 ## 7. 可选预占座实验
 
