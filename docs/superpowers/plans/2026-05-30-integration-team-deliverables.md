@@ -27,7 +27,7 @@
 
 - [ ] **Step 1: Create output directory**
 
-Run:
+From the repository root, run:
 
 ```bash
 mkdir -p 'deliverables/软件综合实训_20组_集成阶段团队材料'
@@ -79,14 +79,17 @@ Copy `20组_系统源代码说明.md` and `20组_系统源代码说明.pdf` into
 
 - [ ] **Step 3: Create zip**
 
-Run:
+From the repository root, run:
 
 ```bash
-cd /tmp/bjtu-dining-src
-zip -r '/home/u/bjtu-dining-sim/deliverables/软件综合实训_20组_集成阶段团队材料/软件综合实训_20组_系统源代码.zip' 'SRC_20组'
+REPO_ROOT="$(pwd)"
+STAGE_ROOT="/tmp/bjtu-dining-src"
+DELIVERABLE_DIR="$REPO_ROOT/deliverables/软件综合实训_20组_集成阶段团队材料"
+cd "$STAGE_ROOT"
+zip -r "$DELIVERABLE_DIR/软件综合实训_20组_系统源代码.zip" 'SRC_20组'
 ```
 
-Expected: zip exists and contains `SRC_20组/README.md`, `SRC_20组/backend/app/main.py`, `SRC_20组/frontend/src/App.vue`, and `SRC_20组/20组_系统源代码说明.pdf`.
+Expected: zip exists under the current checkout's `deliverables/软件综合实训_20组_集成阶段团队材料/` directory and contains all source, docs, tests, and the source-code description files required by the course deliverable.
 
 ## Task 4: Verify Deliverables
 
@@ -111,10 +114,38 @@ Expected: joint test report includes `接口联调测试` and `系统联调测�
 Run:
 
 ```bash
-unzip -l 'deliverables/软件综合实训_20组_集成阶段团队材料/软件综合实训_20组_系统源代码.zip' | sed -n '1,120p'
+ZIP='deliverables/软件综合实训_20组_集成阶段团队材料/软件综合实训_20组_系统源代码.zip'
+unzip -l "$ZIP" | sed -n '1,160p'
+for required in \
+  'SRC_20组/README.md' \
+  'SRC_20组/backend/app/main.py' \
+  'SRC_20组/backend/app/simulation.py' \
+  'SRC_20组/backend/app/schemas.py' \
+  'SRC_20组/backend/requirements.txt' \
+  'SRC_20组/frontend/package.json' \
+  'SRC_20组/frontend/src/App.vue' \
+  'SRC_20组/frontend/src/layout.js' \
+  'SRC_20组/tests/test_simulation.py' \
+  'SRC_20组/tests/test_storage.py' \
+  'SRC_20组/doc/walkthrough.md' \
+  'SRC_20组/20组_系统源代码说明.md' \
+  'SRC_20组/20组_系统源代码说明.pdf'
+do
+  unzip -l "$ZIP" "$required" >/dev/null || exit 1
+done
+for excluded in \
+  'SRC_20组/.git/*' \
+  'SRC_20组/backend/.venv/*' \
+  'SRC_20组/frontend/node_modules/*' \
+  'SRC_20组/data/*' \
+  'SRC_20组/logs/*' \
+  'SRC_20组/deliverables/*'
+do
+  if unzip -l "$ZIP" "$excluded" >/dev/null 2>&1; then exit 1; fi
+done
 ```
 
-Expected: core files are present; `node_modules`, `.venv`, `.git`, `data`, `logs`, and `deliverables` are not present.
+Expected: all required entries above are present; `node_modules`, `.venv`, `.git`, `data`, `logs`, and nested `deliverables` are not present.
 
 - [ ] **Step 4: Run verification tests**
 

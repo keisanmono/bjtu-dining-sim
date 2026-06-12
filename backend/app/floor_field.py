@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # 文件说明：Floor Field / Cellular Automaton 行人移动模型的轻量骨架。
 
+import math
 from collections import deque
 from typing import Any
 
@@ -15,6 +16,9 @@ Cell = tuple[int, int]
 
 def grid_from_layout(layout: Any, cell_size: float = DEFAULT_CELL_SIZE) -> dict[str, Any]:
     """Convert a dining layout into a coarse CA grid with table cells marked blocked."""
+    cell_size = float(cell_size)
+    if not math.isfinite(cell_size) or cell_size <= 0:
+        raise ValueError("cell_size must be a positive finite number")
     floor = _field(layout, "floor", {}) or {}
     width = float(_field(floor, "width", DEFAULT_WIDTH) or DEFAULT_WIDTH)
     height = float(_field(floor, "height", DEFAULT_HEIGHT) or DEFAULT_HEIGHT)
@@ -59,9 +63,10 @@ def build_static_floor_field(layout: Any, target: Any) -> dict[str, Any]:
 
 def _build_floor_field_for_grid(grid: dict[str, Any], target: Any) -> dict[str, Any]:
     target_cell = _to_cell(target, grid)
+    blocked = set(grid["blocked"])
+    blocked.discard(target_cell)
     distances: dict[Cell, int] = {target_cell: 0}
     frontier: deque[Cell] = deque([target_cell])
-    blocked = grid["blocked"]
 
     while frontier:
         cell = frontier.popleft()
@@ -73,6 +78,7 @@ def _build_floor_field_for_grid(grid: dict[str, Any], target: Any) -> dict[str, 
 
     return {
         **grid,
+        "blocked": blocked,
         "target_cell": target_cell,
         "distance": distances,
     }
