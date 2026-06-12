@@ -711,6 +711,21 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(runner.table_reserved_seats, [2])
         self.assertLessEqual(runner.table_occupied_seats[0] + runner.table_reserved_seats[0], layout.tables[0].capacity)
 
+        record = runner._build_record(
+            t=0,
+            arrived_count=2,
+            served_count=0,
+            seated_count=0,
+            left_count=0,
+        )
+
+        self.assertEqual(record.empty_seats, 2)
+        self.assertEqual(record.reserved_seats, 2)
+        self.assertEqual(record.available_seats, 0)
+        self.assertEqual(record.snapshot["empty_seats"], 2)
+        self.assertEqual(record.snapshot["reserved_seats"], 2)
+        self.assertEqual(record.snapshot["available_seats"], 0)
+
     # 验证取餐完成小组通过后端 timeline 行走到餐桌并最终入座。
     def test_ready_party_walks_to_seat_through_backend_timeline(self):
         layout = DiningLayoutData(

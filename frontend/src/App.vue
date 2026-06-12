@@ -409,6 +409,8 @@
               <el-table-column prop="arrived_count" label="到达" width="70" />
               <el-table-column prop="served_count" label="取餐" width="70" />
               <el-table-column prop="empty_seats" label="空座" width="70" />
+              <el-table-column prop="available_seats" label="可用" width="70" />
+              <el-table-column prop="reserved_seats" label="预留" width="70" />
               <el-table-column prop="waiting_for_seat_count" label="等座" width="70" />
               <el-table-column label="排队">
                 <template #default="{ row }">{{ totalQueue(row) }}</template>
@@ -557,10 +559,13 @@ const runCards = computed(() => {
   const record = currentRecord.value
   const queue = record ? totalQueue(record) : 0
   const peakQueue = metrics.value?.peak_queue ?? livePeakQueue.value
+  const physicalEmptySeats = record?.empty_seats ?? currentState.value?.empty_seats ?? config.num_seats
+  const reservedSeats = record?.reserved_seats ?? currentState.value?.reserved_seats ?? 0
+  const availableSeats = record?.available_seats ?? currentState.value?.available_seats ?? physicalEmptySeats
   return [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
     { label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` },
-    { label: '空座位数', value: record?.empty_seats ?? config.num_seats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
+    { label: '物理空座', value: physicalEmptySeats, hint: `可用 ${availableSeats} / 预留 ${reservedSeats}` },
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
   ]
 })

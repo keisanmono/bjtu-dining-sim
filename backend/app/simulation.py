@@ -172,6 +172,8 @@ class StepRecord:
     seated_count: int
     left_count: int
     empty_seats: int
+    reserved_seats: int
+    available_seats: int
     waiting_for_seat_count: int
     total_arrived: int
     total_served: int
@@ -1017,6 +1019,14 @@ class DiningSimulationRunner:
             blocked_by_fragmentation = max(blocked_by_fragmentation, total_available)
         return max(partial_empty, blocked_by_fragmentation)
 
+    # 统计所有已预留但尚未正式入座的座位数。
+    def _reserved_seats(self) -> int:
+        return sum(self.table_reserved_seats)
+
+    # 统计当前仍可分配给新等座小组的座位数，扣除已入座和已预留容量。
+    def _available_seats(self) -> int:
+        return max(0, self.total_seat_capacity - len(self.seated) - self._reserved_seats())
+
     # 判断系统内是否还有处于排队、服务、等座、行走或就餐阶段的学生。
     def _has_active_students(self) -> bool:
         return (
@@ -1049,6 +1059,8 @@ class DiningSimulationRunner:
             seated_count=seated_count,
             left_count=left_count,
             empty_seats=self.total_seat_capacity - len(self.seated),
+            reserved_seats=self._reserved_seats(),
+            available_seats=self._available_seats(),
             waiting_for_seat_count=self._waiting_for_seat_people(),
             total_arrived=len(self.students),
             total_served=self.total_served,
@@ -1070,6 +1082,7 @@ class DiningSimulationRunner:
     # 生成前端实时地图需要的当前队列、窗口、餐桌和小组状态快照。
     def _snapshot(self) -> dict[str, Any]:
         occupied = len(self.seated)
+        reserved = self._reserved_seats()
         return {
             "minute": self.current_minute,
             # 队列长度用于指标卡和队列图；queue_groups 用于地图按小组展示。
@@ -1079,6 +1092,8 @@ class DiningSimulationRunner:
             "window_services": self._window_services_snapshot(),
             "occupied_seats": occupied,
             "empty_seats": self.total_seat_capacity - occupied,
+            "reserved_seats": reserved,
+            "available_seats": max(0, self.total_seat_capacity - occupied - reserved),
             "waiting_for_seat_count": self._waiting_for_seat_people(),
             "waiting_party_count": len(self.waiting_for_seat),
             "waiting_parties": self._waiting_parties_snapshot(),

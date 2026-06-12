@@ -78,3 +78,10 @@ table_cost =
 当小队人数达到阈值且随机命中时，小队会提前为整组预留一张可容纳同桌的餐桌容量。预留通过现有 `table_reserved_seats` 表示，并保证 `occupied + reserved <= capacity`。所有成员取餐完成后，小队优先前往已预留桌；如果没有预留成功，则回到普通选座流程。
 
 默认关闭时，主流程与既有结果保持接近；开启后可用于研究占座对座位利用率、等座小队和碎片化座位的影响。
+
+## 参考文献
+
+1. Yuan Ningman, Wang Xianhua, Chen Xiaoxin. “Analysis on the Service Capacity of University Canteens under the Epidemic Prevention Based on Queue Theory.”
+2. Tang Tie-Qiao, Zhang Bo-Tao, Xie Chuan-Zhi. “Modeling and simulation of pedestrian flow in university canteen.”
+3. Kambli et al. “Improving campus dining operations using capacity and queue management: A simulation-based case study.”
+4. Rajaei, Khakzad. “A Real-World Example for Student Learning: BTSU Cafeteria Simulation.”

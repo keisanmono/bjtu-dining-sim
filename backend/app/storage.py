@@ -41,11 +41,11 @@ class SimulationStore:
                 """
                 INSERT INTO step_record (
                     run_id, t, arrived_count, queue_lengths_json, served_count,
-                    seated_count, left_count, empty_seats, waiting_for_seat_count,
-                    total_arrived, total_served, total_seated, total_left,
+                    seated_count, left_count, empty_seats, reserved_seats, available_seats,
+                    waiting_for_seat_count, total_arrived, total_served, total_seated, total_left,
                     avg_wait_so_far, snapshot_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [_record_row(record) for record in result.records],
             )
@@ -178,6 +178,8 @@ class SimulationStore:
             "seated_count",
             "left_count",
             "empty_seats",
+            "reserved_seats",
+            "available_seats",
             "waiting_for_seat_count",
             "total_arrived",
             "total_served",
@@ -215,6 +217,8 @@ class SimulationStore:
                     seated_count INTEGER NOT NULL,
                     left_count INTEGER NOT NULL,
                     empty_seats INTEGER NOT NULL,
+                    reserved_seats INTEGER NOT NULL DEFAULT 0,
+                    available_seats INTEGER NOT NULL DEFAULT 0,
                     waiting_for_seat_count INTEGER NOT NULL,
                     total_arrived INTEGER NOT NULL,
                     total_served INTEGER NOT NULL,
@@ -262,6 +266,15 @@ class SimulationStore:
                 """
             )
             _ensure_column(conn, "metrics_summary", "extra_metrics_json", "TEXT NOT NULL DEFAULT '{}'")
+            _ensure_column(conn, "step_record", "reserved_seats", "INTEGER NOT NULL DEFAULT 0")
+            _ensure_column(conn, "step_record", "available_seats", "INTEGER NOT NULL DEFAULT 0")
+            conn.execute(
+                """
+                UPDATE step_record
+                SET available_seats = empty_seats
+                WHERE reserved_seats = 0 AND available_seats = 0 AND empty_seats > 0
+                """
+            )
 
     @contextmanager
     # 提供自动 commit/close 的 SQLite 连接上下文。
@@ -288,6 +301,8 @@ def _record_row(record: Any) -> tuple[Any, ...]:
         record.seated_count,
         record.left_count,
         record.empty_seats,
+        record.reserved_seats,
+        record.available_seats,
         record.waiting_for_seat_count,
         record.total_arrived,
         record.total_served,
