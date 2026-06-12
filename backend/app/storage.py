@@ -84,6 +84,10 @@ class SimulationStore:
                             "blocked_party_count": result.metrics.blocked_party_count,
                             "fragmented_seats": result.metrics.fragmented_seats,
                             "table_utilization_by_type": result.metrics.table_utilization_by_type,
+                            "avg_walking_time": result.metrics.avg_walking_time,
+                            "movement_conflict_count": result.metrics.movement_conflict_count,
+                            "avg_stuck_ticks": result.metrics.avg_stuck_ticks,
+                            "max_density": result.metrics.max_density,
                         }
                     ),
                 ),

@@ -45,6 +45,38 @@ class SimulationStoreTests(unittest.TestCase):
             self.assertEqual(metrics["peak_queue"], result.metrics.peak_queue)
             self.assertIn("chart_data", metrics)
 
+    # 验证高级行人移动指标会随 metrics_summary 的 extra_metrics_json 一起持久化。
+    def test_save_and_load_advanced_movement_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "sim.sqlite"
+            store = SimulationStore(db_path)
+            result = run_simulation(
+                SimulationConfigData(
+                    num_windows=1,
+                    num_seats=8,
+                    arrival_rate=3,
+                    service_time_mean=1,
+                    dining_time_mean=2,
+                    duration_min=5,
+                    seed=20260615,
+                    movement_model="advanced_floor_field",
+                )
+            )
+
+            store.save_result(result)
+
+            metrics = store.get_metrics(result.run_id)
+
+            self.assertIsNotNone(metrics)
+            for field in (
+                "avg_walking_time",
+                "movement_conflict_count",
+                "avg_stuck_ticks",
+                "max_density",
+            ):
+                self.assertIn(field, metrics)
+                self.assertEqual(metrics[field], getattr(result.metrics, field))
+
 
 if __name__ == "__main__":
     unittest.main()
