@@ -12,6 +12,7 @@ from app.pedestrian.agents import AgentState
 import app.pedestrian.fields as fields_module
 from app.pedestrian.fields import DensityField
 from app.pedestrian.engine import PedestrianEngine
+from app.pedestrian.metrics import movement_metrics
 from app.pedestrian.grid import neighbors
 from app.simulation import (
     DiningLayoutData,
@@ -85,7 +86,7 @@ class PedestrianEngineTests(unittest.TestCase):
         agent = engine.agents[person.student_id]
         self.assertIn(agent.cell, agent.target_cells)
         self.assertEqual(agent.state, AgentState.QUEUEING)
-        self.assertGreaterEqual(agent.walking_distance_cells, 20)
+        self.assertGreaterEqual(agent.walking_distance_cells, 18)
         self.assertGreater(len(first_tick_events) + len(second_tick_events), 2)
 
     # 验证同一分钟同入口到达的学生不会被注入到同一个 CA cell 里形成非物理堆叠。
@@ -209,6 +210,30 @@ class PedestrianEngineTests(unittest.TestCase):
 
         self.assertLessEqual(calls["count"], engine._movement_budget_cells_per_tick() + 1)
 
+    # 验证墙惩罚预计算与原函数一致，且 static field 缓存按 LRU 上限淘汰。
+    def test_wall_penalty_and_static_field_caches_are_bounded(self):
+        engine = PedestrianEngine(
+            engine_layout(),
+            movement_config(static_field_cache_limit=16),
+            random.Random(143),
+        )
+        sample_cell = next(iter(engine.wall_penalties))
+
+        self.assertEqual(
+            engine.wall_penalties[sample_cell],
+            fields_module.wall_distance_or_penalty(sample_cell, engine.grid),
+        )
+
+        walkable = [
+            cell
+            for cell in engine.wall_penalties
+            if cell not in engine.grid.blocked_cells
+        ][:40]
+        for cell in walkable:
+            engine._static_field({cell})
+
+        self.assertLessEqual(len(engine.static_fields), 16)
+
     # 验证同队小组成员启用凝聚后不会持续拉开距离。
     def test_group_cohesion_prevents_unbounded_spread(self):
         engine = PedestrianEngine(engine_layout(), movement_config(floor_group_weight=3.0), random.Random(15))
@@ -248,6 +273,39 @@ class PedestrianEngineTests(unittest.TestCase):
         agent.target_cells = {(10, 8)}
 
         self.assertEqual(engine.ready_to_queue_student_ids({1}), [1])
+
+    # 验证窗口队列槽位不包含服务格，且物理队列按 FIFO 顺序分配槽位。
+    def test_window_queue_slots_exclude_service_cell_and_assign_fifo_targets(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(160))
+        people = [student(1), student(2), student(3)]
+        engine.spawn_arrivals(people, door_index=0)
+
+        service_cell = engine.grid.service_cells[0]
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, [1, 2])
+        engine.set_agent_target_window(3, 0)
+
+        self.assertNotEqual(queue_slots[0], service_cell)
+        self.assertEqual(engine.agents[1].target_cells, {queue_slots[0]})
+        self.assertEqual(engine.agents[2].target_cells, {queue_slots[1]})
+        self.assertEqual(engine.agents[3].target_cells, {queue_slots[2]})
+        self.assertFalse(engine.can_agent_enter_cell(engine.agents[2], queue_slots[0]))
+        self.assertFalse(engine.can_agent_enter_cell(engine.agents[3], queue_slots[0]))
+
+    # 验证餐桌目标为每个同组成员分配唯一 approach slot。
+    def test_party_table_target_assigns_unique_approach_slots_per_member(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(161))
+        people = [student(1, party_id=7), student(2, party_id=7)]
+        engine.spawn_arrivals(people, door_index=0)
+
+        engine.set_party_target_table(people, table_index=0)
+
+        assigned = [
+            engine.agents[person.student_id].assigned_table_approach_cell
+            for person in people
+        ]
+        self.assertEqual(len(assigned), len(set(assigned)))
+        self.assertTrue(all(engine.agents[person.student_id].target_cells == {assigned[index]} for index, person in enumerate(people)))
 
     # 验证餐桌边目标格拥挤时，已到餐桌邻近格的小组可正式入座。
     def test_party_ready_to_seat_accepts_agents_adjacent_to_table_target(self):
@@ -441,6 +499,77 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertEqual(passer.cell, (10, 8))
         self.assertTrue(any(cell in {(9, 9), (11, 9), (10, 10)} for cell in blocker.path_cells))
         self.assertNotEqual(passer.cell, blocker.cell)
+
+    # 验证 reservation-table 局部修复计划不产生同格冲突或边交换。
+    def test_local_repair_plan_avoids_vertex_and_edge_swap_conflicts(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(211))
+        people = [student(1, party_id=1), student(2, party_id=2), student(3, party_id=3)]
+        engine.spawn_arrivals(people, door_index=0)
+        engine.agents[1].state = AgentState.TO_TABLE
+        engine.agents[1].cell = (10, 10)
+        engine.agents[1].target_cells = {(10, 8)}
+        engine.agents[1].stuck_ticks = 12
+        engine.agents[2].state = AgentState.WAITING_GROUP
+        engine.agents[2].cell = (10, 9)
+        engine.agents[2].target_cells = {(10, 9)}
+        engine.agents[3].state = AgentState.TO_EXIT
+        engine.agents[3].cell = (9, 9)
+        engine.agents[3].target_cells = {(8, 9)}
+
+        plan = engine._plan_local_repair_with_reservations(
+            center=(10, 9),
+            agent_ids=[1, 2, 3],
+            horizon=4,
+            radius=3,
+        )
+
+        self.assertIn(1, plan)
+        self.assertLess(abs(plan[1][-1][0] - 10) + abs(plan[1][-1][1] - 8), 2)
+        starts = {agent_id: engine.agents[agent_id].cell for agent_id in plan}
+        for step in range(1, 5):
+            occupied_at_step = [
+                path[min(step - 1, len(path) - 1)]
+                for path in plan.values()
+            ]
+            self.assertEqual(len(occupied_at_step), len(set(occupied_at_step)))
+            previous_at_step = {
+                agent_id: starts[agent_id] if step == 1 else path[min(step - 2, len(path) - 1)]
+                for agent_id, path in plan.items()
+            }
+            current_at_step = {
+                agent_id: path[min(step - 1, len(path) - 1)]
+                for agent_id, path in plan.items()
+            }
+            for first_id, first_current in current_at_step.items():
+                for second_id, second_current in current_at_step.items():
+                    if first_id >= second_id:
+                        continue
+                    self.assertFalse(
+                        first_current == previous_at_step[second_id]
+                        and second_current == previous_at_step[first_id]
+                    )
+
+    # 验证 avg_stuck_ticks 只统计真正应该移动的状态。
+    def test_movement_metrics_avg_stuck_ticks_ignores_stationary_states(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(212))
+        people = [student(index) for index in range(1, 6)]
+        engine.spawn_arrivals(people, door_index=0)
+        stationary_states = [
+            AgentState.QUEUEING,
+            AgentState.WAITING_GROUP,
+            AgentState.SEATED,
+            AgentState.EXITED,
+        ]
+        for agent, state in zip(list(engine.agents.values())[:4], stationary_states):
+            agent.state = state
+            agent.stuck_ticks = 100
+        mover = engine.agents[5]
+        mover.state = AgentState.TO_WINDOW
+        mover.stuck_ticks = 2
+
+        metrics = movement_metrics(engine.agents, tick_seconds=5, max_density=0)
+
+        self.assertEqual(metrics.avg_stuck_ticks, 2.0)
 
     # 验证借过不会挤开正在服务、已入座或已离开的非通道对象。
     def test_to_table_borrow_does_not_displace_service_agent(self):

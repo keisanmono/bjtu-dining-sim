@@ -178,6 +178,13 @@ class SimulationConfigData:
     floor_inertia_weight: float = 0.25
     floor_group_weight: float = 0.8
     floor_randomness: float = 0.05
+    floor_borrow_after_stuck_ticks: int = 4
+    local_repair_after_stuck_ticks: int = 4
+    local_repair_horizon: int = 4
+    local_repair_radius: int = 5
+    local_repair_max_agents: int = 8
+    local_repair_max_attempts: int = 2
+    static_field_cache_limit: int = 256
     dynamic_field_decay: float = 0.85
     dynamic_field_diffusion: float = 0.10
     max_movement_ticks_per_minute: int = 12
@@ -232,6 +239,7 @@ class Student:
     student_id: int
     party_id: int
     arrival_time: int
+    # advanced coupling 下会在学生真正进入物理窗口槽位时更新。
     queue_enter_time: int
     door_index: int = 0
     service_start_time: int | None = None
@@ -533,6 +541,7 @@ def run_layout_ablation_snapshot(
             "entry_waiting_count": int(snapshot.get("entry_waiting_count", 0) or 0),
             "indoor_agents": len(snapshot.get("pedestrian_agents", []) or []),
             "queue_total": int(sum(queue_lengths)),
+            "total_waiting_pressure": int(snapshot.get("total_waiting_pressure", sum(queue_lengths)) or 0),
             "served": int(totals.get("served", 0) or 0),
             "seated": int(totals.get("seated", 0) or 0),
             "total_arrived": int(totals.get("arrived", 0) or 0),
@@ -608,6 +617,8 @@ class DiningSimulationRunner:
             "blocked_party_count": 0,
         }
         self.blocked_party_ids: set[int] = set()
+        self.incomplete_party_ids: set[int] = set()
+        self.warnings: list[str] = []
         self.party_window_split_party_ids: set[int] = set()
         self.window_switch_minutes: dict[int, int] = {}
         self.peak_fragmented_seats = 0
@@ -850,15 +861,28 @@ class DiningSimulationRunner:
         if party.reserved_table_index is None:
             return None
         if party.reserved_table_index < 0 or party.reserved_table_index >= len(self.layout.tables):
+            self._release_party_reserved_table(party)
             return None
         if not self._table_has_movement_target(party.reserved_table_index):
+            self._release_party_reserved_table(party)
             return None
         table = self.layout.tables[party.reserved_table_index]
         if self.table_reserved_seats[party.reserved_table_index] < party.size:
+            self._release_party_reserved_table(party)
             return None
         if self.table_occupied_seats[party.reserved_table_index] + self.table_reserved_seats[party.reserved_table_index] > table.capacity:
+            self._release_party_reserved_table(party)
             return None
         return party.reserved_table_index
+
+    def _release_party_reserved_table(self, party: DiningParty, table_index: int | None = None) -> None:
+        resolved = party.reserved_table_index if table_index is None else table_index
+        if resolved is None or resolved < 0 or resolved >= len(self.table_reserved_seats):
+            party.reserved_table_index = None
+            return
+        self.table_reserved_seats[resolved] = max(0, self.table_reserved_seats[resolved] - party.size)
+        if party.reserved_table_index == resolved:
+            party.reserved_table_index = None
 
     # 根据最后完成取餐的窗口和目标餐桌生成行走路径与到达时间。
     def _start_walking_to_seat(
@@ -893,7 +917,8 @@ class DiningSimulationRunner:
         for transfer in self.walking_to_seat:
             if self._uses_advanced_movement_coupling():
                 if not self._advanced_transfer_ready_to_seat(transfer, end_time_sec):
-                    still_walking.append(transfer)
+                    if transfer.party.party_id not in self.incomplete_party_ids:
+                        still_walking.append(transfer)
                     continue
                 seat_minute = math.ceil(end_time_sec / 60)
             elif transfer.arrive_time_sec > end_time_sec:
@@ -923,6 +948,8 @@ class DiningSimulationRunner:
                 0,
                 self.table_reserved_seats[transfer.table_index] - party.size,
             )
+            if party.reserved_table_index == transfer.table_index:
+                party.reserved_table_index = None
             # 行走完成后，预留座位转为实际占用座位。
             self.table_occupied_seats[transfer.table_index] += party.size
             self.table_party_ids[transfer.table_index].add(party.party_id)
@@ -934,7 +961,32 @@ class DiningSimulationRunner:
         return arrived_count
 
     def _advanced_transfer_ready_to_seat(self, transfer: WalkingSeatTransfer, end_time_sec: int) -> bool:
-        return self._party_reached_table(transfer.party)
+        if self._party_reached_table(transfer.party):
+            return True
+        if self.pedestrian_engine is not None and self.pedestrian_engine.recover_party_table_targets(transfer.party):
+            return False
+        self._recover_unreachable_table_transfer(transfer)
+        return False
+
+    def _recover_unreachable_table_transfer(self, transfer: WalkingSeatTransfer) -> None:
+        party = transfer.party
+        old_table = transfer.table_index
+        self._release_party_reserved_table(party, old_table)
+        party.table_index = None
+        next_table = self._choose_table_for_party(party)
+        if next_table is not None and next_table != old_table:
+            self.table_reserved_seats[next_table] += party.size
+            party.table_index = next_table
+            party.reserved_table_index = next_table
+            transfer.table_index = next_table
+            if self.pedestrian_engine is not None:
+                self.pedestrian_engine.set_party_target_table(party, next_table)
+            return
+        self.incomplete_party_ids.add(party.party_id)
+        self.warnings.append(f"party {party.party_id} has no reachable table approach slot")
+        if self.pedestrian_engine is not None:
+            for student_id in party.student_ids:
+                self.pedestrian_engine.set_agent_exited(student_id)
 
     # 按校园到达表或手动泊松到达生成本分钟新学生。
     def _generate_arrivals(self, minute: int) -> list[Student]:
@@ -1098,6 +1150,7 @@ class DiningSimulationRunner:
             if not self._student_is_in_any_window_queue(student):
                 student.queue_enter_time = minute
                 self.queues[student.window_index].append(student)
+                self._sync_window_physical_queue(student.window_index)
             self.waiting_to_queue_student_ids.discard(student_id)
             admitted += 1
         return admitted
@@ -1105,7 +1158,7 @@ class DiningSimulationRunner:
     def _retarget_stuck_window_agents(self) -> None:
         if self.pedestrian_engine is None:
             return
-        wait_threshold = max(60, int(180))
+        wait_threshold = 180
         for student_id in sorted(self.waiting_to_queue_student_ids):
             student = self.students.get(student_id)
             agent = self.pedestrian_engine.agents.get(student_id)
@@ -1312,6 +1365,8 @@ class DiningSimulationRunner:
             return False
         student = self.queues[idx].pop(0)
         self.waiting_to_queue_student_ids.discard(student.student_id)
+        if self._uses_advanced_movement_coupling():
+            self._sync_window_physical_queue(idx)
         start_time_sec = int(round(start_time_minute * 60))
         student.service_start_time = math.floor(start_time_sec / 60)
         student.service_start_time_sec = start_time_sec
@@ -1345,13 +1400,29 @@ class DiningSimulationRunner:
             if student in queue:
                 queue.remove(student)
         student.window_index = bounded_index
-        if student.service_start_time is None:
+        if student.service_start_time is None and not self._uses_advanced_movement_coupling():
             self.queues[bounded_index].append(student)
         if self.pedestrian_engine is not None:
             self.pedestrian_engine.set_agent_target_window(student.student_id, bounded_index)
+        if self._uses_advanced_movement_coupling():
+            self._sync_all_window_physical_queues()
 
     def _student_is_in_any_window_queue(self, student: Student) -> bool:
         return any(student in queue for queue in self.queues)
+
+    def _sync_window_physical_queue(self, window_index: int) -> None:
+        if self.pedestrian_engine is None:
+            return
+        self.pedestrian_engine.set_window_physical_queue(
+            window_index,
+            [student.student_id for student in self.queues[window_index]],
+        )
+
+    def _sync_all_window_physical_queues(self) -> None:
+        if self.pedestrian_engine is None:
+            return
+        for window_index in range(len(self.queues)):
+            self._sync_window_physical_queue(window_index)
 
     def _window_head_ready_for_service(self, window_index: int) -> bool:
         if not self._uses_advanced_movement_coupling() or self.pedestrian_engine is None:
@@ -1579,7 +1650,7 @@ class DiningSimulationRunner:
         if not in_peak:
             shoulder_end = self.config.peak_end_min + max(0, self.config.stagger_minutes)
             if self.config.stagger_minutes and self.config.peak_end_min <= minute < shoulder_end:
-                # 错峰不会凭空减少总需求，而是把一部分高峰需求推到高峰后的肩部时段。
+                # 错峰用肩部时段近似回填部分高峰需求；这是启发式，不保证严格守恒。
                 return rate * (1.0 + min(0.35, self.config.stagger_minutes / 60))
             return rate
 
@@ -1752,11 +1823,17 @@ class DiningSimulationRunner:
     def _snapshot(self) -> dict[str, Any]:
         occupied = len(self.seated)
         reserved = self._reserved_seats()
+        physical_queue_lengths = [len(queue) for queue in self.queues]
+        walking_to_window_count = len(self.waiting_to_queue_student_ids)
+        entry_waiting_count = len(self.pending_entry_students)
         snapshot = {
             "minute": self.current_minute,
             "clock_minute": self.config.simulation_start_minute + self.current_minute,
             # 队列长度用于指标卡和队列图；queue_groups 用于地图按小组展示。
-            "queue_lengths": [len(queue) for queue in self.queues],
+            "queue_lengths": physical_queue_lengths,
+            "physical_queue_lengths": physical_queue_lengths,
+            "walking_to_window_count": walking_to_window_count,
+            "total_waiting_pressure": entry_waiting_count + walking_to_window_count + sum(physical_queue_lengths),
             "queue_groups": self._queue_groups_snapshot(),
             "busy_windows": [window is not None for window in self.windows],
             "window_services": self._window_services_snapshot(),
@@ -1768,7 +1845,7 @@ class DiningSimulationRunner:
             "waiting_party_count": len(self.waiting_for_seat),
             "waiting_parties": self._waiting_parties_snapshot(),
             "entry_queue_lengths": self._pending_entry_counts_by_door(),
-            "entry_waiting_count": len(self.pending_entry_students),
+            "entry_waiting_count": entry_waiting_count,
             "entered_count": self.entered_this_minute,
             # walking_parties 是跨分钟仍在走的人；timeline 只记录本分钟新发生的走路事件。
             "walking_to_seat_count": sum(transfer.party.size for transfer in self.walking_to_seat),
@@ -1792,6 +1869,8 @@ class DiningSimulationRunner:
                 "seated": self.total_seated,
                 "left": self.total_left,
             },
+            "incomplete_party_ids": sorted(self.incomplete_party_ids),
+            "warnings": list(self.warnings),
         }
         if self.pedestrian_engine is not None:
             snapshot["pedestrian_agents"] = self.pedestrian_engine.agent_snapshots()
