@@ -30,7 +30,11 @@ class PedestrianAgent:
     target_cells: set[Cell] = field(default_factory=set)
     previous_cell: Cell | None = None
     desired_window_index: int | None = None
+    assigned_queue_slot_index: int | None = None
     table_index: int | None = None
+    assigned_table_approach_cell: Cell | None = None
+    table_repair_failures: int = 0
+    table_slot_reassignments: int = 0
     stuck_ticks: int = 0
     walking_distance_cells: int = 0
     walking_time_seconds: float = 0.0

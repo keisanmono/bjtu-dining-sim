@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections import Counter, defaultdict, deque
+from collections import Counter, OrderedDict, defaultdict, deque
 from typing import Any, Callable
 
 from .agents import AgentState, PartyMovementState, PedestrianAgent
@@ -25,14 +25,54 @@ class PedestrianEngine:
             cell_size=float(getattr(config, "floor_cell_size", 12.0)),
             allow_diagonal=bool(getattr(config, "floor_allow_diagonal", False)),
         )
+        self.floor_allow_diagonal = bool(getattr(config, "floor_allow_diagonal", False))
+        self.floor_static_weight = float(getattr(config, "floor_static_weight", 1.0))
+        self.floor_density_weight = float(getattr(config, "floor_density_weight", 1.2))
+        self.floor_dynamic_weight = float(getattr(config, "floor_dynamic_weight", 0.35))
+        self.floor_wall_weight = float(getattr(config, "floor_wall_weight", 0.6))
+        self.floor_inertia_weight = float(getattr(config, "floor_inertia_weight", 0.25))
+        self.floor_group_weight = float(getattr(config, "floor_group_weight", 0.8))
+        self.floor_randomness = float(getattr(config, "floor_randomness", 0.05))
+        self.floor_stuck_wait_penalty = float(getattr(config, "floor_stuck_wait_penalty", 0.15))
+        self.congestion_density_threshold = int(getattr(config, "congestion_density_threshold", 3))
+        self.personal_space_radius_cells = int(getattr(config, "personal_space_radius_cells", 1))
+        self.floor_borrow_after_stuck_ticks = int(getattr(config, "floor_borrow_after_stuck_ticks", 4))
+        self.local_repair_after_stuck_ticks = int(
+            getattr(config, "local_repair_after_stuck_ticks", self.floor_borrow_after_stuck_ticks)
+        )
+        self.local_repair_horizon = max(2, int(getattr(config, "local_repair_horizon", 4)))
+        self.local_repair_radius = max(2, int(getattr(config, "local_repair_radius", 5)))
+        self.local_repair_max_agents = max(3, int(getattr(config, "local_repair_max_agents", 8)))
+        self.local_repair_max_attempts = max(1, int(getattr(config, "local_repair_max_attempts", 2)))
+        self.static_field_cache_limit = max(16, int(getattr(config, "static_field_cache_limit", 256)))
+        self.neighbors4: dict[Cell, list[Cell]] = {
+            (col, row): neighbors((col, row), self.grid, allow_diagonal=False)
+            for col in range(self.grid.cols)
+            for row in range(self.grid.rows)
+        }
+        self.neighbors8: dict[Cell, list[Cell]] = {
+            (col, row): neighbors((col, row), self.grid, allow_diagonal=True)
+            for col in range(self.grid.cols)
+            for row in range(self.grid.rows)
+        }
+        self.wall_penalties: dict[Cell, float] = {
+            (col, row): wall_distance_or_penalty((col, row), self.grid)
+            for col in range(self.grid.cols)
+            for row in range(self.grid.rows)
+            if is_walkable((col, row), self.grid)
+        }
         self.dynamic_field = DynamicField(
             decay=float(getattr(config, "dynamic_field_decay", 0.85)),
             diffusion=float(getattr(config, "dynamic_field_diffusion", 0.10)),
         )
         self.agents: dict[int, PedestrianAgent] = {}
         self.party_states: dict[int, PartyMovementState] = {}
+        # window_queues is the physical FIFO queue occupying ordered queue slots.
         self.window_queues: dict[int, list[int]] = defaultdict(list)
-        self.static_fields: dict[tuple[Cell, ...], dict[Cell, float]] = {}
+        # window_walkers have chosen a window and are walking toward the queue tail;
+        # they are not service-eligible until promoted into window_queues.
+        self.window_walkers: dict[int, list[int]] = defaultdict(list)
+        self.static_fields: OrderedDict[tuple[Cell, ...], dict[Cell, float]] = OrderedDict()
         self.entry_spawn_cells: dict[int, list[Cell]] = {}
         self.max_density = 0
         self.tick_seconds = max(1, int(getattr(config, "movement_tick_seconds", 5)))
@@ -102,7 +142,7 @@ class PedestrianEngine:
                 candidates.append(current)
             if distance >= max_radius:
                 continue
-            for neighbor in neighbors(current, self.grid, allow_diagonal=True):
+            for neighbor in self.neighbors8.get(current, []):
                 if neighbor in seen:
                     continue
                 seen.add(neighbor)
@@ -115,15 +155,41 @@ class PedestrianEngine:
         if agent is None:
             return
         window_index = max(0, int(window_index))
-        for queue in self.window_queues.values():
-            if student_id in queue:
-                queue.remove(student_id)
-        self.window_queues[window_index].append(student_id)
+        self._remove_from_window_tracking(student_id)
+        self.window_walkers[window_index].append(student_id)
         agent.desired_window_index = window_index
+        agent.assigned_queue_slot_index = None
         agent.target_type = "window_queue"
         agent.target_id = window_index
         agent.state = AgentState.TO_WINDOW
         self._update_queue_targets()
+
+    def set_window_physical_queue(self, window_index: int, student_ids: list[int]) -> None:
+        window_index = max(0, int(window_index))
+        unique_ids: list[int] = []
+        for student_id in student_ids:
+            if student_id not in unique_ids:
+                unique_ids.append(int(student_id))
+        for student_id in unique_ids:
+            self._remove_from_window_tracking(student_id)
+        self.window_queues[window_index] = unique_ids
+        for position, student_id in enumerate(unique_ids):
+            agent = self.agents.get(student_id)
+            if agent is None:
+                continue
+            agent.desired_window_index = window_index
+            agent.assigned_queue_slot_index = position
+            agent.target_type = "window_queue"
+            agent.target_id = window_index
+            if agent.state is not AgentState.SERVICE:
+                agent.state = AgentState.QUEUEING
+        self._update_queue_targets()
+
+    def _remove_from_window_tracking(self, student_id: int) -> None:
+        for queues in (self.window_queues, self.window_walkers):
+            for queue in queues.values():
+                while student_id in queue:
+                    queue.remove(student_id)
 
     def set_party_target_table(self, party: Any, table_index: int) -> None:
         student_ids = self._student_ids_for_party(party)
@@ -132,24 +198,54 @@ class PedestrianEngine:
             targets = {
                 neighbor
                 for cell in self.grid.table_cells[table_index]
-                for neighbor in neighbors(cell, self.grid, allow_diagonal=True)
+                for neighbor in self.neighbors8.get(cell, [])
                 if is_walkable(neighbor, self.grid)
             }
+        assigned_slots = self._assign_table_approach_slots(student_ids, table_index, targets)
         for student_id in student_ids:
             agent = self.agents.get(student_id)
             if agent is None:
                 continue
+            target = assigned_slots.get(student_id)
             agent.state = AgentState.TO_TABLE
             agent.table_index = table_index
             agent.target_type = "table"
             agent.target_id = table_index
-            agent.target_cells = set(targets)
+            agent.assigned_table_approach_cell = target
+            agent.target_cells = {target} if target is not None else set(targets)
+            agent.table_repair_failures = 0
         if student_ids:
             party_id = self.agents[student_ids[0]].party_id
             party_state = self.party_states.setdefault(party_id, PartyMovementState(party_id=party_id))
             party_state.reserved_table_index = table_index
             party_state.cohesion_enabled = True
         self._refresh_party_centers()
+
+    def _assign_table_approach_slots(
+        self,
+        student_ids: list[int],
+        table_index: int,
+        targets: set[Cell],
+    ) -> dict[int, Cell]:
+        open_targets = sorted(targets)
+        assigned: dict[int, Cell] = {}
+        used: set[Cell] = set()
+        for student_id in student_ids:
+            agent = self.agents.get(student_id)
+            if agent is None or not open_targets:
+                continue
+            candidates = [cell for cell in open_targets if cell not in used] or open_targets
+            target = min(
+                candidates,
+                key=lambda cell: (
+                    abs(agent.cell[0] - cell[0]) + abs(agent.cell[1] - cell[1]),
+                    cell[1],
+                    cell[0],
+                ),
+            )
+            assigned[student_id] = target
+            used.add(target)
+        return assigned
 
     def set_agent_service(self, student_id: int, window_index: int) -> None:
         agent = self.agents.get(student_id)
@@ -161,8 +257,8 @@ class PedestrianEngine:
         agent.state = AgentState.SERVICE
         agent.target_type = "service"
         agent.target_id = window_index
-        if student_id in self.window_queues.get(window_index, []):
-            self.window_queues[window_index].remove(student_id)
+        self._remove_from_window_tracking(student_id)
+        agent.assigned_queue_slot_index = None
         self._update_queue_targets()
 
     def set_agent_waiting_group(self, student_id: int) -> None:
@@ -186,6 +282,7 @@ class PedestrianEngine:
         agent.table_index = table_index
         agent.target_type = "table"
         agent.target_id = table_index
+        agent.assigned_table_approach_cell = None
         agent.target_cells = set()
 
     def set_agent_exited(self, student_id: int) -> None:
@@ -204,6 +301,7 @@ class PedestrianEngine:
     def tick(self, current_time_sec: int) -> list[dict[str, Any]]:
         self._update_queue_targets()
         self._refresh_party_centers()
+        self._repair_used_this_tick = False
         budget = self._movement_budget_cells_per_tick()
         step_duration = self.tick_seconds / budget
         events: list[dict[str, Any]] = []
@@ -252,7 +350,7 @@ class PedestrianEngine:
             if self._occupies_walkable_cell(agent)
         }
         occupied_all = set(occupied_by)
-        density_radius = int(getattr(self.config, "personal_space_radius_cells", 1))
+        density_radius = self.personal_space_radius_cells
         movement_density = DensityField.from_occupied_cells(occupied_all, self.grid, radius=density_radius)
         intents: dict[Cell, list[tuple[PedestrianAgent, float]]] = defaultdict(list)
         intended_by_agent: dict[int, Cell] = {}
@@ -293,6 +391,8 @@ class PedestrianEngine:
             )
             for agent in movable
         }
+        self._resolve_edge_swaps(movable, planned_targets)
+        self._apply_local_repair_moves(movable, planned_targets, occupied_by=occupied_by)
         self._apply_local_borrowing_moves(
             movable,
             planned_targets,
@@ -300,10 +400,15 @@ class PedestrianEngine:
             density=movement_density,
             density_radius=density_radius,
         )
+        self._resolve_edge_swaps(movable, planned_targets)
 
         for agent in movable:
             previous = agent.cell
             target = planned_targets.get(agent.student_id, previous)
+            if target != previous:
+                if not self.can_agent_enter_cell(agent, target):
+                    planned_targets[agent.student_id] = previous
+                    target = previous
             if target != previous:
                 agent.previous_cell = previous
                 agent.cell = target
@@ -406,15 +511,29 @@ class PedestrianEngine:
         }
 
     def ready_to_queue_student_ids(self, candidate_ids: set[int]) -> list[int]:
-        return sorted(
+        ready: list[int] = []
+        for window_index in sorted(self.window_walkers):
+            queue = self.window_walkers[window_index]
+            if not queue or queue[0] not in candidate_ids:
+                continue
+            student_id = queue[0]
+            agent = self.agents.get(student_id)
+            if agent is None:
+                continue
+            if agent.state is AgentState.QUEUEING or (agent.state is AgentState.TO_WINDOW and self._is_near_target_cells(agent)):
+                ready.append(student_id)
+        tracked_walkers = {
             student_id
-            for student_id in candidate_ids
-            if (agent := self.agents.get(student_id)) is not None
-            and (
-                agent.state is AgentState.QUEUEING
-                or (agent.state is AgentState.TO_WINDOW and self._is_near_target_cells(agent))
-            )
-        )
+            for queue in self.window_walkers.values()
+            for student_id in queue
+        }
+        for student_id in sorted(candidate_ids - tracked_walkers - set(ready)):
+            agent = self.agents.get(student_id)
+            if agent is None:
+                continue
+            if agent.state is AgentState.QUEUEING or (agent.state is AgentState.TO_WINDOW and self._is_near_target_cells(agent)):
+                ready.append(student_id)
+        return sorted(ready)
 
     def party_ready_to_seat(self, party: Any) -> bool:
         student_ids = self._student_ids_for_party(party)
@@ -424,8 +543,102 @@ class PedestrianEngine:
             agent = self.agents.get(student_id)
             if agent is None or agent.state is not AgentState.TO_TABLE:
                 return False
+            if agent.assigned_table_approach_cell is not None:
+                target = agent.assigned_table_approach_cell
+                if abs(agent.cell[0] - target[0]) + abs(agent.cell[1] - target[1]) > 1:
+                    return False
+                continue
             if not self._is_near_target_cells(agent):
                 return False
+        return True
+
+    def recover_party_table_targets(self, party: Any) -> bool:
+        student_ids = self._student_ids_for_party(party)
+        recovered = False
+        for student_id in student_ids:
+            agent = self.agents.get(student_id)
+            if agent is None or agent.state is not AgentState.TO_TABLE:
+                continue
+            if agent.assigned_table_approach_cell is None or agent.table_index is None:
+                continue
+            target = agent.assigned_table_approach_cell
+            occupant = next(
+                (
+                    other.student_id
+                    for other in self.agents.values()
+                    if other.student_id != agent.student_id
+                    and other.cell == target
+                    and other.state not in {AgentState.SEATED, AgentState.EXITED}
+                ),
+                None,
+            )
+            blocked_by_other = occupant is not None
+            if agent.stuck_ticks < self.local_repair_after_stuck_ticks and not blocked_by_other:
+                recovered = True
+                continue
+            if blocked_by_other and self._reassign_table_approach_slot(agent):
+                recovered = True
+                continue
+            plan = self._plan_local_repair_with_reservations(
+                center=target,
+                agent_ids=self._local_repair_region(target, self.local_repair_radius),
+                horizon=self.local_repair_horizon,
+                radius=self.local_repair_radius,
+            )
+            if plan and student_id in plan:
+                recovered = True
+                continue
+            if self._reassign_table_approach_slot(agent):
+                recovered = True
+                continue
+            agent.table_repair_failures += 1
+            if agent.table_repair_failures < 2:
+                recovered = True
+        return recovered
+
+    def _reassign_table_approach_slot(self, agent: PedestrianAgent) -> bool:
+        if agent.table_index is None:
+            return False
+        candidates = sorted(self.grid.table_approach_cells.get(agent.table_index, set()))
+        if not candidates:
+            return False
+        party_member_ids = {
+            other.student_id
+            for other in self.agents.values()
+            if other.party_id == agent.party_id and other.student_id != agent.student_id and other.state is AgentState.TO_TABLE
+        }
+        party_slots = {
+            self.agents[student_id].assigned_table_approach_cell
+            for student_id in party_member_ids
+            if student_id in self.agents
+        }
+        occupied = {
+            other.cell
+            for other in self.agents.values()
+            if other.student_id != agent.student_id
+            and other.state not in {AgentState.SEATED, AgentState.EXITED}
+        }
+        available = [
+            cell
+            for cell in candidates
+            if cell != agent.assigned_table_approach_cell
+            and cell not in party_slots
+            and cell not in occupied
+        ]
+        if not available:
+            return False
+        target = min(
+            available,
+            key=lambda cell: (
+                abs(agent.cell[0] - cell[0]) + abs(agent.cell[1] - cell[1]),
+                cell[1],
+                cell[0],
+            ),
+        )
+        agent.assigned_table_approach_cell = target
+        agent.target_cells = {target}
+        agent.table_slot_reassignments += 1
+        agent.table_repair_failures = 0
         return True
 
     def _is_near_target_cells(self, agent: PedestrianAgent, max_distance: int = 1) -> bool:
@@ -436,6 +649,103 @@ class PedestrianEngine:
             for target in agent.target_cells
         )
 
+    def can_agent_enter_cell(self, agent: PedestrianAgent, cell: Cell) -> bool:
+        if cell == agent.cell:
+            return True
+        if not is_walkable(cell, self.grid):
+            return False
+        if self._is_reserved_service_area(cell) and not self._agent_can_use_service_area(agent, cell):
+            return False
+        queue_info = self._queue_slot_info(cell)
+        if queue_info is not None:
+            queue_window, queue_slot_index, queue_owner = queue_info
+            if queue_owner is not None and queue_owner != agent.student_id:
+                if not self._agent_can_use_tail_slot(agent, queue_window, queue_slot_index):
+                    return False
+            if (
+                queue_owner is None
+                and self._queue_slot_window_has_assignments(cell)
+                and cell not in agent.target_cells
+                and not self._agent_can_use_tail_slot(agent, queue_window, queue_slot_index)
+            ):
+                return False
+        table_owner = self._table_approach_owner(cell)
+        if table_owner is not None and table_owner != agent.student_id:
+            return False
+        return True
+
+    def _is_reserved_service_area(self, cell: Cell) -> bool:
+        return any(cell in self._reserved_service_area(window_index) for window_index in self.grid.service_cells)
+
+    def _reserved_service_area(self, window_index: int) -> set[Cell]:
+        service = self.grid.service_cells.get(window_index)
+        if service is None:
+            return set()
+        reserved = {service}
+        queue_slots = self.grid.queue_cells_by_window.get(window_index, [])
+        if queue_slots:
+            reserved.add(queue_slots[0])
+        return reserved
+
+    def _agent_can_use_service_area(self, agent: PedestrianAgent, cell: Cell) -> bool:
+        if agent.state is AgentState.SERVICE and agent.target_id is not None and self.grid.service_cells.get(agent.target_id) == cell:
+            return True
+        for window_index, service in self.grid.service_cells.items():
+            if cell != service:
+                continue
+            return self._physical_queue_head_id(window_index) == agent.student_id
+        queue_owner = self._queue_slot_owner(cell)
+        return queue_owner is None or queue_owner == agent.student_id
+
+    def _queue_slot_owner(self, cell: Cell) -> int | None:
+        info = self._queue_slot_info(cell)
+        return info[2] if info is not None else None
+
+    def _queue_slot_info(self, cell: Cell) -> tuple[int, int, int | None] | None:
+        for window_index, queue_slots in self.grid.queue_cells_by_window.items():
+            if cell not in queue_slots:
+                continue
+            slot_index = queue_slots.index(cell)
+            assigned = self._queue_slot_assignments(window_index)
+            return window_index, slot_index, assigned.get(slot_index)
+        return None
+
+    def _agent_can_use_tail_slot(self, agent: PedestrianAgent, window_index: int, slot_index: int) -> bool:
+        return (
+            agent.state in {AgentState.TO_WINDOW, AgentState.QUEUEING}
+            and agent.desired_window_index == window_index
+            and agent.assigned_queue_slot_index is not None
+            and slot_index >= agent.assigned_queue_slot_index
+        )
+
+    def _is_queue_slot(self, cell: Cell) -> bool:
+        return any(cell in queue_slots for queue_slots in self.grid.queue_cells_by_window.values())
+
+    def _queue_slot_window_has_assignments(self, cell: Cell) -> bool:
+        for window_index, queue_slots in self.grid.queue_cells_by_window.items():
+            if cell in queue_slots:
+                return bool(self.window_queues.get(window_index) or self.window_walkers.get(window_index))
+        return False
+
+    def _queue_slot_assignments(self, window_index: int) -> dict[int, int]:
+        assigned: dict[int, int] = {}
+        for position, student_id in enumerate(self.window_queues.get(window_index, [])):
+            assigned[position] = student_id
+        offset = len(self.window_queues.get(window_index, []))
+        for position, student_id in enumerate(self.window_walkers.get(window_index, [])):
+            assigned[offset + position] = student_id
+        return assigned
+
+    def _physical_queue_head_id(self, window_index: int) -> int | None:
+        queue = self.window_queues.get(window_index, [])
+        return queue[0] if queue else None
+
+    def _table_approach_owner(self, cell: Cell) -> int | None:
+        for agent in self.agents.values():
+            if agent.assigned_table_approach_cell == cell and agent.state is AgentState.TO_TABLE:
+                return agent.student_id
+        return None
+
     def _intended_move(
         self,
         agent: PedestrianAgent,
@@ -443,16 +753,19 @@ class PedestrianEngine:
         density: DensityField | None = None,
         density_radius: int | None = None,
     ) -> tuple[Cell, float]:
-        candidates = [agent.cell, *neighbors(agent.cell, self.grid, bool(getattr(self.config, "floor_allow_diagonal", False)))]
+        neighbor_map = self.neighbors8 if self.floor_allow_diagonal else self.neighbors4
+        candidates = [agent.cell, *neighbor_map.get(agent.cell, [])]
         candidates = [
             cell
             for cell in candidates
-            if is_walkable(cell, self.grid) and (cell == agent.cell or cell not in occupied_cells)
+            if is_walkable(cell, self.grid)
+            and (cell == agent.cell or cell not in occupied_cells)
+            and self.can_agent_enter_cell(agent, cell)
         ]
         if not candidates or not agent.target_cells:
             return agent.cell, 0.0
         resolved_density_radius = int(
-            density_radius if density_radius is not None else getattr(self.config, "personal_space_radius_cells", 1)
+            density_radius if density_radius is not None else self.personal_space_radius_cells
         )
         if density is None:
             density = DensityField.from_occupied_cells(occupied_cells, self.grid, radius=resolved_density_radius)
@@ -504,6 +817,245 @@ class PedestrianEngine:
             reserved_targets.update({blocker_cell, yield_cell})
             borrowed_ids.update({passer.student_id, blocker.student_id})
 
+    def _resolve_edge_swaps(self, movable: list[PedestrianAgent], planned_targets: dict[int, Cell]) -> None:
+        by_id = {agent.student_id: agent for agent in movable}
+        for first in movable:
+            first_target = planned_targets.get(first.student_id, first.cell)
+            if first_target == first.cell:
+                continue
+            for second in movable:
+                if first.student_id >= second.student_id:
+                    continue
+                second_target = planned_targets.get(second.student_id, second.cell)
+                if first_target == second.cell and second_target == first.cell:
+                    loser = max((first, second), key=lambda agent: (self._movement_conflict_priority(agent), agent.student_id))
+                    planned_targets[loser.student_id] = by_id[loser.student_id].cell
+                    loser.conflict_count += 1
+
+    def _apply_local_repair_moves(
+        self,
+        movable: list[PedestrianAgent],
+        planned_targets: dict[int, Cell],
+        occupied_by: dict[Cell, PedestrianAgent],
+    ) -> None:
+        if getattr(self, "_repair_used_this_tick", False):
+            return
+        triggers = [
+            agent
+            for agent in movable
+            if agent.stuck_ticks >= self.local_repair_after_stuck_ticks
+            and agent.state in {
+                AgentState.ENTERING,
+                AgentState.TO_WINDOW,
+                AgentState.QUEUEING,
+                AgentState.TO_TABLE,
+                AgentState.TO_EXIT,
+            }
+        ]
+        for trigger in sorted(triggers, key=lambda agent: self._agent_repair_priority(agent))[: self.local_repair_max_attempts]:
+            center = self._repair_center_for_agent(trigger)
+            region_ids = self._local_repair_region(center, radius=self.local_repair_radius)
+            if trigger.student_id not in region_ids:
+                region_ids.append(trigger.student_id)
+            region_ids = self._select_repair_agent_ids(center, region_ids, trigger.student_id)
+            plan = self._plan_local_repair_with_reservations(
+                center=center,
+                agent_ids=region_ids,
+                horizon=self.local_repair_horizon,
+                radius=self.local_repair_radius,
+            )
+            if not plan:
+                continue
+            occupied_after: set[Cell] = set()
+            applied = False
+            for student_id, path in plan.items():
+                agent = self.agents.get(student_id)
+                if agent is None or not path:
+                    continue
+                target = path[0]
+                if target in occupied_after:
+                    continue
+                occupant = occupied_by.get(target)
+                if occupant is not None and occupant.student_id not in plan:
+                    continue
+                if not self.can_agent_enter_cell(agent, target):
+                    continue
+                planned_targets[student_id] = target
+                occupied_after.add(target)
+                applied = True
+            if applied:
+                self._repair_used_this_tick = True
+                return
+            self._repair_used_this_tick = True
+
+    def _repair_center_for_agent(self, agent: PedestrianAgent) -> Cell:
+        if agent.target_cells:
+            target = min(
+                agent.target_cells,
+                key=lambda cell: (abs(agent.cell[0] - cell[0]) + abs(agent.cell[1] - cell[1]), cell[1], cell[0]),
+            )
+            if abs(agent.cell[0] - target[0]) + abs(agent.cell[1] - target[1]) <= self.local_repair_radius:
+                return target
+        return agent.cell
+
+    def _select_repair_agent_ids(self, center: Cell, agent_ids: list[int], trigger_id: int) -> list[int]:
+        unique_ids = list(dict.fromkeys(agent_ids))
+        ordered = sorted(
+            unique_ids,
+            key=lambda student_id: (
+                0 if student_id == trigger_id else 1,
+                self._agent_repair_priority(self.agents[student_id]) if student_id in self.agents else (9, 0, student_id),
+                abs(self.agents[student_id].cell[0] - center[0]) + abs(self.agents[student_id].cell[1] - center[1])
+                if student_id in self.agents
+                else 10_000,
+                student_id,
+            ),
+        )
+        return ordered[: self.local_repair_max_agents]
+
+    def _local_repair_region(self, center: Cell, radius: int) -> list[int]:
+        radius = max(1, int(radius))
+        agent_ids = [
+            agent.student_id
+            for agent in self.agents.values()
+            if agent.state in {
+                AgentState.ENTERING,
+                AgentState.TO_WINDOW,
+                AgentState.QUEUEING,
+                AgentState.WAITING_GROUP,
+                AgentState.TO_TABLE,
+                AgentState.TO_EXIT,
+            }
+            and max(abs(agent.cell[0] - center[0]), abs(agent.cell[1] - center[1])) <= radius
+        ]
+        return sorted(agent_ids)
+
+    def _plan_local_repair_with_reservations(
+        self,
+        center: Cell,
+        agent_ids: list[int],
+        horizon: int = 4,
+        radius: int = 5,
+    ) -> dict[int, list[Cell]]:
+        horizon = max(1, int(horizon))
+        radius = max(1, int(radius))
+        agents = [
+            self.agents[student_id]
+            for student_id in dict.fromkeys(agent_ids)
+            if student_id in self.agents
+            and self.agents[student_id].state
+            in {
+                AgentState.ENTERING,
+                AgentState.TO_WINDOW,
+                AgentState.QUEUEING,
+                AgentState.WAITING_GROUP,
+                AgentState.TO_TABLE,
+                AgentState.TO_EXIT,
+            }
+        ]
+        if not agents:
+            return {}
+        region = {
+            (col, row)
+            for col in range(center[0] - radius, center[0] + radius + 1)
+            for row in range(center[1] - radius, center[1] + radius + 1)
+            if max(abs(col - center[0]), abs(row - center[1])) <= radius
+            and is_walkable((col, row), self.grid)
+        }
+        if not region:
+            return {}
+        reservation: dict[tuple[int, Cell], int] = {
+            (0, agent.cell): agent.student_id
+            for agent in agents
+        }
+        reserved_edges: set[tuple[int, Cell, Cell]] = set()
+        plan: dict[int, list[Cell]] = {}
+        for agent in sorted(agents, key=self._agent_repair_priority):
+            path = self._plan_single_agent_with_reservations(
+                agent,
+                region=region,
+                horizon=horizon,
+                reservation=reservation,
+                reserved_edges=reserved_edges,
+            )
+            if not path:
+                path = [agent.cell for _ in range(horizon)]
+            plan[agent.student_id] = path
+            previous = agent.cell
+            for time_index, cell in enumerate(path, start=1):
+                reservation[(time_index, cell)] = agent.student_id
+                reserved_edges.add((time_index, previous, cell))
+                previous = cell
+        return plan
+
+    def _plan_single_agent_with_reservations(
+        self,
+        agent: PedestrianAgent,
+        region: set[Cell],
+        horizon: int,
+        reservation: dict[tuple[int, Cell], int],
+        reserved_edges: set[tuple[int, Cell, Cell]],
+    ) -> list[Cell] | None:
+        neighbor_map = self.neighbors8 if self.floor_allow_diagonal else self.neighbors4
+        start = agent.cell
+        frontier: deque[tuple[Cell, int, list[Cell]]] = deque([(start, 0, [])])
+        seen = {(start, 0)}
+        best_path: list[Cell] | None = None
+        best_score: tuple[float, int, int, int] | None = None
+        while frontier:
+            current, time_index, path = frontier.popleft()
+            score = self._repair_path_score(agent, path)
+            if path and (best_path is None or best_score is None or score < best_score):
+                best_path = path
+                best_score = score
+            if time_index >= horizon:
+                continue
+            candidates = [current, *neighbor_map.get(current, [])]
+            for candidate in candidates:
+                next_time = time_index + 1
+                if candidate not in region:
+                    continue
+                if not self.can_agent_enter_cell(agent, candidate):
+                    continue
+                occupant = reservation.get((next_time, candidate))
+                if occupant is not None and occupant != agent.student_id:
+                    continue
+                if (next_time, candidate, current) in reserved_edges:
+                    continue
+                state = (candidate, next_time)
+                if state in seen:
+                    continue
+                seen.add(state)
+                frontier.append((candidate, next_time, [*path, candidate]))
+        if best_path is None:
+            return None
+        return best_path + [best_path[-1] if best_path else start] * max(0, horizon - len(best_path))
+
+    def _repair_path_score(self, agent: PedestrianAgent, path: list[Cell]) -> tuple[float, int, int, int]:
+        cell = path[-1] if path else agent.cell
+        target_distance = 0.0
+        if agent.target_cells:
+            field = self._static_field(agent.target_cells)
+            target_distance = field.get(cell, 10_000.0)
+            if not math.isfinite(target_distance):
+                target_distance = 10_000.0
+        wait_penalty = sum(1 for step in path if step == agent.cell)
+        return (target_distance, wait_penalty, cell[1], cell[0])
+
+    def _agent_repair_priority(self, agent: PedestrianAgent) -> tuple[int, int, int]:
+        if agent.state is AgentState.QUEUEING and agent.desired_window_index is not None:
+            if self._physical_queue_head_id(agent.desired_window_index) == agent.student_id:
+                return (0, -agent.stuck_ticks, agent.student_id)
+        if agent.state in {AgentState.TO_TABLE, AgentState.TO_EXIT} and agent.stuck_ticks >= self.local_repair_after_stuck_ticks:
+            return (1, -agent.stuck_ticks, agent.student_id)
+        if agent.state is AgentState.TO_WINDOW:
+            return (2, -agent.stuck_ticks, agent.student_id)
+        if agent.state is AgentState.QUEUEING:
+            return (3, -agent.stuck_ticks, agent.student_id)
+        if agent.state is AgentState.WAITING_GROUP:
+            return (5, -agent.stuck_ticks, agent.student_id)
+        return (4, -agent.stuck_ticks, agent.student_id)
+
     def _local_borrow_move(
         self,
         passer: PedestrianAgent,
@@ -515,7 +1067,7 @@ class PedestrianEngine:
     ) -> tuple[PedestrianAgent, Cell, Cell] | None:
         if passer.state is not AgentState.TO_TABLE:
             return None
-        if passer.stuck_ticks < int(getattr(self.config, "floor_borrow_after_stuck_ticks", 4)):
+        if passer.stuck_ticks < self.floor_borrow_after_stuck_ticks:
             return None
         if not passer.target_cells:
             return None
@@ -551,7 +1103,8 @@ class PedestrianEngine:
         planned_distance = static_field.get(planned, current_distance)
         best_open_distance = min(current_distance, planned_distance)
         candidates: list[tuple[float, Cell]] = []
-        for cell in neighbors(passer.cell, self.grid, bool(getattr(self.config, "floor_allow_diagonal", False))):
+        neighbor_map = self.neighbors8 if self.floor_allow_diagonal else self.neighbors4
+        for cell in neighbor_map.get(passer.cell, []):
             blocker = occupied_by.get(cell)
             if blocker is None or blocker.student_id == passer.student_id:
                 continue
@@ -583,7 +1136,7 @@ class PedestrianEngine:
             occupant = occupied_by.get(cell)
             if occupant is not None and occupant.student_id != passer.student_id:
                 continue
-            if not is_walkable(cell, self.grid):
+            if not self.can_agent_enter_cell(blocker, cell):
                 continue
             valid.append((order, self._yield_candidate_cost(cell, blocker, density, density_radius), cell))
         if not valid:
@@ -600,7 +1153,7 @@ class PedestrianEngine:
                 (blocker.cell[0] + dy, blocker.cell[1] - dx),
             ]
         candidates: list[Cell] = [*lateral, passer.cell]
-        for cell in neighbors(blocker.cell, self.grid, allow_diagonal=False):
+        for cell in self.neighbors4.get(blocker.cell, []):
             if cell not in candidates:
                 candidates.append(cell)
         return candidates
@@ -618,10 +1171,9 @@ class PedestrianEngine:
             target_distance = field.get(cell, 0.0)
             if not math.isfinite(target_distance):
                 target_distance = 10_000.0
-        threshold = int(getattr(self.config, "congestion_density_threshold", 3))
         return target_distance + density.penalty(
             cell,
-            threshold=threshold,
+            threshold=self.congestion_density_threshold,
             excluded_cell=blocker.cell,
             radius=density_radius,
         )
@@ -637,8 +1189,7 @@ class PedestrianEngine:
         }
 
     def _movement_conflict_priority(self, agent: PedestrianAgent) -> int:
-        borrow_threshold = int(getattr(self.config, "floor_borrow_after_stuck_ticks", 4))
-        if agent.state is AgentState.TO_TABLE and agent.stuck_ticks >= borrow_threshold:
+        if agent.state is AgentState.TO_TABLE and agent.stuck_ticks >= self.floor_borrow_after_stuck_ticks:
             return -1
         return 0
 
@@ -647,31 +1198,33 @@ class PedestrianEngine:
         static_distance = static_field.get(cell, float("inf"))
         if not math.isfinite(static_distance):
             return float("inf")
-        threshold = int(getattr(self.config, "congestion_density_threshold", 3))
-        cost = float(getattr(self.config, "floor_static_weight", 1.0)) * static_distance
-        cost += float(getattr(self.config, "floor_density_weight", 1.2)) * density.penalty(
+        cost = self.floor_static_weight * static_distance
+        cost += self.floor_density_weight * density.penalty(
             cell,
-            threshold=threshold,
+            threshold=self.congestion_density_threshold,
             excluded_cell=agent.cell,
             radius=density_radius,
         )
         if cell != agent.cell:
-            cost -= float(getattr(self.config, "floor_dynamic_weight", 0.35)) * self.dynamic_field.values.get(cell, 0.0)
+            cost -= self.floor_dynamic_weight * self.dynamic_field.values.get(cell, 0.0)
         elif agent.target_cells and not self._is_near_target_cells(agent):
-            stuck_penalty = max(0, agent.stuck_ticks - 2) * float(getattr(self.config, "floor_stuck_wait_penalty", 0.15))
+            stuck_penalty = max(0, agent.stuck_ticks - 2) * self.floor_stuck_wait_penalty
             cost += min(4.0, stuck_penalty)
-        cost += float(getattr(self.config, "floor_wall_weight", 0.6)) * wall_distance_or_penalty(cell, self.grid)
-        cost += float(getattr(self.config, "floor_inertia_weight", 0.25)) * self._turn_penalty(agent, cell)
-        cost += float(getattr(self.config, "floor_group_weight", 0.8)) * self._group_distance_penalty(agent, cell)
-        randomness = float(getattr(self.config, "floor_randomness", 0.05))
-        if randomness > 0:
-            cost += self.rng.random() * randomness
+        cost += self.floor_wall_weight * self.wall_penalties.get(cell, float("inf"))
+        cost += self.floor_inertia_weight * self._turn_penalty(agent, cell)
+        cost += self.floor_group_weight * self._group_distance_penalty(agent, cell)
+        if self.floor_randomness > 0:
+            cost += self.rng.random() * self.floor_randomness
         return cost
 
     def _static_field(self, target_cells: set[Cell]) -> dict[Cell, float]:
         key = tuple(sorted(target_cells))
-        if key not in self.static_fields:
-            self.static_fields[key] = build_static_field(self.grid, set(key))
+        if key in self.static_fields:
+            self.static_fields.move_to_end(key)
+            return self.static_fields[key]
+        self.static_fields[key] = build_static_field(self.grid, set(key))
+        if len(self.static_fields) > self.static_field_cache_limit:
+            self.static_fields.popitem(last=False)
         return self.static_fields[key]
 
     def _turn_penalty(self, agent: PedestrianAgent, candidate: Cell) -> float:
@@ -711,7 +1264,9 @@ class PedestrianEngine:
             )
 
     def _update_queue_targets(self) -> None:
-        for window_index, queue in list(self.window_queues.items()):
+        for window_index in sorted(set(self.window_queues) | set(self.window_walkers)):
+            queue = list(self.window_queues.get(window_index, []))
+            walkers = list(self.window_walkers.get(window_index, []))
             queue_cells = build_window_queue_cells(self.grid, window_index)
             if not queue_cells:
                 continue
@@ -721,11 +1276,26 @@ class PedestrianEngine:
                     continue
                 target = queue_cells[min(position, len(queue_cells) - 1)]
                 agent.desired_window_index = window_index
+                agent.assigned_queue_slot_index = min(position, len(queue_cells) - 1)
                 agent.target_type = "window_queue"
                 agent.target_id = window_index
                 agent.target_cells = {target}
                 if agent.cell == target:
                     agent.state = AgentState.QUEUEING
+            offset = len(queue)
+            for position, student_id in enumerate(walkers):
+                agent = self.agents.get(student_id)
+                if agent is None:
+                    continue
+                slot_index = min(offset + position, len(queue_cells) - 1)
+                target = queue_cells[slot_index]
+                agent.desired_window_index = window_index
+                agent.assigned_queue_slot_index = slot_index
+                agent.target_type = "window_queue"
+                agent.target_id = window_index
+                agent.target_cells = {target}
+                if agent.state is not AgentState.QUEUEING:
+                    agent.state = AgentState.TO_WINDOW
 
     def _update_density_metric(self) -> None:
         occupied = {
@@ -733,7 +1303,7 @@ class PedestrianEngine:
             for agent in self.agents.values()
             if self._occupies_walkable_cell(agent)
         }
-        density = DensityField.from_occupied_cells(occupied, self.grid, radius=int(getattr(self.config, "personal_space_radius_cells", 1)))
+        density = DensityField.from_occupied_cells(occupied, self.grid, radius=self.personal_space_radius_cells)
         self.max_density = max(self.max_density, max(density.densities.values(), default=0))
 
     def _occupies_walkable_cell(self, agent: PedestrianAgent) -> bool:

@@ -192,14 +192,14 @@ def _queue_cells_from_service(
 ) -> list[Cell]:
     forbidden = forbidden or set()
     target_count = max(1, int(target_count))
-    cells = [service]
+    cells: list[Cell] = []
     reachable = _reachable_walkable_cells(service, grid)
     rows: dict[int, list[tuple[int, Cell]]] = {}
     for candidate in reachable:
         if candidate == service or candidate in forbidden:
             continue
         forward = _forward_distance(service, candidate, normal)
-        if forward < 0:
+        if forward <= 0:
             continue
         rows.setdefault(forward, []).append((_lateral_distance(service, candidate, normal), candidate))
 
@@ -216,6 +216,9 @@ def _queue_cells_from_service(
             direction=direction,
             limit=QUEUE_ROW_SEGMENT_CELLS,
         )
+        next_forward = ordered_forwards[row_offset + 1] if row_offset + 1 < len(ordered_forwards) else None
+        if next_forward is not None:
+            row_candidates = _trim_row_for_next_row_transition(row_candidates, rows[next_forward])
         for lateral, candidate in row_candidates:
             cells.append(candidate)
             current_lateral = lateral
@@ -263,6 +266,22 @@ def _serpentine_row_segment(
         if len(contiguous) >= max(1, int(limit)):
             break
     return contiguous or segment[:1]
+
+
+def _trim_row_for_next_row_transition(
+    row_candidates: list[tuple[int, Cell]],
+    next_row: list[tuple[int, Cell]],
+) -> list[tuple[int, Cell]]:
+    if len(row_candidates) <= 1 or not next_row:
+        return row_candidates
+    next_cells = [cell for _lateral, cell in next_row]
+    trimmed = list(row_candidates)
+    while len(trimmed) > 1:
+        last = trimmed[-1][1]
+        if min(abs(last[0] - cell[0]) + abs(last[1] - cell[1]) for cell in next_cells) <= 3:
+            break
+        trimmed.pop()
+    return trimmed
 
 
 def _queue_target_count(grid: GridData, window_count: int) -> int:

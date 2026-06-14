@@ -84,7 +84,11 @@ class FloorFieldTests(unittest.TestCase):
 
         self.assertTrue(is_walkable(service_cell, grid))
         self.assertGreaterEqual(len(queue_cells), 2)
-        self.assertEqual(queue_cells[0], service_cell)
+        self.assertNotIn(service_cell, queue_cells)
+        self.assertLessEqual(
+            abs(queue_cells[0][0] - service_cell[0]) + abs(queue_cells[0][1] - service_cell[1]),
+            1,
+        )
         self.assertTrue(all(is_walkable(cell, grid) for cell in queue_cells))
         self.assertTrue(all(is_walkable(cell, grid) for cell in grid.door_cells.values()))
 
