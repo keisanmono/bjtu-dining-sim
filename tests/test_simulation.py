@@ -8,7 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 import app.optimization as optimization_module
+from app.campus import CampusPopulationPoolData, ResidentialReleaseProfile
 from app.optimization import RecommendationRequestData, recommend_config
+from app.pedestrian.agents import AgentState
 from app.pedestrian.grid import grid_from_layout, point_to_cell
 from app.simulation import (
     CampusBuildingDemandData,
@@ -17,10 +19,13 @@ from app.simulation import (
     DiningLayoutData,
     DiningSimulationRunner,
     LayoutDoorData,
+    LayoutFloorData,
     LayoutTableData,
     LayoutWindowData,
     SimulationConfigData,
     WindowService,
+    apply_movement_quality_preset,
+    run_layout_ablation_snapshot,
     run_simulation,
     validate_config,
 )
@@ -46,6 +51,72 @@ class DiningSimulationTests(unittest.TestCase):
 
         self.assertEqual(config.movement_model, "path")
         self.assertIsNone(getattr(DiningSimulationRunner(config), "pedestrian_engine", None))
+
+    # 验证三档质量预设会展开为对应的底层 movement_model 和关键参数。
+    def test_movement_quality_presets_expand_to_model_configs(self):
+        fast = apply_movement_quality_preset(SimulationConfigData(movement_quality_preset="fast"))
+        balanced = apply_movement_quality_preset(SimulationConfigData(movement_quality_preset="balanced"))
+        quality = apply_movement_quality_preset(SimulationConfigData(movement_quality_preset="quality"))
+
+        self.assertEqual(fast.movement_model, "path")
+        self.assertFalse(fast.advanced_movement_coupling)
+        self.assertEqual(fast.window_choice_temperature, 0.0)
+        self.assertEqual(balanced.movement_model, "static_floor_field")
+        self.assertFalse(balanced.advanced_movement_coupling)
+        self.assertGreater(balanced.window_choice_temperature, 0.0)
+        self.assertEqual(quality.movement_model, "advanced_floor_field")
+        self.assertTrue(quality.advanced_movement_coupling)
+        self.assertGreater(quality.window_choice_temperature, 0.0)
+        self.assertGreater(quality.window_switch_cooldown_min, 0)
+
+    # 验证旧 payload 不传 preset 时仍尊重原 movement_model。
+    def test_no_quality_preset_keeps_legacy_movement_model(self):
+        config = apply_movement_quality_preset(SimulationConfigData(movement_model="static_floor_field"))
+
+        self.assertEqual(config.movement_model, "static_floor_field")
+        self.assertIsNone(config.movement_quality_preset)
+
+    # 验证接口层允许 preset 默认被用户显式 movement 字段覆盖。
+    def test_schema_quality_preset_allows_explicit_movement_override(self):
+        try:
+            from app.schemas import SimulationConfig
+        except ModuleNotFoundError as exc:
+            if exc.name == "pydantic":
+                self.skipTest("pydantic is not installed in this unittest environment")
+            raise
+
+        config = SimulationConfig(
+            movement_quality_preset="quality",
+            movement_model="static_floor_field",
+            max_movement_ticks_per_minute=2,
+        ).to_data()
+
+        self.assertEqual(config.movement_quality_preset, "quality")
+        self.assertEqual(config.movement_model, "static_floor_field")
+        self.assertEqual(config.max_movement_ticks_per_minute, 2)
+
+    # 验证 runner 不会二次展开 preset，从而保留接口层已经处理过的显式 movement 覆盖。
+    def test_runner_keeps_schema_movement_overrides_after_quality_preset(self):
+        config = apply_movement_quality_preset(
+            SimulationConfigData(
+                movement_quality_preset="quality",
+                floor_cell_size=20.0,
+                max_movement_ticks_per_minute=2,
+            ),
+            explicit_fields={"floor_cell_size", "max_movement_ticks_per_minute"},
+        )
+        runner = DiningSimulationRunner(config)
+
+        self.assertEqual(runner.config.movement_quality_preset, "quality")
+        self.assertEqual(runner.config.movement_model, "advanced_floor_field")
+        self.assertEqual(runner.config.floor_cell_size, 20.0)
+        self.assertEqual(runner.config.max_movement_ticks_per_minute, 2)
+
+    # 验证无效质量预设会在业务校验中报错。
+    def test_invalid_movement_quality_preset_is_rejected(self):
+        errors, _warnings = validate_config(SimulationConfigData(movement_quality_preset="slow"))
+
+        self.assertTrue(any("movement_quality_preset" in error for error in errors))
 
     # 验证 static_floor_field 模型会生成不穿越 blocked cell 的路径。
     def test_static_floor_field_walking_path_is_not_empty_and_avoids_blocked_cells(self):
@@ -94,6 +165,464 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertIn("density_hotspots", record.snapshot)
         self.assertIn("movement_metrics", record.snapshot)
 
+    # 消融测试：只替换布局，真实 advanced 仿真结果应体现优化布局的入口堆积改善。
+    def test_layout_ablation_uses_simulation_results_to_compare_optimized_layout(self):
+        baseline_layout = self._cafeteria_layout_for_flow_ablation(optimized=False)
+        optimized_layout = self._cafeteria_layout_for_flow_ablation(optimized=True)
+        config = SimulationConfigData(
+            num_windows=4,
+            num_seats=120,
+            arrival_rate=12.0,
+            service_time_mean=0.5,
+            dining_time_mean=20,
+            duration_min=24,
+            movement_model="advanced_floor_field",
+            advanced_movement_coupling=True,
+            floor_cell_size=8,
+            movement_tick_seconds=5,
+            party_size_distribution={1: 1.0},
+            seed=20260613,
+        )
+
+        comparison = run_layout_ablation_snapshot(
+            config,
+            baseline_layout=baseline_layout,
+            optimized_layout=optimized_layout,
+            steps=20,
+        )
+
+        self.assertGreater(comparison["baseline"]["entry_waiting_count"], comparison["optimized"]["entry_waiting_count"])
+        self.assertGreater(comparison["optimized"]["indoor_agents"], comparison["baseline"]["indoor_agents"])
+        self.assertGreaterEqual(comparison["optimized"]["queue_total"], comparison["baseline"]["queue_total"])
+        self.assertLess(comparison["delta"]["entry_waiting_count"], 0)
+
+    def _cafeteria_layout_for_flow_ablation(self, optimized: bool) -> DiningLayoutData:
+        capacities = []
+        pattern = [2, 4, 4, 6]
+        remaining = 120
+        index = 0
+        while remaining > 0:
+            capacity = min(pattern[index % len(pattern)], remaining)
+            capacities.append(capacity)
+            remaining -= capacity
+            index += 1
+        table_start_y = 184 if optimized else 110
+        row_step = 50 if optimized else 42
+        floor_height = 700 if optimized else 560
+        return DiningLayoutData(
+            floor=LayoutFloorData(x=24, y=24, width=312, height=floor_height),
+            doors=[LayoutDoorData(id="D1", x=24, y=100, wall_side="left")],
+            windows=[
+                LayoutWindowData(id=f"W{idx + 1}", x=x, y=24, wall_side="top")
+                for idx, x in enumerate([70, 130, 190, 250])
+            ],
+            tables=[
+                LayoutTableData(
+                    id=f"T{idx + 1}",
+                    x=100 + (idx % 3) * 80,
+                    y=table_start_y + (idx // 3) * row_step,
+                    capacity=capacity,
+                )
+                for idx, capacity in enumerate(capacities)
+            ],
+        )
+
+    # 验证高级移动耦合下，学生走到窗口排队点之前不能开始窗口服务。
+    def test_advanced_movement_coupling_delays_service_until_window_reached(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=320, y=60, wall_side="top")],
+            tables=[LayoutTableData(id="T1", x=240, y=320, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                max_movement_ticks_per_minute=1,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=1)
+
+        runner._enqueue_arrivals(students)
+        runner._start_window_services(minute=0)
+
+        self.assertEqual(runner.queues[0], [])
+        self.assertIsNone(runner.windows[0])
+        self.assertIsNone(students[0].service_start_time)
+
+    # 验证高级模式下，入场者立即进入物理蛇形队列，但队首不到窗口不能开始服务。
+    def test_advanced_physical_queue_waits_for_head_to_reach_service(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=320, y=60, wall_side="top")],
+            tables=[LayoutTableData(id="T1", x=240, y=320, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                max_movement_ticks_per_minute=1,
+                party_size_distribution={1: 1.0},
+                seed=20260613,
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+
+        runner._enqueue_arrivals([student])
+        runner._admit_due_entry_students(current_time_sec=60)
+
+        self.assertEqual(runner.queues[0], [student])
+        runner._start_window_services(minute=0)
+        self.assertIsNone(runner.windows[0])
+
+        agent = runner.pedestrian_engine.agents[student.student_id]
+        agent.cell = runner.pedestrian_engine.grid.queue_cells_by_window[0][15]
+        runner._start_window_services(minute=0)
+
+        self.assertIsNotNone(runner.windows[0])
+        self.assertEqual(student.service_start_time, 0)
+
+    # 验证 advanced 模式下，同一分钟到达者被拆成秒级边界入场事件，而不是用人为门口限流。
+    def test_advanced_arrivals_are_scheduled_over_subminute_entry_times(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=4,
+                num_seats=120,
+                duration_min=5,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=42,
+            )
+        )
+        students = runner._create_party_students(minute=10, person_count=24)
+
+        runner._enqueue_arrivals(students)
+        entry_times = [item[0] for item in runner.pending_entry_students]
+
+        self.assertEqual(len(entry_times), len(students))
+        self.assertTrue(all(600 <= second < 660 for second in entry_times))
+        self.assertGreater(len(set(entry_times)), 1)
+
+    # 验证高级移动耦合下，长期卡在窗口走廊的学生可重选最近窗口，避免尾部死锁。
+    def test_advanced_coupling_retargets_stuck_student_to_nearby_window(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=96, y=60, wall_side="top"),
+                LayoutWindowData(id="W2", x=260, y=60, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=180, y=320, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=2,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        runner._enqueue_arrivals([student])
+        runner._admit_due_entry_students(current_time_sec=60)
+        runner._move_student_to_window_queue(student, 1)
+        runner.waiting_to_queue_student_ids.add(student.student_id)
+        agent = runner.pedestrian_engine.agents[student.student_id]
+        agent.state = AgentState.TO_WINDOW
+        agent.cell = runner.pedestrian_engine.grid.service_cells[0]
+        agent.wait_ticks = 200
+
+        admitted = runner._admit_students_who_reached_window_queue(minute=12)
+
+        self.assertGreaterEqual(admitted, 0)
+        self.assertEqual(student.window_index, 0)
+        self.assertEqual(runner.queues[0], [student])
+
+    # 验证高级移动耦合下，尚未走到窗口的 pending 学生也会计入窗口负载。
+    def test_advanced_coupling_window_choice_counts_pending_walkers(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=100, y=320, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=60, y=60, wall_side="top"),
+                LayoutWindowData(id="W2", x=140, y=60, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=100, y=420, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=2,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=20260613,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=6)
+
+        runner._enqueue_arrivals(students)
+        runner._admit_due_entry_students(current_time_sec=60)
+
+        self.assertEqual([len(queue) for queue in runner.queues], [3, 3])
+        self.assertEqual(runner._pending_window_queue_count(0), 0)
+        self.assertEqual(runner._pending_window_queue_count(1), 0)
+        self.assertEqual(
+            [sum(1 for student in students if student.window_index == idx) for idx in range(2)],
+            [3, 3],
+        )
+
+    # 验证质量模式下，窗口预计成本显著恶化时允许低频动态换队。
+    def test_quality_window_rechoice_switches_when_alternative_is_significantly_better(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=100, y=320, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=60, y=60, wall_side="top"),
+                LayoutWindowData(id="W2", x=140, y=60, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=100, y=420, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=2,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                window_switch_cooldown_min=2,
+                window_switch_threshold_min=1.0,
+                window_switch_penalty_min=0.2,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=20260614,
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        runner._enqueue_arrivals([student])
+        runner._admit_due_entry_students(current_time_sec=60)
+        student.window_index = 0
+        runner.pedestrian_engine.set_agent_target_window(student.student_id, 0)
+        runner.waiting_to_queue_student_ids.add(student.student_id)
+        runner.queues[0] = runner._create_party_students(minute=0, person_count=5)
+        agent = runner.pedestrian_engine.agents[student.student_id]
+        agent.state = AgentState.TO_WINDOW
+        agent.cell = runner.pedestrian_engine.grid.service_cells[1]
+
+        runner._retarget_stuck_window_agents()
+
+        self.assertEqual(student.window_index, 1)
+        self.assertEqual(runner.window_switch_minutes[student.student_id], runner.current_minute)
+
+    # 验证 path 模型不受高级移动耦合开关影响，仍保持原先立即进入窗口队列的行为。
+    def test_path_model_keeps_immediate_queue_entry_even_when_coupling_flag_is_true(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                movement_model="path",
+                advanced_movement_coupling=True,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=1)
+
+        runner._enqueue_arrivals(students)
+        runner._start_window_services(minute=0)
+
+        self.assertIsNotNone(runner.windows[0])
+        self.assertEqual(students[0].service_start_time, 0)
+
+    # 验证窗口服务按秒级时长推进，短服务时间下同一窗口一分钟内能服务多名学生。
+    def test_subminute_window_service_can_finish_multiple_students_per_minute(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=8,
+                arrival_rate=1.0,
+                service_time_mean=0.25,
+                dining_time_mean=20,
+                duration_min=5,
+                movement_model="path",
+                party_size_distribution={1: 1.0},
+                seed=20260613,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=4)
+        runner.queues[0].extend(students)
+
+        runner._start_window_services(minute=0)
+        served = runner._advance_windows(minute=0)
+
+        self.assertGreater(len(served), 1)
+        self.assertTrue(all(getattr(student, "service_end_time_sec", None) is not None for student in served))
+
+    # 验证 step() 中新到达后启动的短服务会在其启动分钟内推进，而不是等到下一分钟。
+    def test_subminute_service_started_after_arrivals_advances_during_start_minute(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=8,
+                arrival_rate=1.0,
+                service_time_mean=0.25,
+                dining_time_mean=20,
+                duration_min=5,
+                movement_model="path",
+                party_size_distribution={1: 1.0},
+                seed=20260614,
+            )
+        )
+        created: dict[str, object] = {}
+
+        def deterministic_arrivals(minute: int):
+            if minute != 0:
+                return []
+            students = runner._create_party_students(minute=minute, person_count=1)
+            created["student"] = students[0]
+            return students
+
+        runner._generate_arrivals = deterministic_arrivals
+        runner._sample_service_duration_minutes = lambda _mean: 0.25
+
+        record = runner.step()
+        student = created["student"]
+
+        self.assertEqual(record.served_count, 1)
+        self.assertEqual(student.service_start_time_sec, 0)
+        self.assertEqual(student.service_end_time_sec, 15)
+        self.assertIsNone(runner.windows[0])
+
+    # 验证 movement_model 只影响食堂内移动过程，不改变同一 seed 下的手动到达需求流。
+    def test_movement_model_does_not_change_manual_arrival_stream(self):
+        base_config = dict(
+            num_windows=1,
+            num_seats=8,
+            arrival_rate=1.0,
+            service_time_mean=1.0,
+            dining_time_mean=2.0,
+            duration_min=5,
+            seed=20260613,
+            party_size_distribution={1: 1.0},
+        )
+
+        path_result = run_simulation(SimulationConfigData(**base_config, movement_model="path"))
+        advanced_result = run_simulation(SimulationConfigData(**base_config, movement_model="advanced_floor_field"))
+
+        self.assertEqual(path_result.metrics.total_arrived, advanced_result.metrics.total_arrived)
+
+    # 验证高级移动耦合下，完成取餐的小组必须实际走到餐桌附近后才正式入座。
+    def test_advanced_movement_coupling_delays_seating_until_table_reached(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=60, y=60, wall_side="top")],
+            tables=[LayoutTableData(id="T1", x=320, y=560, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                max_movement_ticks_per_minute=1,
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=1)
+        runner._enqueue_arrivals(students)
+        runner._admit_due_entry_students(current_time_sec=60)
+        student = students[0]
+        student.window_index = 0
+        student.service_end_time = 0
+        party = runner.parties[student.party_id]
+        party.ready_time = 0
+        runner.waiting_for_seat.append(party)
+
+        runner._seat_waiting_students(minute=0)
+        seated_count = runner._advance_walking_to_seats(end_time_sec=60)
+
+        self.assertEqual(seated_count, 0)
+        self.assertIsNone(student.seat_time)
+        self.assertEqual(runner.table_occupied_seats[0], 0)
+
+    # 验证 advanced CA 不允许靠几何超时强制入座，必须实际到达餐桌邻近目标格。
+    def test_advanced_table_walk_does_not_force_seating_by_geometric_deadline(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        party = runner.parties[student.party_id]
+        runner.pedestrian_engine.spawn_arrivals([student], door_index=0)
+        student.window_index = 0
+        student.service_end_time = 1
+        party.ready_time = 1
+        transfer = runner._start_walking_to_seat(party, 0, 1, 1)
+        runner.walking_to_seat.append(transfer)
+        runner.table_reserved_seats[0] = 1
+        runner.pedestrian_engine.set_party_target_table(party, 0)
+        runner.pedestrian_engine.agents[student.student_id].cell = (2, 2)
+
+        seated = runner._advance_walking_to_seats(
+            end_time_sec=transfer.arrive_time_sec + 10_000
+        )
+
+        self.assertEqual(seated, 0)
+        self.assertEqual(runner.walking_to_seat, [transfer])
+        self.assertIsNone(student.seat_time)
+        self.assertEqual(runner.table_occupied_seats[0], 0)
+
+    # 验证高级移动选桌会跳过缺少真实可达目标格的餐桌。
+    def test_advanced_table_choice_skips_tables_without_movement_targets(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=60, y=60, wall_side="top")],
+            tables=[
+                LayoutTableData(id="T1", x=120, y=320, table_type="four_seat", capacity=4),
+                LayoutTableData(id="T2", x=300, y=320, table_type="four_seat", capacity=4),
+            ],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=8,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        party = runner.parties[student.party_id]
+        runner.pedestrian_engine.grid.table_approach_cells[0].clear()
+
+        table_index = runner._choose_table_for_party(party)
+
+        self.assertEqual(table_index, 1)
+
     # 验证高级模式最终指标包含移动冲突、停滞和密度指标。
     def test_advanced_floor_field_metrics_include_movement_fields(self):
         result = run_simulation(
@@ -110,9 +639,10 @@ class DiningSimulationTests(unittest.TestCase):
         )
 
         self.assertIn("movement_conflict_count", result.final_state["movement_metrics"])
+        self.assertGreater(result.metrics.avg_walking_time, 0)
         self.assertGreaterEqual(result.metrics.movement_conflict_count, 0)
         self.assertGreaterEqual(result.metrics.avg_stuck_ticks, 0)
-        self.assertGreaterEqual(result.metrics.max_density, 0)
+        self.assertGreater(result.metrics.max_density, 0)
 
     # 验证预占座和高级行人模式同时开启时容量不溢出，且小队能最终入座。
     def test_preemptive_reservation_with_advanced_floor_field_keeps_capacity_and_seats_parties(self):
@@ -477,6 +1007,48 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any("峰下课" in candidate.strategy for candidate in recommendation.ranking))
 
+    # 验证推荐估算器把用户自定义宿舍释放 profile 传给混合校园到达表。
+    def test_recommendation_estimator_uses_custom_residential_release_profile(self):
+        profile = ResidentialReleaseProfile("lunch", 700, 710, 705, "uniform", 0.25)
+        campus = CampusDemandConfigData(
+            enabled=True,
+            cafeteria_id="xuesi",
+            source_mode="manual",
+            buildings=[],
+            residential_sources=[],
+            population_pool=CampusPopulationPoolData(
+                enabled=True,
+                meal_period="lunch",
+                total_population_pool=100,
+                meal_participation_rate=1.0,
+            ),
+            residential_release_profile=profile,
+            meal_period="lunch",
+        )
+        config = SimulationConfigData(
+            campus_demand=campus,
+            simulation_start_minute=700,
+            seed=51,
+        )
+        captured: dict[str, object] = {}
+        original = optimization_module.build_mixed_campus_arrival_schedule
+
+        def fake_build_mixed_campus_arrival_schedule(**kwargs):
+            captured["profile"] = kwargs.get("residential_release_profile")
+            passed_profile = kwargs.get("residential_release_profile")
+            if passed_profile is None:
+                return {"schedule": {660: 65}, "breakdown": {}}
+            return {"schedule": {passed_profile.start_minute: 25}, "breakdown": {}}
+
+        optimization_module.build_mixed_campus_arrival_schedule = fake_build_mixed_campus_arrival_schedule
+        try:
+            schedule = optimization_module._estimate_arrival_schedule(config)
+        finally:
+            optimization_module.build_mixed_campus_arrival_schedule = original
+
+        self.assertIs(captured["profile"], profile)
+        self.assertEqual(schedule, {0: 25.0})
+
     # 验证手动到达模式下推荐候选同样走快速估算器。
     def test_manual_recommendation_uses_fast_estimator_for_candidates(self):
         request = RecommendationRequestData(
@@ -803,7 +1375,46 @@ class DiningSimulationTests(unittest.TestCase):
         metrics = runner._build_metrics()
 
         self.assertGreater(metrics.avg_party_gather_wait, 0)
-        self.assertGreater(metrics.avg_party_seat_wait, 0)
+        self.assertEqual(metrics.avg_seat_wait, 0)
+        self.assertEqual(metrics.avg_party_seat_wait, 0)
+        self.assertGreater(metrics.avg_post_service_to_seat_time, 0)
+
+    # 验证窗口忙碌期利用率和全程利用率分开统计，避免到达后就餐尾段稀释服务压力。
+    def test_active_window_utilization_is_reported_separately_from_whole_run_utilization(self):
+        result = run_simulation(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=30,
+                arrival_rate=8.0,
+                service_time_mean=0.5,
+                dining_time_mean=30.0,
+                duration_min=5,
+                seed=20260613,
+            )
+        )
+
+        self.assertGreater(result.metrics.active_window_utilization, result.metrics.window_utilization)
+        self.assertLessEqual(result.metrics.active_window_utilization, 1.0)
+
+    # 验证高级移动指标明显拥堵时，瓶颈分类优先报告动线拥堵而不是到达高峰。
+    def test_movement_pressure_can_be_reported_as_bottleneck(self):
+        runner = DiningSimulationRunner(SimulationConfigData())
+
+        bottleneck = runner._classify_bottleneck(
+            peak_queue=15,
+            peak_waiting_for_seat=0,
+            avg_seat_wait=0,
+            seat_utilization=0.05,
+            window_utilization=0.04,
+            movement={
+                "avg_walking_time": 332.0,
+                "avg_stuck_ticks": 4.7,
+                "movement_conflict_count": 100,
+                "max_density": 6,
+            },
+        )
+
+        self.assertEqual(bottleneck, "动线拥堵")
 
     # 验证默认关闭的占座实验功能开启后会提前预留座位，且不超过桌面容量。
     def test_preempt_seat_probability_reserves_table_capacity_when_enabled(self):

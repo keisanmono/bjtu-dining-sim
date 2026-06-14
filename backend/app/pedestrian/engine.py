@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import math
-from collections import Counter, defaultdict
-from typing import Any
+from collections import Counter, defaultdict, deque
+from typing import Any, Callable
 
 from .agents import AgentState, PartyMovementState, PedestrianAgent
 from .fields import DensityField, DynamicField, build_static_field, wall_distance_or_penalty
@@ -29,16 +29,23 @@ class PedestrianEngine:
         self.party_states: dict[int, PartyMovementState] = {}
         self.window_queues: dict[int, list[int]] = defaultdict(list)
         self.static_fields: dict[tuple[Cell, ...], dict[Cell, float]] = {}
+        self.entry_spawn_cells: dict[int, list[Cell]] = {}
         self.max_density = 0
         self.tick_seconds = max(1, int(getattr(config, "movement_tick_seconds", 5)))
 
     def spawn_arrivals(self, students: list[Any], door_index: int = 0) -> None:
+        occupied_cells = {
+            agent.cell
+            for agent in self.agents.values()
+            if self._occupies_walkable_cell(agent)
+        }
         for student in students:
             resolved_door_index = min(
                 max(0, int(getattr(student, "door_index", door_index) or door_index)),
                 max(0, len(self.grid.door_cells) - 1),
             )
-            cell = self.grid.door_cells.get(resolved_door_index) or next(iter(self.grid.door_cells.values()), (0, 0))
+            cell = self._next_entry_spawn_cell(resolved_door_index, occupied_cells)
+            occupied_cells.add(cell)
             agent = PedestrianAgent(
                 agent_id=int(getattr(student, "student_id")),
                 student_id=int(getattr(student, "student_id")),
@@ -56,6 +63,46 @@ class PedestrianEngine:
             if agent.student_id not in party_state.member_agent_ids:
                 party_state.member_agent_ids.append(agent.student_id)
         self._refresh_party_centers()
+
+    def _next_entry_spawn_cell(self, door_index: int, occupied_cells: set[Cell]) -> Cell:
+        candidates = self._entry_spawn_candidates(door_index)
+        for cell in candidates:
+            if cell not in occupied_cells:
+                return cell
+        return candidates[0] if candidates else (0, 0)
+
+    def available_entry_cells(self, door_index: int, limit: int | None = None) -> list[Cell]:
+        occupied_cells = {
+            agent.cell
+            for agent in self.agents.values()
+            if self._occupies_walkable_cell(agent)
+        }
+        cells = [cell for cell in self._entry_spawn_candidates(door_index) if cell not in occupied_cells]
+        if limit is None:
+            return cells
+        return cells[: max(0, int(limit))]
+
+    def _entry_spawn_candidates(self, door_index: int) -> list[Cell]:
+        if door_index in self.entry_spawn_cells:
+            return self.entry_spawn_cells[door_index]
+        start = self.grid.door_cells.get(door_index) or next(iter(self.grid.door_cells.values()), (0, 0))
+        max_radius = max(1, int(getattr(self.config, "entry_spawn_radius_cells", 3)))
+        frontier: deque[tuple[Cell, int]] = deque([(start, 0)])
+        seen = {start}
+        candidates: list[Cell] = []
+        while frontier:
+            current, distance = frontier.popleft()
+            if is_walkable(current, self.grid):
+                candidates.append(current)
+            if distance >= max_radius:
+                continue
+            for neighbor in neighbors(current, self.grid, allow_diagonal=True):
+                if neighbor in seen:
+                    continue
+                seen.add(neighbor)
+                frontier.append((neighbor, distance + 1))
+        self.entry_spawn_cells[door_index] = candidates or [start]
+        return self.entry_spawn_cells[door_index]
 
     def set_agent_target_window(self, student_id: int, window_index: int) -> None:
         agent = self.agents.get(student_id)
@@ -121,19 +168,21 @@ class PedestrianEngine:
         agent.state = AgentState.WAITING_GROUP
         agent.target_type = "group"
         agent.target_id = agent.party_id
+        agent.target_cells = {agent.cell}
 
-    def set_agent_seated(self, student_id: int, table_index: int) -> None:
+    def set_agent_seated(self, student_id: int, table_index: int, preserve_cell: bool = False) -> None:
         agent = self.agents.get(student_id)
         if agent is None:
             return
         targets = sorted(self.grid.table_approach_cells.get(table_index, set()))
-        if targets:
+        if targets and not preserve_cell:
             agent.cell = targets[(student_id - 1) % len(targets)]
             agent.path_cells.append(agent.cell)
         agent.state = AgentState.SEATED
         agent.table_index = table_index
         agent.target_type = "table"
         agent.target_id = table_index
+        agent.target_cells = set()
 
     def set_agent_exited(self, student_id: int) -> None:
         agent = self.agents.get(student_id)
@@ -147,17 +196,25 @@ class PedestrianEngine:
         self._update_queue_targets()
         self._refresh_party_centers()
         movable = [agent for agent in self.agents.values() if self._is_movable(agent)]
-        occupied_all = {
-            agent.cell
+        occupied_by = {
+            agent.cell: agent
             for agent in self.agents.values()
-            if agent.state is not AgentState.EXITED
+            if self._occupies_walkable_cell(agent)
         }
+        occupied_all = set(occupied_by)
+        density_radius = int(getattr(self.config, "personal_space_radius_cells", 1))
+        movement_density = DensityField.from_occupied_cells(occupied_all, self.grid, radius=density_radius)
         intents: dict[Cell, list[tuple[PedestrianAgent, float]]] = defaultdict(list)
         intended_by_agent: dict[int, Cell] = {}
         for agent in sorted(movable, key=lambda item: item.student_id):
             occupied = set(occupied_all)
             occupied.discard(agent.cell)
-            intended, cost = self._intended_move(agent, occupied_cells=occupied)
+            intended, cost = self._intended_move(
+                agent,
+                occupied_cells=occupied,
+                density=movement_density,
+                density_radius=density_radius,
+            )
             intents[intended].append((agent, cost))
             intended_by_agent[agent.student_id] = intended
 
@@ -169,16 +226,33 @@ class PedestrianEngine:
                 agent, _cost = contenders[0]
                 winners[agent.student_id] = target
                 continue
-            ordered = sorted(contenders, key=lambda item: (item[1], self.rng.random(), item[0].student_id))
+            ordered = sorted(
+                contenders,
+                key=lambda item: (self._movement_conflict_priority(item[0]), item[1], self.rng.random(), item[0].student_id),
+            )
             winner, _winner_cost = ordered[0]
             winners[winner.student_id] = target
             for loser, _cost in ordered[1:]:
                 conflict_losers.add(loser.student_id)
                 loser.conflict_count += 1
 
+        planned_targets = {
+            agent.student_id: (
+                agent.cell if agent.student_id in conflict_losers else winners.get(agent.student_id, agent.cell)
+            )
+            for agent in movable
+        }
+        self._apply_local_borrowing_moves(
+            movable,
+            planned_targets,
+            occupied_by=occupied_by,
+            density=movement_density,
+            density_radius=density_radius,
+        )
+
         for agent in movable:
             previous = agent.cell
-            target = previous if agent.student_id in conflict_losers else winners.get(agent.student_id, previous)
+            target = planned_targets.get(agent.student_id, previous)
             if target != previous:
                 agent.previous_cell = previous
                 agent.cell = target
@@ -195,14 +269,19 @@ class PedestrianEngine:
                 agent.state = AgentState.QUEUEING
 
         for agent in self.agents.values():
-            if agent.state is not AgentState.EXITED:
+            if self._occupies_walkable_cell(agent):
                 self.dynamic_field.deposit(agent.cell)
         self.dynamic_field.step(self.grid)
         self._update_density_metric()
         self._refresh_party_centers()
         return events
 
-    def run_for_minute(self, start_sec: int, end_sec: int) -> dict[str, Any]:
+    def run_for_minute(
+        self,
+        start_sec: int,
+        end_sec: int,
+        before_tick: Callable[[int], None] | None = None,
+    ) -> dict[str, Any]:
         events: list[dict[str, Any]] = []
         tick_seconds = max(1, int(getattr(self.config, "movement_tick_seconds", self.tick_seconds)))
         max_ticks = max(1, int(getattr(self.config, "max_movement_ticks_per_minute", 12)))
@@ -211,6 +290,8 @@ class PedestrianEngine:
             current = start_sec + tick_index * tick_seconds
             if current >= end_sec:
                 break
+            if before_tick is not None:
+                before_tick(current)
             events.extend(self.tick(current))
         timeline = None
         if events:
@@ -228,7 +309,7 @@ class PedestrianEngine:
     def agent_snapshots(self) -> list[dict[str, Any]]:
         snapshots = []
         for agent in sorted(self.agents.values(), key=lambda item: item.student_id):
-            if agent.state is AgentState.EXITED:
+            if agent.state in {AgentState.EXITED, AgentState.SEATED}:
                 continue
             point = cell_to_point(agent.cell, self.grid)
             snapshots.append({
@@ -250,7 +331,7 @@ class PedestrianEngine:
         return snapshots
 
     def density_hotspots(self) -> list[dict[str, float | int]]:
-        occupied = [agent.cell for agent in self.agents.values() if agent.state is not AgentState.EXITED]
+        occupied = [agent.cell for agent in self.agents.values() if self._occupies_walkable_cell(agent)]
         counts = Counter(occupied)
         threshold = max(1, int(getattr(self.config, "congestion_density_threshold", 3)))
         hotspots = []
@@ -277,7 +358,44 @@ class PedestrianEngine:
             "max_density": metrics.max_density,
         }
 
-    def _intended_move(self, agent: PedestrianAgent, occupied_cells: set[Cell]) -> tuple[Cell, float]:
+    def ready_to_queue_student_ids(self, candidate_ids: set[int]) -> list[int]:
+        return sorted(
+            student_id
+            for student_id in candidate_ids
+            if (agent := self.agents.get(student_id)) is not None
+            and (
+                agent.state is AgentState.QUEUEING
+                or (agent.state is AgentState.TO_WINDOW and self._is_near_target_cells(agent))
+            )
+        )
+
+    def party_ready_to_seat(self, party: Any) -> bool:
+        student_ids = self._student_ids_for_party(party)
+        if not student_ids:
+            return False
+        for student_id in student_ids:
+            agent = self.agents.get(student_id)
+            if agent is None or agent.state is not AgentState.TO_TABLE:
+                return False
+            if not self._is_near_target_cells(agent):
+                return False
+        return True
+
+    def _is_near_target_cells(self, agent: PedestrianAgent, max_distance: int = 1) -> bool:
+        if not agent.target_cells:
+            return False
+        return any(
+            abs(agent.cell[0] - target[0]) + abs(agent.cell[1] - target[1]) <= max_distance
+            for target in agent.target_cells
+        )
+
+    def _intended_move(
+        self,
+        agent: PedestrianAgent,
+        occupied_cells: set[Cell],
+        density: DensityField | None = None,
+        density_radius: int | None = None,
+    ) -> tuple[Cell, float]:
         candidates = [agent.cell, *neighbors(agent.cell, self.grid, bool(getattr(self.config, "floor_allow_diagonal", False)))]
         candidates = [
             cell
@@ -286,9 +404,13 @@ class PedestrianEngine:
         ]
         if not candidates or not agent.target_cells:
             return agent.cell, 0.0
-        density = DensityField.from_occupied_cells(occupied_cells, self.grid, radius=int(getattr(self.config, "personal_space_radius_cells", 1)))
+        resolved_density_radius = int(
+            density_radius if density_radius is not None else getattr(self.config, "personal_space_radius_cells", 1)
+        )
+        if density is None:
+            density = DensityField.from_occupied_cells(occupied_cells, self.grid, radius=resolved_density_radius)
         scored = [
-            (cell, self._candidate_cost(cell, agent, density))
+            (cell, self._candidate_cost(cell, agent, density, resolved_density_radius))
             for cell in candidates
         ]
         finite = [(cell, cost) for cell, cost in scored if math.isfinite(cost)]
@@ -296,15 +418,201 @@ class PedestrianEngine:
             return agent.cell, float("inf")
         return min(finite, key=lambda item: (item[1], item[0][1], item[0][0]))
 
-    def _candidate_cost(self, cell: Cell, agent: PedestrianAgent, density: DensityField) -> float:
+    def _apply_local_borrowing_moves(
+        self,
+        movable: list[PedestrianAgent],
+        planned_targets: dict[int, Cell],
+        occupied_by: dict[Cell, PedestrianAgent],
+        density: DensityField,
+        density_radius: int,
+    ) -> None:
+        borrowed_ids: set[int] = set()
+        reserved_targets: set[Cell] = {
+            target
+            for agent in movable
+            if (target := planned_targets.get(agent.student_id, agent.cell)) != agent.cell
+        }
+        for passer in sorted(movable, key=lambda item: (-item.stuck_ticks, item.student_id)):
+            if passer.student_id in borrowed_ids:
+                continue
+            borrow = self._local_borrow_move(
+                passer,
+                planned_targets,
+                occupied_by=occupied_by,
+                reserved_targets=reserved_targets,
+                density=density,
+                density_radius=density_radius,
+            )
+            if borrow is None:
+                continue
+            blocker, blocker_cell, yield_cell = borrow
+            if blocker.student_id in borrowed_ids:
+                continue
+            old_passer_target = planned_targets.get(passer.student_id, passer.cell)
+            old_blocker_target = planned_targets.get(blocker.student_id, blocker.cell)
+            reserved_targets.discard(old_passer_target)
+            reserved_targets.discard(old_blocker_target)
+            planned_targets[passer.student_id] = blocker_cell
+            planned_targets[blocker.student_id] = yield_cell
+            reserved_targets.update({blocker_cell, yield_cell})
+            borrowed_ids.update({passer.student_id, blocker.student_id})
+
+    def _local_borrow_move(
+        self,
+        passer: PedestrianAgent,
+        planned_targets: dict[int, Cell],
+        occupied_by: dict[Cell, PedestrianAgent],
+        reserved_targets: set[Cell],
+        density: DensityField,
+        density_radius: int,
+    ) -> tuple[PedestrianAgent, Cell, Cell] | None:
+        if passer.state is not AgentState.TO_TABLE:
+            return None
+        if passer.stuck_ticks < int(getattr(self.config, "floor_borrow_after_stuck_ticks", 4)):
+            return None
+        if not passer.target_cells:
+            return None
+        blocker_cell = self._borrow_blocking_cell(passer, planned_targets, occupied_by)
+        if blocker_cell is None:
+            return None
+        blocker = occupied_by.get(blocker_cell)
+        if blocker is None or not self._can_yield_for_borrow(blocker):
+            return None
+        if planned_targets.get(blocker.student_id, blocker.cell) != blocker.cell:
+            return None
+        yield_cell = self._borrow_yield_cell(
+            passer,
+            blocker,
+            occupied_by=occupied_by,
+            reserved_targets=reserved_targets,
+            density=density,
+            density_radius=density_radius,
+        )
+        if yield_cell is None:
+            return None
+        return blocker, blocker_cell, yield_cell
+
+    def _borrow_blocking_cell(
+        self,
+        passer: PedestrianAgent,
+        planned_targets: dict[int, Cell],
+        occupied_by: dict[Cell, PedestrianAgent],
+    ) -> Cell | None:
+        static_field = self._static_field(passer.target_cells)
+        current_distance = static_field.get(passer.cell, float("inf"))
+        planned = planned_targets.get(passer.student_id, passer.cell)
+        planned_distance = static_field.get(planned, current_distance)
+        best_open_distance = min(current_distance, planned_distance)
+        candidates: list[tuple[float, Cell]] = []
+        for cell in neighbors(passer.cell, self.grid, bool(getattr(self.config, "floor_allow_diagonal", False))):
+            blocker = occupied_by.get(cell)
+            if blocker is None or blocker.student_id == passer.student_id:
+                continue
+            distance = static_field.get(cell, float("inf"))
+            if math.isfinite(distance) and distance < best_open_distance:
+                candidates.append((distance, cell))
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: (item[0], item[1][1], item[1][0]))[1]
+
+    def _borrow_yield_cell(
+        self,
+        passer: PedestrianAgent,
+        blocker: PedestrianAgent,
+        occupied_by: dict[Cell, PedestrianAgent],
+        reserved_targets: set[Cell],
+        density: DensityField,
+        density_radius: int,
+    ) -> Cell | None:
+        candidates = self._borrow_yield_candidates(passer, blocker)
+        valid: list[tuple[int, float, Cell]] = []
+        for order, cell in enumerate(candidates):
+            if cell == blocker.cell:
+                continue
+            if cell in passer.target_cells:
+                continue
+            if cell in reserved_targets and cell != passer.cell:
+                continue
+            occupant = occupied_by.get(cell)
+            if occupant is not None and occupant.student_id != passer.student_id:
+                continue
+            if not is_walkable(cell, self.grid):
+                continue
+            valid.append((order, self._yield_candidate_cost(cell, blocker, density, density_radius), cell))
+        if not valid:
+            return None
+        return min(valid, key=lambda item: (item[0], item[1], item[2][1], item[2][0]))[2]
+
+    def _borrow_yield_candidates(self, passer: PedestrianAgent, blocker: PedestrianAgent) -> list[Cell]:
+        dx = blocker.cell[0] - passer.cell[0]
+        dy = blocker.cell[1] - passer.cell[1]
+        lateral: list[Cell] = []
+        if abs(dx) + abs(dy) == 1:
+            lateral = [
+                (blocker.cell[0] - dy, blocker.cell[1] + dx),
+                (blocker.cell[0] + dy, blocker.cell[1] - dx),
+            ]
+        candidates: list[Cell] = [*lateral, passer.cell]
+        for cell in neighbors(blocker.cell, self.grid, allow_diagonal=False):
+            if cell not in candidates:
+                candidates.append(cell)
+        return candidates
+
+    def _yield_candidate_cost(
+        self,
+        cell: Cell,
+        blocker: PedestrianAgent,
+        density: DensityField,
+        density_radius: int,
+    ) -> float:
+        target_distance = 0.0
+        if blocker.target_cells:
+            field = self._static_field(blocker.target_cells)
+            target_distance = field.get(cell, 0.0)
+            if not math.isfinite(target_distance):
+                target_distance = 10_000.0
+        threshold = int(getattr(self.config, "congestion_density_threshold", 3))
+        return target_distance + density.penalty(
+            cell,
+            threshold=threshold,
+            excluded_cell=blocker.cell,
+            radius=density_radius,
+        )
+
+    def _can_yield_for_borrow(self, agent: PedestrianAgent) -> bool:
+        return agent.state in {
+            AgentState.ENTERING,
+            AgentState.TO_WINDOW,
+            AgentState.QUEUEING,
+            AgentState.WAITING_GROUP,
+            AgentState.TO_TABLE,
+            AgentState.TO_EXIT,
+        }
+
+    def _movement_conflict_priority(self, agent: PedestrianAgent) -> int:
+        borrow_threshold = int(getattr(self.config, "floor_borrow_after_stuck_ticks", 4))
+        if agent.state is AgentState.TO_TABLE and agent.stuck_ticks >= borrow_threshold:
+            return -1
+        return 0
+
+    def _candidate_cost(self, cell: Cell, agent: PedestrianAgent, density: DensityField, density_radius: int) -> float:
         static_field = self._static_field(agent.target_cells)
         static_distance = static_field.get(cell, float("inf"))
         if not math.isfinite(static_distance):
             return float("inf")
         threshold = int(getattr(self.config, "congestion_density_threshold", 3))
         cost = float(getattr(self.config, "floor_static_weight", 1.0)) * static_distance
-        cost += float(getattr(self.config, "floor_density_weight", 1.2)) * density.penalty(cell, threshold=threshold)
-        cost -= float(getattr(self.config, "floor_dynamic_weight", 0.35)) * self.dynamic_field.values.get(cell, 0.0)
+        cost += float(getattr(self.config, "floor_density_weight", 1.2)) * density.penalty(
+            cell,
+            threshold=threshold,
+            excluded_cell=agent.cell,
+            radius=density_radius,
+        )
+        if cell != agent.cell:
+            cost -= float(getattr(self.config, "floor_dynamic_weight", 0.35)) * self.dynamic_field.values.get(cell, 0.0)
+        elif agent.target_cells and not self._is_near_target_cells(agent):
+            stuck_penalty = max(0, agent.stuck_ticks - 2) * float(getattr(self.config, "floor_stuck_wait_penalty", 0.15))
+            cost += min(4.0, stuck_penalty)
         cost += float(getattr(self.config, "floor_wall_weight", 0.6)) * wall_distance_or_penalty(cell, self.grid)
         cost += float(getattr(self.config, "floor_inertia_weight", 0.25)) * self._turn_penalty(agent, cell)
         cost += float(getattr(self.config, "floor_group_weight", 0.8)) * self._group_distance_penalty(agent, cell)
@@ -345,7 +653,7 @@ class PedestrianEngine:
             members = [
                 self.agents[student_id]
                 for student_id in party.member_agent_ids
-                if student_id in self.agents and self.agents[student_id].state is not AgentState.EXITED
+                if student_id in self.agents and self._occupies_walkable_cell(self.agents[student_id])
             ]
             if not members:
                 party.group_center = None
@@ -371,10 +679,13 @@ class PedestrianEngine:
         occupied = {
             agent.cell
             for agent in self.agents.values()
-            if agent.state is not AgentState.EXITED
+            if self._occupies_walkable_cell(agent)
         }
         density = DensityField.from_occupied_cells(occupied, self.grid, radius=int(getattr(self.config, "personal_space_radius_cells", 1)))
         self.max_density = max(self.max_density, max(density.densities.values(), default=0))
+
+    def _occupies_walkable_cell(self, agent: PedestrianAgent) -> bool:
+        return agent.state not in {AgentState.EXITED, AgentState.SEATED}
 
     def _is_movable(self, agent: PedestrianAgent) -> bool:
         return agent.state in {

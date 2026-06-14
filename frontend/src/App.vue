@@ -54,8 +54,8 @@
             <div class="config-section service-random-section">
               <div class="config-section-title">服务与随机性</div>
               <div class="config-field-grid">
-                <el-form-item label="平均打饭时长">
-                  <el-input-number v-model="config.service_time_mean" :min="0.5" :step="0.5" controls-position="right" />
+              <el-form-item label="平均打饭时长（分钟）">
+                <el-input-number v-model="config.service_time_mean" :min="0.05" :step="0.05" controls-position="right" />
                 </el-form-item>
                 <el-form-item label="平均就餐时长">
                   <el-input-number v-model="config.dining_time_mean" :min="1" :step="1" controls-position="right" />
@@ -63,11 +63,11 @@
                 <el-form-item label="随机种子">
                   <el-input-number v-model="config.seed" :min="1" controls-position="right" />
                 </el-form-item>
-                <el-form-item label="内部移动模型">
-                  <el-select v-model="config.movement_model">
-                    <el-option label="路径规则" value="path" />
-                    <el-option label="静态 Floor Field" value="static_floor_field" />
-                    <el-option label="高级 Floor Field CA" value="advanced_floor_field" />
+                <el-form-item label="仿真质量">
+                  <el-select v-model="config.movement_quality_preset" @change="applyMovementQualityPreset">
+                    <el-option label="快速" value="fast" />
+                    <el-option label="平衡" value="balanced" />
+                    <el-option label="质量" value="quality" />
                   </el-select>
                 </el-form-item>
                 <el-form-item label="移动 tick 秒">
@@ -125,6 +125,14 @@
                     />
                   </el-select>
                 </el-form-item>
+                <el-form-item label="就餐时段">
+                  <el-select v-model="config.meal_period" @change="applyMealPeriodDefaults">
+                    <el-option label="早餐" value="breakfast" />
+                    <el-option label="午餐" value="lunch" />
+                    <el-option label="晚餐" value="dinner" />
+                    <el-option label="周末" value="weekend" />
+                  </el-select>
+                </el-form-item>
                 <el-form-item label="人数来源" class="campus-source-field">
                   <el-tag effect="light">{{ campusSourceLabel }}</el-tag>
                 </el-form-item>
@@ -157,30 +165,91 @@
                 :closable="false"
               />
 
-              <el-table :data="campusRows" class="campus-table" size="small">
-                <el-table-column prop="building_name" label="教学楼" width="112" />
-                <el-table-column label="下课" width="104">
+              <div class="campus-population-controls">
+                <div class="config-section-title">人口池与宿舍释放</div>
+                <div class="campus-population-control-grid">
+                  <el-form-item label="潜在人群池">
+                    <el-input-number v-model="campusPopulationPoolForm.total_population_pool" :min="0" :step="500" size="small" controls-position="right" />
+                  </el-form-item>
+                  <el-form-item label="食堂参与率">
+                    <div class="percent-input">
+                      <el-input-number v-model="campusPopulationPoolForm.meal_participation_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
+                      <span class="percent-suffix">%</span>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="其他已知来源">
+                    <el-input-number v-model="campusPopulationPoolForm.other_known_population" :min="0" :step="100" size="small" controls-position="right" />
+                  </el-form-item>
+                  <el-form-item label="宿舍参与率">
+                    <div class="percent-input">
+                      <el-input-number v-model="campusResidentialProfileForm.residential_participation_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
+                      <span class="percent-suffix">%</span>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="宿舍开始">
+                    <el-input v-model="campusResidentialProfileForm.start_time" size="small" placeholder="11:00" />
+                  </el-form-item>
+                  <el-form-item label="宿舍结束">
+                    <el-input v-model="campusResidentialProfileForm.end_time" size="small" placeholder="13:00" />
+                  </el-form-item>
+                  <el-form-item label="宿舍峰值">
+                    <el-input v-model="campusResidentialProfileForm.peak_time" size="small" placeholder="12:00" />
+                  </el-form-item>
+                </div>
+              </div>
+
+              <el-table :data="campusCombinedRows" class="campus-table" size="small">
+                <el-table-column label="来源" min-width="128">
+                  <template #default="{ row }">{{ campusTableSourceName(row) }}</template>
+                </el-table-column>
+                <el-table-column label="类型" width="78">
                   <template #default="{ row }">
-                    <el-input-number v-model="row.dismissal_minute" :min="0" :max="240" size="small" controls-position="right" />
+                    <el-tag :type="isResidentialCampusRow(row) ? 'success' : 'primary'" effect="light">
+                      {{ campusTableSourceType(row) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="时间" width="112">
+                  <template #default="{ row }">
+                    <span v-if="isResidentialCampusRow(row)">{{ row.release_window }}</span>
+                    <el-input v-else v-model="row.dismissal_time" size="small" placeholder="11:30" @change="syncDismissalTime(row)" />
                   </template>
                 </el-table-column>
                 <el-table-column label="就餐比例" width="120">
                   <template #default="{ row }">
-                    <div class="percent-input">
+                    <span v-if="isResidentialCampusRow(row)" class="campus-readonly-cell">
+                      {{ formatPercent(residentialParticipationRate) }}
+                    </span>
+                    <div v-else class="percent-input">
                       <el-input-number v-model="row.release_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
                       <span class="percent-suffix">%</span>
                     </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="选择概率" width="92">
-                  <template #default="{ row }">{{ formatPercent(campusChoiceProbability(row)) }}</template>
+                  <template #default="{ row }">{{ formatPercent(campusTableChoiceProbability(row)) }}</template>
                 </el-table-column>
                 <el-table-column label="路程" width="78">
-                  <template #default="{ row }">{{ campusWalkMinutes(row) }} min</template>
+                  <template #default="{ row }">{{ campusTableWalkMinutes(row) }} min</template>
                 </el-table-column>
-                <el-table-column label="楼层人数（可手动填写）" min-width="280">
+                <el-table-column label="人数（教学楼可手动填写）" min-width="280">
                   <template #default="{ row }">
-                    <div class="floor-inputs">
+                    <div v-if="isResidentialCampusRow(row)" class="campus-readonly-source">
+                      <strong>{{ row.population_label }}</strong>
+                      <span>{{ row.campus_area }} / {{ row.basis }}</span>
+                      <label class="campus-weight-input">
+                        <span>权重</span>
+                        <el-input-number
+                          :model-value="residentialCapacityWeight(row.source_id)"
+                          :min="0"
+                          :step="0.5"
+                          size="small"
+                          controls-position="right"
+                          @update:model-value="updateResidentialCapacityWeight(row.source_id, $event)"
+                        />
+                      </label>
+                    </div>
+                    <div v-else class="floor-inputs">
                       <label v-for="floor in row.floors" :key="`${row.building_id}-${floor.floor}`" class="floor-input">
                         <span>{{ floor.floor }}F</span>
                         <el-input-number v-model="floor.count" :min="0" :max="999" size="small" controls-position="right" />
@@ -188,8 +257,8 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="合计" width="78">
-                  <template #default="{ row }">{{ campusRowTotal(row) }}</template>
+                <el-table-column label="到达人数" width="88">
+                  <template #default="{ row }">{{ campusTablePopulationLabel(row) }}</template>
                 </el-table-column>
               </el-table>
             </template>
@@ -314,9 +383,14 @@
       <section v-show="activeView === 'layout'" class="layout-page">
         <el-card class="panel layout-page-panel">
           <template #header>
-            <div class="panel-title">
-              <el-icon><Grid /></el-icon>
-              <span>仿真场景预览</span>
+            <div class="panel-title layout-panel-title">
+              <span class="panel-title-main">
+                <el-icon><Grid /></el-icon>
+                <span>仿真场景预览</span>
+              </span>
+              <el-button type="primary" plain :icon="MagicStick" @click="optimizeCurrentLayout">
+                一键优化布局
+              </el-button>
             </div>
           </template>
           <LayoutEditor
@@ -341,7 +415,7 @@
             <el-button type="danger" :icon="Refresh" @click="resetRun">重置</el-button>
             <el-button :icon="Finished" @click="runFullSimulation">快速完成</el-button>
             <el-button :icon="Download" :disabled="!runId || !metrics" @click="exportRecords">导出记录</el-button>
-            <div class="time-chip">当前时刻：t = {{ currentMinute }} min</div>
+            <div class="time-chip">当前时刻：{{ currentClockLabel }}</div>
           </div>
         </el-card>
 
@@ -470,6 +544,7 @@ import {
   createDefaultLayout,
   LAYOUT_DEFAULT_FLOOR,
   normalizeSeatCount,
+  optimizeLayoutForFlow,
   rebuildLayoutTablesForSeats,
   totalLayoutSeats
 } from './layoutEditor'
@@ -478,6 +553,7 @@ import LiveDiningMap from './LiveDiningMap.vue'
 import { LIVE_TRANSITION_MS } from './liveMapModel'
 import { applyRecommendedConfig, nextViewAfterRecommendation } from './recommendationFlow'
 import { liveStepDelay, shouldRequestLiveStep, shouldResetStepRun } from './runControl'
+import { clockMinuteFromRecord, formatClockMinute, parseClockTime } from './time'
 
 // 默认仿真参数：展示时可从这里说明窗口数、座位数、到达率、服务时长、
 // 就餐时长和随机种子如何组成后端 SimulationConfig。
@@ -485,9 +561,11 @@ const defaultConfig = {
   num_windows: 4,
   num_seats: 120,
   arrival_rate: 8,
-  service_time_mean: 3,
+  service_time_mean: 0.5,
   dining_time_mean: 20,
   duration_min: 60,
+  simulation_start_minute: 660,
+  meal_period: 'lunch',
   seed: 20,
   peak_start_min: 15,
   peak_end_min: 40,
@@ -495,6 +573,11 @@ const defaultConfig = {
   stagger_minutes: 0,
   seat_columns: 12,
   campus_demand: null,
+  window_choice_temperature: 0,
+  window_switch_cooldown_min: 0,
+  window_switch_threshold_min: 2,
+  window_switch_penalty_min: 0.5,
+  movement_quality_preset: 'fast',
   movement_model: 'path',
   movement_tick_seconds: 5,
   floor_cell_size: 12,
@@ -512,13 +595,98 @@ const defaultConfig = {
   queue_spacing_cells: 1,
   personal_space_radius_cells: 1,
   congestion_density_threshold: 3,
+  advanced_movement_coupling: false,
+  entry_spawn_radius_cells: 3,
   floor_width: LAYOUT_DEFAULT_FLOOR.width,
   floor_height: LAYOUT_DEFAULT_FLOOR.height
+}
+
+const movementQualityPresets = {
+  fast: {
+    movement_model: 'path',
+    floor_cell_size: 18,
+    max_movement_ticks_per_minute: 1,
+    advanced_movement_coupling: false,
+    window_choice_temperature: 0,
+    window_switch_cooldown_min: 0
+  },
+  balanced: {
+    movement_model: 'static_floor_field',
+    floor_cell_size: 14,
+    max_movement_ticks_per_minute: 1,
+    advanced_movement_coupling: false,
+    window_choice_temperature: 0.6,
+    window_switch_cooldown_min: 0
+  },
+  quality: {
+    movement_model: 'advanced_floor_field',
+    floor_cell_size: 12,
+    max_movement_ticks_per_minute: 12,
+    advanced_movement_coupling: true,
+    window_choice_temperature: 0.45,
+    window_switch_cooldown_min: 2,
+    window_switch_threshold_min: 1.5,
+    window_switch_penalty_min: 0.5
+  }
 }
 
 const LIVE_RECORD_LIMIT = 600
 const LIVE_CHART_RECORD_LIMIT = 240
 const LIVE_CHART_RENDER_INTERVAL_MS = 900
+const MEAL_START_MINUTES = {
+  breakfast: 420,
+  lunch: 660,
+  dinner: 1020,
+  weekend: 510
+}
+const DEFAULT_POPULATION_POOL_BY_PERIOD = {
+  breakfast: {
+    enabled: true,
+    meal_period: 'breakfast',
+    total_population_pool: 12000,
+    total_population_mode: 'manual',
+    meal_participation_rate: 0.55,
+    other_known_population: 0,
+    residential_allocation_mode: 'capacity_weight',
+    residual_policy: 'clamp_zero'
+  },
+  lunch: {
+    enabled: true,
+    meal_period: 'lunch',
+    total_population_pool: 15000,
+    total_population_mode: 'manual',
+    meal_participation_rate: 0.75,
+    other_known_population: 400,
+    residential_allocation_mode: 'capacity_weight',
+    residual_policy: 'clamp_zero'
+  },
+  dinner: {
+    enabled: true,
+    meal_period: 'dinner',
+    total_population_pool: 15000,
+    total_population_mode: 'manual',
+    meal_participation_rate: 0.70,
+    other_known_population: 500,
+    residential_allocation_mode: 'capacity_weight',
+    residual_policy: 'clamp_zero'
+  },
+  weekend: {
+    enabled: true,
+    meal_period: 'weekend',
+    total_population_pool: 10000,
+    total_population_mode: 'manual',
+    meal_participation_rate: 0.50,
+    other_known_population: 200,
+    residential_allocation_mode: 'capacity_weight',
+    residual_policy: 'clamp_zero'
+  }
+}
+const DEFAULT_RESIDENTIAL_RELEASE_PROFILES = {
+  breakfast: { meal_period: 'breakfast', start_minute: 420, end_minute: 510, peak_minute: 465, distribution: 'triangular', residential_participation_rate: 0.45 },
+  lunch: { meal_period: 'lunch', start_minute: 660, end_minute: 780, peak_minute: 720, distribution: 'triangular', residential_participation_rate: 0.65 },
+  dinner: { meal_period: 'dinner', start_minute: 1020, end_minute: 1140, peak_minute: 1080, distribution: 'triangular', residential_participation_rate: 0.75 },
+  weekend: { meal_period: 'weekend', start_minute: 510, end_minute: 780, peak_minute: 660, distribution: 'triangular', residential_participation_rate: 0.50 }
+}
 
 // 页面级状态：activeView 控制四个页签，config/layout 保存用户配置，
 // runId/records/metrics/currentState 分别对应一次运行的编号、分钟记录、
@@ -544,12 +712,34 @@ const isRecommending = ref(false)
 const recommendation = ref(null)
 const explanation = ref(null)
 const arrivalMode = ref('manual')
-const campusLocations = ref({ cafeterias: [], teaching_buildings: [], walk_times: {} })
+const campusLocations = ref({
+  cafeterias: [],
+  teaching_buildings: [],
+  walk_times: {},
+  residential_sources: [],
+  residential_walk_times: {},
+  residential_release_profiles: {},
+  population_pool_defaults: {}
+})
 const selectedCafeteriaId = ref('')
 const campusRows = ref([])
 const campusSourceMode = ref('manual')
 const campusLoadingSource = ref('')
 const campusWarning = ref('')
+const campusPopulationPoolForm = reactive({
+  total_population_pool: DEFAULT_POPULATION_POOL_BY_PERIOD.lunch.total_population_pool,
+  meal_participation_percent: Math.round(DEFAULT_POPULATION_POOL_BY_PERIOD.lunch.meal_participation_rate * 100),
+  other_known_population: DEFAULT_POPULATION_POOL_BY_PERIOD.lunch.other_known_population
+})
+const campusResidentialProfileForm = reactive({
+  residential_participation_percent: Math.round(DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch.residential_participation_rate * 100),
+  start_time: formatClockMinute(DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch.start_minute),
+  end_time: formatClockMinute(DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch.end_minute),
+  peak_time: formatClockMinute(DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch.peak_minute),
+  distribution: DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch.distribution
+})
+const residentialCapacityWeights = reactive({})
+const residentialPopulationOverrides = reactive({})
 
 // ECharts 容器和实例：records 或 metrics 变化后会触发图表刷新。
 const queueChartEl = ref(null)
@@ -568,6 +758,8 @@ let awaitingLiveMapTransition = false
 const currentMinute = computed(() => currentRecord.value?.t ?? 0)
 // 最新一条分钟记录，驱动实时指标和地图状态。
 const currentRecord = computed(() => records.value.at(-1) || null)
+const currentClockMinute = computed(() => clockMinuteFromRecord(currentRecord.value, config.simulation_start_minute))
+const currentClockLabel = computed(() => formatClockMinute(currentClockMinute.value))
 // 图表只保留最近一段记录，避免实时运行时曲线过长。
 const chartRecords = computed(() => records.value.slice(-LIVE_CHART_RECORD_LIMIT))
 // 将候选设置转换为窗口、座位、错峰和高峰批次数数组。
@@ -598,10 +790,11 @@ const runCards = computed(() => {
   const physicalEmptySeats = record?.empty_seats ?? currentState.value?.empty_seats ?? config.num_seats
   const reservedSeats = record?.reserved_seats ?? currentState.value?.reserved_seats ?? 0
   const availableSeats = record?.available_seats ?? currentState.value?.available_seats ?? physicalEmptySeats
+  const entryWaiting = record?.snapshot?.entry_waiting_count ?? currentState.value?.entry_waiting_count ?? 0
   const movement = movementMetricsForCards.value
   return [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
-    { label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` },
+    { label: '当前排队人数', value: queue, hint: `峰值 ${peakQueue} 人 / 边界待入 ${entryWaiting} 人` },
     { label: '物理空座', value: physicalEmptySeats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` },
     { label: '平均步行时间', value: formatSeconds(movement.avg_walking_time || 0), hint: `可用 ${availableSeats} / 预留 ${reservedSeats}` },
@@ -617,13 +810,13 @@ const analysisCards = computed(() => {
   return [
     { label: '平均等待', value: formatMinutes(m?.avg_wait || 0), hint: `取餐排队等待 ${formatMinutes(m?.avg_queue_wait || 0)}` },
     { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `高峰最多等座 ${m?.peak_waiting_for_seat || 0} 人` },
-    { label: '窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: `瓶颈判断：${m?.bottleneck_type || '待分析'}` },
-    { label: '平均座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.throughput || 0} 人` },
+    { label: '全程窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: `服务忙碌期 ${formatPercent(m?.active_window_utilization || 0)} / 瓶颈判断：${m?.bottleneck_type || '待分析'}` },
+    { label: '平均座位利用率', value: formatPercent(m?.seat_utilization || 0), hint: `完成就餐 ${m?.total_left || 0} 人 / 已入座 ${m?.throughput || 0} 人` },
     { label: '同行分流次数', value: partySplitCount, hint: '小队成员分配到多个窗口' },
-    { label: '同行集合等待', value: formatMinutes(m?.avg_party_gather_wait || 0), hint: `等座等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}` },
+    { label: '同行集合等待', value: formatMinutes(m?.avg_party_gather_wait || 0), hint: `等座排队等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}` },
     { label: '等座小队数', value: m?.blocked_party_count ?? 0, hint: `实际拼桌 ${m?.shared_table_count || 0} 次` },
     { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' },
-    { label: '平均步行时间', value: formatSeconds(m?.avg_walking_time || 0), hint: '高级移动模型统计' },
+    { label: '平均步行时间', value: formatSeconds(m?.avg_walking_time || 0), hint: `入座完成耗时 ${formatMinutes(m?.avg_post_service_to_seat_time || 0)}` },
     { label: '移动冲突次数', value: m?.movement_conflict_count ?? 0, hint: '并行 CA 冲突解决次数' },
     { label: '平均停滞 tick', value: formatNumber(m?.avg_stuck_ticks || 0), hint: '移动等待强度' },
     { label: '最大局部密度', value: m?.max_density ?? 0, hint: '拥堵热力峰值' }
@@ -639,6 +832,93 @@ const campusSourceLabel = computed(() => {
   if (campusSourceMode.value === 'random') return '随机生成'
   return '手动填写'
 })
+const currentMealPeriod = computed(() => config.meal_period || 'lunch')
+const campusPopulationPoolPayload = computed(() => {
+  return {
+    enabled: true,
+    meal_period: currentMealPeriod.value,
+    total_population_pool: Math.max(0, Math.round(Number(campusPopulationPoolForm.total_population_pool) || 0)),
+    total_population_mode: 'manual',
+    meal_participation_rate: releasePercentToRatio(campusPopulationPoolForm.meal_participation_percent),
+    other_known_population: Math.max(0, Math.round(Number(campusPopulationPoolForm.other_known_population) || 0)),
+    residential_allocation_mode: 'capacity_weight',
+    residual_policy: 'clamp_zero'
+  }
+})
+const campusResidentialReleaseProfilePayload = computed(() => ({
+  meal_period: currentMealPeriod.value,
+  start_minute: parseClockTime(campusResidentialProfileForm.start_time),
+  end_minute: parseClockTime(campusResidentialProfileForm.end_time),
+  peak_minute: parseClockTime(campusResidentialProfileForm.peak_time),
+  distribution: campusResidentialProfileForm.distribution || 'triangular',
+  residential_participation_rate: releasePercentToRatio(campusResidentialProfileForm.residential_participation_percent)
+}))
+const currentResidentialReleaseProfile = computed(() => campusResidentialReleaseProfilePayload.value)
+const residentialParticipationRate = computed(() => (
+  clampRatio(currentResidentialReleaseProfile.value.residential_participation_rate ?? 1)
+))
+const teachingPopulationEstimate = computed(() => (
+  campusRows.value.reduce((sum, row) => (
+    sum + (row.floors || []).reduce((floorSum, floor) => (
+      floorSum + campusReleasedFloorCount(row, floor)
+    ), 0)
+  ), 0)
+))
+const effectiveMealPopulation = computed(() => (
+  Math.round(campusPopulationPoolPayload.value.total_population_pool * campusPopulationPoolPayload.value.meal_participation_rate)
+))
+const residentialResidualPopulation = computed(() => (
+  Math.max(
+    0,
+    effectiveMealPopulation.value
+      - teachingPopulationEstimate.value
+      - campusPopulationPoolPayload.value.other_known_population
+  )
+))
+const residentialPopulationEstimate = computed(() => (
+  Math.round(residentialResidualPopulation.value * residentialParticipationRate.value)
+))
+const editableResidentialSources = computed(() => (
+  (campusLocations.value.residential_sources || []).filter((source) => (
+    source.id !== 'main_dorms'
+    && source.id !== 'east_dorms'
+    && !source.exclude_from_simulation
+  )).map((source) => ({
+    ...source,
+    capacity_weight: residentialCapacityWeight(source.id)
+  }))
+))
+const residentialAllocatedPopulation = computed(() => (
+  allocateResidentialPopulationByWeight(residentialPopulationEstimate.value, editableResidentialSources.value)
+))
+const campusResidentialTableRows = computed(() => (
+  editableResidentialSources.value.map((source) => {
+    const population = residentialSourcePopulation(source.id)
+    return {
+      source_id: source.id,
+      source_name: source.name,
+      source_type: '宿舍',
+      campus_area: source.campus_area || '未分类',
+      population,
+      population_label: `${formatNumber(population)} 人`,
+      release_mode: '时间窗口',
+      release_window: residentialReleaseWindowLabel(),
+      walk_minutes_label: `${residentialWalkMinutes(source.id)} min`,
+      basis: residentialPopulationOverrides[source.id] == null ? 'residual 按 source 权重' : '推荐人口覆盖'
+    }
+  })
+))
+const campusResidentialDemandPayload = computed(() => (
+  editableResidentialSources.value.map((source) => ({
+    residential_id: source.id,
+    release_ratio: 1,
+    population_override: residentialSourcePopulation(source.id),
+    source_type: 'residential'
+  }))
+))
+const campusCombinedRows = computed(() => (
+  [...campusRows.value, ...campusResidentialTableRows.value]
+))
 
 onMounted(() => {
   checkHealth()
@@ -708,6 +988,8 @@ async function loadCampusLocations() {
   try {
     const payload = await api.campusLocations()
     campusLocations.value = payload
+    syncCampusPopulationDefaults(config.meal_period || 'lunch')
+    seedResidentialCapacityWeights(payload.residential_sources || [])
     // 默认选中第一个食堂，让校园人数模式打开后可以立即计算选择概率。
     if (!selectedCafeteriaId.value && payload.cafeterias?.length) {
       selectedCafeteriaId.value = payload.cafeterias[0].id
@@ -722,11 +1004,100 @@ async function loadCampusLocations() {
 }
 
 // 根据教学楼基础数据生成可手动填写的楼层人数行。
+function defaultCampusDismissalMinute() {
+  return Math.max(0, Math.round(Number(config.simulation_start_minute) || 0)) + 30
+}
+
+function applyMealPeriodDefaults() {
+  const previousDefault = defaultCampusDismissalMinute()
+  config.simulation_start_minute = MEAL_START_MINUTES[config.meal_period] ?? MEAL_START_MINUTES.lunch
+  syncCampusPopulationDefaults(config.meal_period || 'lunch')
+  const nextDefault = defaultCampusDismissalMinute()
+  campusRows.value = campusRows.value.map((row) => {
+    const currentMinuteValue = Math.max(0, Math.round(Number(row.dismissal_minute) || 0))
+    if (row.dismissal_time && currentMinuteValue !== previousDefault) {
+      return row
+    }
+    return {
+      ...row,
+      dismissal_minute: nextDefault,
+      dismissal_time: formatClockMinute(nextDefault)
+    }
+  })
+}
+
+function syncCampusPopulationDefaults(mealPeriod) {
+  clearResidentialPopulationOverrides()
+  const pool = campusLocations.value.population_pool_defaults?.[mealPeriod]
+    || DEFAULT_POPULATION_POOL_BY_PERIOD[mealPeriod]
+    || DEFAULT_POPULATION_POOL_BY_PERIOD.lunch
+  const profile = campusLocations.value.residential_release_profiles?.[mealPeriod]
+    || DEFAULT_RESIDENTIAL_RELEASE_PROFILES[mealPeriod]
+    || DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch
+  campusPopulationPoolForm.total_population_pool = Math.max(0, Math.round(Number(pool.total_population_pool) || 0))
+  campusPopulationPoolForm.meal_participation_percent = Math.round(clampRatio(pool.meal_participation_rate ?? 1) * 100)
+  campusPopulationPoolForm.other_known_population = Math.max(0, Math.round(Number(pool.other_known_population) || 0))
+  campusResidentialProfileForm.residential_participation_percent = Math.round(clampRatio(profile.residential_participation_rate ?? 1) * 100)
+  campusResidentialProfileForm.start_time = formatClockMinute(profile.start_minute)
+  campusResidentialProfileForm.end_time = formatClockMinute(profile.end_minute)
+  campusResidentialProfileForm.peak_time = formatClockMinute(profile.peak_minute ?? Math.round((profile.start_minute + profile.end_minute) / 2))
+  campusResidentialProfileForm.distribution = profile.distribution || 'triangular'
+}
+
+function applyCampusPopulationPoolConfig(pool) {
+  if (!pool) return
+  campusPopulationPoolForm.total_population_pool = Math.max(0, Math.round(Number(pool.total_population_pool) || 0))
+  campusPopulationPoolForm.meal_participation_percent = Math.round(clampRatio(pool.meal_participation_rate ?? 1) * 100)
+  campusPopulationPoolForm.other_known_population = Math.max(0, Math.round(Number(pool.other_known_population) || 0))
+}
+
+function applyCampusResidentialProfileConfig(profile) {
+  if (!profile) return
+  campusResidentialProfileForm.residential_participation_percent = Math.round(clampRatio(profile.residential_participation_rate ?? 1) * 100)
+  campusResidentialProfileForm.start_time = formatClockMinute(profile.start_minute)
+  campusResidentialProfileForm.end_time = formatClockMinute(profile.end_minute)
+  campusResidentialProfileForm.peak_time = formatClockMinute(profile.peak_minute ?? Math.round((Number(profile.start_minute) + Number(profile.end_minute)) / 2))
+  campusResidentialProfileForm.distribution = profile.distribution || 'triangular'
+}
+
+function applyCampusResidentialSourcesConfig(sources) {
+  clearResidentialPopulationOverrides()
+  for (const source of sources || []) {
+    if (!source?.residential_id) continue
+    if (source.population_override != null) {
+      residentialPopulationOverrides[source.residential_id] = Math.max(0, Math.round(Number(source.population_override) || 0))
+    }
+  }
+}
+
+function clearResidentialPopulationOverrides() {
+  Object.keys(residentialPopulationOverrides).forEach((key) => {
+    delete residentialPopulationOverrides[key]
+  })
+}
+
+function seedResidentialCapacityWeights(sources) {
+  for (const source of sources || []) {
+    if (!source?.id || source.id === 'main_dorms' || source.id === 'east_dorms') continue
+    if (residentialCapacityWeights[source.id] == null) {
+      residentialCapacityWeights[source.id] = Math.max(0, Number(source.capacity_weight) || 0)
+    }
+  }
+}
+
+function syncDismissalTime(row) {
+  const dismissalMinute = parseClockTime(row.dismissal_time)
+  row.dismissal_minute = dismissalMinute
+  row.dismissal_time = formatClockMinute(dismissalMinute)
+}
+
 function buildEmptyCampusRows(buildings) {
+  const dismissalMinute = defaultCampusDismissalMinute()
   return buildings.map((building) => ({
     building_id: building.id,
     building_name: building.name,
-    dismissal_minute: config.peak_start_min,
+    dismissal_minute: dismissalMinute,
+    dismissal_time: formatClockMinute(dismissalMinute),
     release_percent: 100,
     source: 'manual',
     floors: Array.from({ length: Math.max(1, Number(building.default_floor_count || 5)) }, (_, index) => ({
@@ -774,7 +1145,8 @@ function applyCampusOccupancyItems(items, sourceMode) {
     : items.map((item) => ({
       building_id: item.building_id,
       building_name: item.building_name,
-      dismissal_minute: config.peak_start_min,
+      dismissal_minute: defaultCampusDismissalMinute(),
+      dismissal_time: formatClockMinute(defaultCampusDismissalMinute()),
       release_percent: 100,
       source: sourceMode,
       floors: []
@@ -782,12 +1154,15 @@ function applyCampusOccupancyItems(items, sourceMode) {
   campusRows.value = baseRows.map((row) => {
     const item = byId.get(row.building_id)
     if (!item) return row
+    const dismissalMinute = Math.max(0, Math.round(Number(row.dismissal_minute ?? defaultCampusDismissalMinute()) || 0))
     const releasePercent = Number.isFinite(Number(row.release_percent))
       ? Number(row.release_percent)
       : releasePercentFromRatio(row.release_ratio ?? 1)
     return {
       ...row,
       // 保留用户设置的就餐比例，只替换人数来源和楼层人数。
+      dismissal_minute: dismissalMinute,
+      dismissal_time: row.dismissal_time || formatClockMinute(dismissalMinute),
       release_percent: releasePercent,
       source: item.source || sourceMode,
       floors: (item.floors || []).map((floor) => ({
@@ -805,6 +1180,9 @@ function applyCampusDemandConfig(campusDemand) {
   arrivalMode.value = 'campus'
   selectedCafeteriaId.value = campusDemand.cafeteria_id || selectedCafeteriaId.value
   campusSourceMode.value = campusDemand.source_mode || 'manual'
+  applyCampusPopulationPoolConfig(campusDemand.population_pool)
+  applyCampusResidentialProfileConfig(campusDemand.residential_release_profile)
+  applyCampusResidentialSourcesConfig(campusDemand.residential_sources)
   // 推荐接口返回的是 building_id，页面展示需要补回教学楼名称。
   const buildingNames = new Map(
     (campusLocations.value.teaching_buildings || []).map((building) => [building.id, building.name])
@@ -813,6 +1191,7 @@ function applyCampusDemandConfig(campusDemand) {
     building_id: building.building_id,
     building_name: buildingNames.get(building.building_id) || building.building_id,
     dismissal_minute: Math.max(0, Math.round(Number(building.dismissal_minute) || 0)),
+    dismissal_time: formatClockMinute(Math.max(0, Math.round(Number(building.dismissal_minute) || 0))),
     release_percent: releasePercentFromRatio(building.release_ratio ?? 1),
     source: campusSourceMode.value,
     floors: (building.floors || []).map((floor) => ({
@@ -821,6 +1200,13 @@ function applyCampusDemandConfig(campusDemand) {
       capacity: Number(floor.capacity) || 0
     }))
   }))
+}
+
+// 三档仿真质量预设会同步到底层 movement_model 和高级移动参数。
+function applyMovementQualityPreset(preset) {
+  const settings = movementQualityPresets[preset]
+  if (!settings) return
+  Object.assign(config, settings)
 }
 
 // 恢复页面默认参数、默认布局和推荐候选设置。
@@ -846,6 +1232,22 @@ function resetLayout() {
   config.num_seats = totalLayoutSeats(layout.value)
   config.num_windows = layout.value.windows.length
   ElMessage.info('已根据当前参数重置布局')
+  nextTick(() => { isSyncingLayout.value = false })
+}
+
+// 基于当前资源数量生成更适合室内蛇形队列和服务通道的布局。
+function optimizeCurrentLayout() {
+  isSyncingLayout.value = true
+  const optimized = optimizeLayoutForFlow(layout.value, config)
+  layout.value = optimized
+  layoutSeatLimit.value = calculateLayoutSeatLimit(optimized)
+  config.num_seats = totalLayoutSeats(optimized)
+  config.num_windows = optimized.windows.length
+  if (optimized.floor) {
+    config.floor_width = optimized.floor.width
+    config.floor_height = optimized.floor.height
+  }
+  ElMessage.success('已优化布局：保留窗口和座位规模，扩大室内排队通道')
   nextTick(() => { isSyncingLayout.value = false })
 }
 
@@ -1115,10 +1517,14 @@ function buildCampusDemandPayload() {
     enabled: true,
     cafeteria_id: selectedCafeteriaId.value,
     source_mode: campusSourceMode.value,
+    meal_period: config.meal_period || 'lunch',
+    residential_sources: campusResidentialDemandPayload.value,
+    population_pool: campusPopulationPoolPayload.value,
+    residential_release_profile: campusResidentialReleaseProfilePayload.value,
     // 页面百分比和输入框中的人数在这里清洗成后端 dataclass 需要的数值。
     buildings: campusRows.value.map((row) => ({
       building_id: row.building_id,
-      dismissal_minute: Math.max(0, Math.round(Number(row.dismissal_minute) || 0)),
+      dismissal_minute: parseClockTime(row.dismissal_time ?? row.dismissal_minute),
       release_ratio: releasePercentToRatio(row.release_percent),
       floors: (row.floors || []).map((floor) => ({
         floor: Math.max(1, Math.round(Number(floor.floor) || 1)),
@@ -1128,9 +1534,13 @@ function buildCampusDemandPayload() {
   }
 }
 
-// 汇总单栋教学楼各楼层当前人数。
-function campusRowTotal(row) {
-  return (row.floors || []).reduce((sum, floor) => sum + (Number(floor.count) || 0), 0)
+function campusReleasedPopulation(row) {
+  return (row.floors || []).reduce((sum, floor) => sum + campusReleasedFloorCount(row, floor), 0)
+}
+
+// 与后端 estimate_teaching_population 保持一致：每层先乘就餐比例再四舍五入。
+function campusReleasedFloorCount(row, floor) {
+  return Math.max(0, Math.round((Number(floor.count) || 0) * releasePercentToRatio(row.release_percent)))
 }
 
 // 读取当前教学楼到选中食堂的步行分钟数。
@@ -1139,9 +1549,101 @@ function campusWalkMinutes(row) {
   return route?.duration_min ?? '-'
 }
 
+function residentialWalkMinutes(residentialId) {
+  const route = campusLocations.value.residential_walk_times?.[residentialId]?.[selectedCafeteriaId.value]
+  return route?.duration_min ?? '-'
+}
+
+function residentialReleaseWindowLabel() {
+  const profile = currentResidentialReleaseProfile.value
+  return `${formatClockMinute(profile.start_minute)}-${formatClockMinute(profile.end_minute)}`
+}
+
+function isResidentialCampusRow(row) {
+  return row?.source_type === '宿舍'
+}
+
+function campusTableSourceName(row) {
+  return isResidentialCampusRow(row) ? row.source_name : row.building_name
+}
+
+function campusTableSourceType(row) {
+  return isResidentialCampusRow(row) ? '宿舍' : '教学楼'
+}
+
+function campusTableWalkMinutes(row) {
+  return isResidentialCampusRow(row) ? residentialWalkMinutes(row.source_id) : campusWalkMinutes(row)
+}
+
+function campusTablePopulationLabel(row) {
+  return `${formatNumber(campusTableArrivalPopulation(row))} 人`
+}
+
+function campusTableChoiceProbability(row) {
+  return isResidentialCampusRow(row) ? residentialChoiceProbability(row.source_id) : campusChoiceProbability(row)
+}
+
+function campusTableArrivalPopulation(row) {
+  if (isResidentialCampusRow(row)) {
+    return Math.round(row.population * campusTableChoiceProbability(row))
+  }
+  return Math.round(campusReleasedPopulation(row) * campusTableChoiceProbability(row))
+}
+
+function residentialCapacityWeight(residentialId) {
+  const source = (campusLocations.value.residential_sources || []).find((item) => item.id === residentialId)
+  return Math.max(0, Number(residentialCapacityWeights[residentialId] ?? source?.capacity_weight ?? 0) || 0)
+}
+
+function updateResidentialCapacityWeight(residentialId, value) {
+  residentialCapacityWeights[residentialId] = Math.max(0, Number(value) || 0)
+  delete residentialPopulationOverrides[residentialId]
+}
+
+function residentialSourcePopulation(residentialId) {
+  if (residentialPopulationOverrides[residentialId] != null) {
+    return Math.max(0, Math.round(Number(residentialPopulationOverrides[residentialId]) || 0))
+  }
+  return residentialAllocatedPopulation.value[residentialId] || 0
+}
+
+function allocateResidentialPopulationByWeight(population, sources) {
+  const totalPopulation = Math.max(0, Math.round(Number(population) || 0))
+  const validSources = (sources || []).filter((source) => (
+    source.id !== 'main_dorms'
+    && source.id !== 'east_dorms'
+    && !source.exclude_from_simulation
+    && Number(source.capacity_weight) > 0
+  ))
+  const totalWeight = validSources.reduce((sum, source) => sum + Number(source.capacity_weight), 0)
+  if (!totalPopulation || totalWeight <= 0) {
+    return Object.fromEntries(validSources.map((source) => [source.id, 0]))
+  }
+
+  const allocations = validSources.map((source) => {
+    const exact = totalPopulation * Number(source.capacity_weight) / totalWeight
+    const base = Math.floor(exact)
+    return { id: source.id, base, remainder: exact - base }
+  })
+  let remaining = totalPopulation - allocations.reduce((sum, item) => sum + item.base, 0)
+  allocations
+    .slice()
+    .sort((a, b) => (b.remainder - a.remainder) || String(a.id).localeCompare(String(b.id)))
+    .forEach((item) => {
+      if (remaining <= 0) return
+      item.base += 1
+      remaining -= 1
+    })
+  return Object.fromEntries(allocations.map((item) => [item.id, item.base]))
+}
+
+function clampRatio(value) {
+  return Math.min(1, Math.max(0, Number(value) || 0))
+}
+
 // 将后端 0-1 释放比例转换为页面百分比输入值。
 function releasePercentFromRatio(value) {
-  const ratio = Math.min(1, Math.max(0, Number(value) || 0))
+  const ratio = clampRatio(value)
   return Math.round(ratio * 100)
 }
 
@@ -1161,6 +1663,20 @@ function campusChoiceProbability(row) {
   )
   const nearest = Math.min(...Object.values(durations))
   // 2.4 次方让近距离优势更明显，与后端校园到达概率保持同一口径。
+  const weights = Object.fromEntries(
+    Object.entries(durations).map(([cafeteriaId, duration]) => [cafeteriaId, Math.pow(nearest / duration, 2.4)])
+  )
+  const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
+  return total > 0 ? weights[selectedCafeteriaId.value] / total : 0
+}
+
+function residentialChoiceProbability(residentialId) {
+  const routes = campusLocations.value.residential_walk_times?.[residentialId]
+  if (!routes || !selectedCafeteriaId.value || !routes[selectedCafeteriaId.value]) return 0
+  const durations = Object.fromEntries(
+    Object.entries(routes).map(([cafeteriaId, route]) => [cafeteriaId, Math.max(1, Number(route.duration_s) || 1)])
+  )
+  const nearest = Math.min(...Object.values(durations))
   const weights = Object.fromEntries(
     Object.entries(durations).map(([cafeteriaId, duration]) => [cafeteriaId, Math.pow(nearest / duration, 2.4)])
   )

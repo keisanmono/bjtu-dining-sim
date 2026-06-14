@@ -53,6 +53,14 @@ test('LiveDiningMap renders pedestrian agents and density hotspots when provided
   assert.equal(styleSource.includes('.density-hotspot'), true)
 })
 
+// 验证 advanced 行人快照也会通知自动运行继续步进。
+test('LiveDiningMap settles pedestrian-agent snapshots for automatic stepping', () => {
+  assert.equal(mapSource.includes('pedestrianSnapshotSignature'), true)
+  assert.equal(mapSource.includes('settlePedestrianSnapshot'), true)
+  assert.match(mapSource, /watch\(\s*pedestrianSnapshotSignature/)
+  assert.equal(mapSource.includes("emit('transition-settled')"), true)
+})
+
 // 验证运行页指标卡包含高级移动指标。
 test('App.vue exposes advanced movement metrics in metric cards', () => {
   assert.equal(appSource.includes('movementMetricsForCards'), true)
@@ -118,18 +126,17 @@ test('LiveDiningMap is purely visual and never relies on <text> or seat matrix',
 test('LiveDiningMap caps how many parties it emits and bounds the queue panel', () => {
   // The queue cap lives in the model file (used by the detail panel).
   assert.match(modelSource, /QUEUE_VISIBLE_LIMIT\s*=\s*\d+/)
-  // overflow indicator for the queue lives in the detail panel, not the map.
+  // overflow indicators exist both on the map and in the detail panel.
+  assert.equal(mapSource.includes('queue-overflow'), true)
   assert.equal(mapSource.includes('window-detail-overflow'), true)
 })
 
-// 验证地图命名图层只保留服务中和已入座小组。
-test('LiveDiningMap renders only the seated and service layers as named groups', () => {
-  // No queue, no waiting parties on the map: queues live in the detail panel,
-  // and waiting count is reported by the metric card outside this component.
-  assert.equal(mapSource.includes('queue-group'), false)
-  assert.equal(mapSource.includes('queue-capsule'), false)
-  assert.equal(mapSource.includes('queue-overflow'), false)
-  assert.equal(mapSource.includes('selectedQueueRow'), false)
+// 验证地图命名图层包含服务、入座和窗口队列。
+test('LiveDiningMap renders queue rows directly on the map', () => {
+  assert.equal(mapSource.includes('queue-group'), true)
+  assert.equal(mapSource.includes('queue-capsule'), true)
+  assert.equal(mapSource.includes('queue-overflow'), true)
+  assert.equal(mapSource.includes('buildQueueRows'), true)
   assert.equal(mapSource.includes('waiting-group'), false)
   assert.equal(mapSource.includes('waiting-cluster'), false)
   assert.equal(mapSource.includes('waiting-overflow'), false)
@@ -141,11 +148,10 @@ test('LiveDiningMap renders only the seated and service layers as named groups',
   assert.equal(mapSource.includes('service-mark'), true)
 })
 
-// 验证排队胶囊不会渲染到 SVG 地图内。
-test('LiveDiningMap keeps the queue out of the SVG entirely', () => {
-  // Selecting a window must not paint capsules onto the map; the queue is
-  // shown only in the detail panel below.
-  assert.equal(/<g[^>]*queue-group/.test(mapSource), false)
+// 验证排队胶囊会渲染到 SVG 地图内。
+test('LiveDiningMap paints queue capsules inside the SVG map', () => {
+  assert.equal(/<g[^>]*queue-group/.test(mapSource), true)
+  assert.equal(mapSource.includes('queueRows = computed(() => buildQueueRows'), true)
   assert.equal(mapSource.includes('selectedWindowIndex'), true)
   assert.equal(mapSource.includes('selectedWindowDetail'), true)
 })

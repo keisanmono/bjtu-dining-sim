@@ -1,0 +1,224 @@
+{
+  "advanced_signal": {
+    "advanced_rows": 15,
+    "max_density": 7,
+    "movement_conflict_count_sum": 538,
+    "rows_with_spatial_signal": 15
+  },
+  "benchmark_version": "2026-06-13-movement-baseline-v2",
+  "confidence_by_preset": {
+    "balanced": {
+      "avg_wait": {
+        "mean": 4.601,
+        "p50": 4.11,
+        "p90": 6.714,
+        "p95": 7.523,
+        "std": 1.667
+      },
+      "peak_queue": {
+        "mean": 5.067,
+        "p50": 5.0,
+        "p90": 10.6,
+        "p95": 11.3,
+        "std": 4.061
+      },
+      "realism_score": {
+        "mean": 29.92,
+        "p50": 29.89,
+        "p90": 37.04,
+        "p95": 38.282,
+        "std": 5.489
+      },
+      "runtime_sec": {
+        "mean": 0.042,
+        "p50": 0.037,
+        "p90": 0.072,
+        "p95": 0.079,
+        "std": 0.022
+      },
+      "sample_count": 15
+    },
+    "fast": {
+      "avg_wait": {
+        "mean": 4.51,
+        "p50": 4.11,
+        "p90": 6.662,
+        "p95": 7.523,
+        "std": 1.659
+      },
+      "peak_queue": {
+        "mean": 5.0,
+        "p50": 5.0,
+        "p90": 10.2,
+        "p95": 11.3,
+        "std": 3.982
+      },
+      "realism_score": {
+        "mean": 17.803,
+        "p50": 17.89,
+        "p90": 24.808,
+        "p95": 26.24,
+        "std": 5.371
+      },
+      "runtime_sec": {
+        "mean": 0.011,
+        "p50": 0.009,
+        "p90": 0.024,
+        "p95": 0.026,
+        "std": 0.009
+      },
+      "sample_count": 15
+    },
+    "quality": {
+      "avg_wait": {
+        "mean": 7.537,
+        "p50": 7.12,
+        "p90": 10.85,
+        "p95": 11.639,
+        "std": 2.664
+      },
+      "peak_queue": {
+        "mean": 4.067,
+        "p50": 3.0,
+        "p90": 8.0,
+        "p95": 9.2,
+        "std": 3.654
+      },
+      "realism_score": {
+        "mean": 68.705,
+        "p50": 70.54,
+        "p90": 82.892,
+        "p95": 84.538,
+        "std": 13.834
+      },
+      "runtime_sec": {
+        "mean": 0.495,
+        "p50": 0.485,
+        "p90": 0.716,
+        "p95": 0.794,
+        "std": 0.204
+      },
+      "sample_count": 15
+    }
+  },
+  "fairness": {
+    "groups_checked": 15,
+    "groups_with_mismatched_arrival_streams": 0,
+    "mismatched_groups": []
+  },
+  "generated_at": "2026-06-13T07:58:37.232107+00:00",
+  "mean_by_model": {
+    "advanced_floor_field": {
+      "avg_wait": 7.537,
+      "avg_walking_time": 238.368,
+      "max_density": 4.733,
+      "movement_conflict_count": 35.867,
+      "peak_queue": 4.067,
+      "realism_score": 68.705,
+      "runtime_sec": 0.4946
+    },
+    "path": {
+      "avg_wait": 4.51,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 5.0,
+      "realism_score": 17.803,
+      "runtime_sec": 0.0108
+    },
+    "static_floor_field": {
+      "avg_wait": 4.601,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 5.067,
+      "realism_score": 29.92,
+      "runtime_sec": 0.0415
+    }
+  },
+  "mean_by_preset": {
+    "balanced": {
+      "avg_wait": 4.601,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 5.067,
+      "realism_score": 29.92,
+      "runtime_sec": 0.0415
+    },
+    "fast": {
+      "avg_wait": 4.51,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 5.0,
+      "realism_score": 17.803,
+      "runtime_sec": 0.0108
+    },
+    "quality": {
+      "avg_wait": 7.537,
+      "avg_walking_time": 238.368,
+      "max_density": 4.733,
+      "movement_conflict_count": 35.867,
+      "peak_queue": 4.067,
+      "realism_score": 68.705,
+      "runtime_sec": 0.4946
+    }
+  },
+  "models": [
+    "advanced_floor_field",
+    "path",
+    "static_floor_field"
+  ],
+  "outputs": {
+    "csv": "data/benchmarks/movement_baseline_benchmark.csv",
+    "doc": "docs/movement_benchmark.md",
+    "summary": "data/benchmarks/movement_baseline_summary.json"
+  },
+  "quality_presets": [
+    "fast",
+    "balanced",
+    "quality"
+  ],
+  "realism_score_by_preset": {
+    "balanced": {
+      "mean": 29.92,
+      "p50": 29.89,
+      "p90": 37.04,
+      "p95": 38.282,
+      "std": 5.489
+    },
+    "fast": {
+      "mean": 17.803,
+      "p50": 17.89,
+      "p90": 24.808,
+      "p95": 26.24,
+      "std": 5.371
+    },
+    "quality": {
+      "mean": 68.705,
+      "p50": 70.54,
+      "p90": 82.892,
+      "p95": 84.538,
+      "std": 13.834
+    }
+  },
+  "row_count": 45,
+  "scenarios": [
+    "bjtu_breakfast_xuesi_reference",
+    "bjtu_lunch_xuesi_reference",
+    "micro_table_access",
+    "micro_window_queue",
+    "performance_medium_manual"
+  ],
+  "stress": {
+    "default_quality_target_cap": 300,
+    "max_runtime_sec": 0.0,
+    "max_total_arrived": 0,
+    "quality_target_arrivals": [],
+    "rows": 0,
+    "runtime_by_preset": {},
+    "target_arrivals": []
+  },
+  "suite": "baseline"
+}

@@ -143,6 +143,21 @@ test('buildPedestrianAgentMarkers uses backend pedestrian agent coordinates', ()
   assert.equal(markers[0].color, markers[1].color)
 })
 
+// 验证已入座/已离开的高级行人不会继续作为地图中间的小点显示。
+test('buildPedestrianAgentMarkers hides seated and exited agents', () => {
+  const markers = buildPedestrianAgentMarkers({
+    snapshot: {
+      pedestrian_agents: [
+        { agent_id: 1, student_id: 1, party_id: 1, state: 'SEATED', cell: [8, 8], x: 102, y: 102 },
+        { agent_id: 2, student_id: 2, party_id: 2, state: 'EXITED', cell: [1, 1], x: 18, y: 18 },
+        { agent_id: 3, student_id: 3, party_id: 3, state: 'TO_TABLE', cell: [9, 8], x: 114, y: 102 }
+      ]
+    }
+  })
+
+  assert.deepEqual(markers.map((marker) => marker.student_id), [3])
+})
+
 // 验证拥堵热力点从后端 density_hotspots 规范化为可绘制 marker。
 test('buildDensityHotspotMarkers normalizes density hotspots for map rendering', () => {
   const markers = buildDensityHotspotMarkers({

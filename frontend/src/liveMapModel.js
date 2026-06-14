@@ -184,6 +184,7 @@ export function buildLivePartyTargets({ snapshot = {}, layout = {} } = {}) {
 // 将高级行人引擎的 agent 快照转换为直接绘制的地图 marker。
 export function buildPedestrianAgentMarkers({ snapshot = {} } = {}) {
   return (snapshot?.pedestrian_agents || [])
+    .filter((rawAgent) => !['SEATED', 'EXITED'].includes(String(rawAgent?.state || '').toUpperCase()))
     .map((rawAgent) => {
       const studentId = rawAgent?.student_id ?? rawAgent?.agent_id
       const key = `agent-${rawAgent?.agent_id ?? studentId}`

@@ -84,6 +84,38 @@
         <rect class="layout-window-marker" v-bind="windowMarkerFor(window)" rx="2" />
       </g>
 
+      <g v-if="queueRows.length" class="queue-group">
+        <g
+          v-for="row in queueRows"
+          :key="`queue-row-${row.windowIndex}`"
+          class="window-queue-row"
+          :aria-label="queueRowAriaLabel(row)"
+        >
+          <rect
+            v-for="capsule in row.capsules"
+            :key="capsule.key"
+            class="queue-capsule"
+            :x="capsule.x"
+            :y="capsule.y"
+            :width="capsule.width"
+            :height="capsule.height"
+            :rx="capsule.rx"
+            :ry="capsule.ry"
+            :style="{ fill: capsule.color }"
+          />
+          <rect
+            v-if="row.overflow"
+            class="queue-overflow"
+            :x="row.overflow.x"
+            :y="row.overflow.y"
+            :width="row.overflow.width"
+            :height="row.overflow.height"
+            :rx="row.overflow.rx"
+            :ry="row.overflow.ry"
+          />
+        </g>
+      </g>
+
       <g
         v-for="(table, tableIndex) in tables"
         :key="table.id"
@@ -236,7 +268,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   LAYOUT_GRID_STEP,
   fitViewBoxForLayout,
@@ -255,6 +287,7 @@ import {
   buildLivePartyTargets,
   buildLivePartyTransitions,
   buildPedestrianAgentMarkers,
+  buildQueueRows,
   clamp,
   interpolateLivePartyMarkers,
   normalizeGroup,
@@ -297,6 +330,25 @@ const hasPedestrianAgents = computed(() => pedestrianAgentMarkers.value.length >
 const densityMarkers = computed(() => buildDensityHotspotMarkers({
   snapshot: { density_hotspots: backendDensityHotspots.value }
 }))
+const pedestrianSnapshotSignature = computed(() => {
+  if (!hasPedestrianAgents.value) return ''
+  const minute = Number.isFinite(Number(snapshot.value.minute)) ? Number(snapshot.value.minute) : ''
+  const agents = backendPedestrianAgents.value || []
+  const agentState = agents
+    .map((agent) => [
+      agent.agent_id ?? agent.student_id ?? '',
+      agent.state ?? '',
+      Number(agent.x ?? agent.cell?.[0] ?? 0).toFixed(1),
+      Number(agent.y ?? agent.cell?.[1] ?? 0).toFixed(1)
+    ].join(':'))
+    .join('|')
+  return `${minute}:${agents.length}:${agentState}`
+})
+const queueRows = computed(() => buildQueueRows({
+  queueGroups: snapshot.value.queue_groups || [],
+  queueLengths: snapshot.value.queue_lengths || [],
+  windows: windows.value
+}))
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
@@ -324,6 +376,14 @@ watch(
   [livePartyTargets, () => snapshot.value.timeline],
   ([targets, timeline]) => {
     startPartyTransition(targets, timeline)
+  },
+  { immediate: true }
+)
+
+watch(
+  pedestrianSnapshotSignature,
+  (signature) => {
+    settlePedestrianSnapshot(signature)
   },
   { immediate: true }
 )
@@ -583,6 +643,21 @@ function startBackendTimelineTransition(nextTargets, timeline, playbackMs) {
   partyAnimationFrame = window.requestAnimationFrame(render)
 }
 
+// advanced 行人模式直接渲染后端 agent 坐标，没有前端补间动画也必须通知父组件继续步进。
+function settlePedestrianSnapshot(signature) {
+  if (!signature || !hasPedestrianAgents.value) return
+  cancelPartyAnimation()
+  lastSettledPartyTargets = []
+  animatedPartyMarkers.value = []
+  walkingPartyMarkers.value = []
+  settleTableOccupancy()
+  nextTick(() => {
+    if (hasPedestrianAgents.value && pedestrianSnapshotSignature.value === signature) {
+      emit('transition-settled')
+    }
+  })
+}
+
 // 动画完成后将快照餐桌占用固化到显示态，避免行走中提前占座。
 function settleTableOccupancy() {
   displayedTableOccupancy.value = snapshotTableOccupancy.value.map((entry) => ({ ...entry }))
@@ -728,5 +803,14 @@ function windowAriaLabel(window, idx) {
   return total > 0
     ? `窗口 ${window.id}，排队 ${total} 人，点击查看详情`
     : `窗口 ${window.id}，暂无排队，点击查看详情`
+}
+
+function queueRowAriaLabel(row) {
+  const windowItem = windows.value[row.windowIndex]
+  const total = queueLengthByWindow.value.get(row.windowIndex) || 0
+  const hidden = row.overflow?.hiddenPeople || 0
+  return hidden > 0
+    ? `窗口 ${windowItem?.id || row.windowIndex + 1} 地图排队标记，排队 ${total} 人，另有 ${hidden} 人聚合显示`
+    : `窗口 ${windowItem?.id || row.windowIndex + 1} 地图排队标记，排队 ${total} 人`
 }
 </script>

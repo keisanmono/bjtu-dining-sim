@@ -52,6 +52,14 @@ function isUsableLayout(layout) {
 
 // 清洗布局坐标、容量和旋转角，输出后端 schema 可接收的字段。
 function normalizeLayout(layout) {
+  const floor = layout.floor
+    ? {
+        x: round1(layout.floor.x),
+        y: round1(layout.floor.y),
+        width: Math.max(1, round1(layout.floor.width)),
+        height: Math.max(1, round1(layout.floor.height))
+      }
+    : null
   // 门和窗口保留墙面方向，后端路径和入口/服务点会用到 wall_side。
   const doors = layout.doors.map((door) => ({
     id: door.id,
@@ -78,7 +86,7 @@ function normalizeLayout(layout) {
       rotation: normalizeTableRotation(table.rotation)
     }
   })
-  return { doors, windows, tables }
+  return { ...(floor ? { floor } : {}), doors, windows, tables }
 }
 
 // 根据最大餐桌容量裁剪结伴人数分布，避免出现坐不下的小组。

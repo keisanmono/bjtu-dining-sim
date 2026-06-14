@@ -182,6 +182,30 @@ class ApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["teaching_buildings"]), 9)
         self.assertEqual({item["id"] for item in payload["cafeterias"]}, {"xuehuo", "minghu", "xuesi", "xueyuan"})
         self.assertIn("walk_times", payload)
+        self.assertIn("residential_sources", payload)
+        self.assertGreater(len(payload["residential_sources"]), 0)
+        residential_ids = {item["id"] for item in payload["residential_sources"]}
+        self.assertNotIn("main_dorms", residential_ids)
+        self.assertNotIn("east_dorms", residential_ids)
+        self.assertIn("residential_walk_times", payload)
+        valid_residential_ids = {
+            item["id"]
+            for item in payload["residential_sources"]
+            if not item.get("exclude_from_simulation") and item.get("capacity_weight", 0) > 0
+        }
+        self.assertTrue(valid_residential_ids)
+        self.assertTrue(valid_residential_ids.issubset(set(payload["residential_walk_times"])))
+        first_residential_id = sorted(valid_residential_ids)[0]
+        self.assertIn("xuesi", payload["residential_walk_times"][first_residential_id])
+        self.assertIn("residential_release_profiles", payload)
+        self.assertEqual(payload["residential_release_profiles"]["breakfast"]["start_minute"], 420)
+        self.assertLess(
+            payload["residential_release_profiles"]["breakfast"]["residential_participation_rate"],
+            payload["residential_release_profiles"]["dinner"]["residential_participation_rate"],
+        )
+        self.assertIn("population_pool_defaults", payload)
+        self.assertEqual(payload["population_pool_defaults"]["lunch"]["total_population_pool"], 15000)
+        self.assertEqual(payload["population_pool_defaults"]["lunch"]["meal_participation_rate"], 0.75)
 
     # 验证随机校园人数接口返回按楼层组织的人数行。
     def test_random_campus_occupancy_returns_floor_rows(self):

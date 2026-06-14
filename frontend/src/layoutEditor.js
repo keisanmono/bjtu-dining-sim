@@ -40,6 +40,10 @@ const TABLE_PATTERN = [2, 4, 4, 6]
 const DENSE_TABLE_THRESHOLD_SEATS = 120
 const COMPACT_TABLE_COLUMN_STEP = 80
 const COMPACT_TABLE_ROW_STEP = 52
+const DEFAULT_TABLE_START_Y = 76
+const SERVICE_CORRIDOR_TABLE_START_Y = 160
+const SERVICE_CORRIDOR_MIN_SEATS = 80
+const DEFAULT_TABLE_ROW_STEP = 50
 
 const FOOTPRINTS = Object.freeze({
   door: Object.freeze({
@@ -344,7 +348,13 @@ function defaultTablePosition(index, capacity, layout = null) {
   const cols = 3
   const col = index % cols
   const row = Math.floor(index / cols)
-  return snapAndClampPoint(bounds.x + 76 + col * 80, bounds.y + 76 + row * 50, 'table', { capacity }, bounds)
+  return snapAndClampPoint(
+    bounds.x + 76 + col * 80,
+    bounds.y + tableStartOffsetForLayout(layout) + row * DEFAULT_TABLE_ROW_STEP,
+    'table',
+    { capacity },
+    bounds
+  )
 }
 
 // 查找第一个可用墙面点；找不到时保留首选位置作为兜底。
@@ -416,16 +426,56 @@ function tableCandidatePoints(layout, capacity) {
   const bounds = floorBoundsForLayout(layout)
   const fp = getItemFootprint('table', { capacity })
   const startX = snapInsideRange(bounds.x + 76, bounds.x + fp.width / 2, bounds.right - fp.width / 2)
-  const startY = snapInsideRange(bounds.y + 76, bounds.y + fp.height / 2, bounds.bottom - fp.height / 2)
+  const startY = snapInsideRange(
+    bounds.y + tableStartOffsetForLayout(layout),
+    bounds.y + fp.height / 2,
+    bounds.bottom - fp.height / 2
+  )
   const endX = bounds.right - fp.width / 2
   const endY = bounds.bottom - fp.height / 2
   const points = []
-  for (let y = startY; y <= endY; y += 50) {
+  for (let y = startY; y <= endY; y += DEFAULT_TABLE_ROW_STEP) {
     for (let x = startX; x <= endX; x += 80) {
       points.push({ x, y })
     }
   }
   return points
+}
+
+function tableStartOffsetForLayout(layout) {
+  const seats = Number(layout?.target_seats_for_default_layout) || totalLayoutSeats(layout)
+  return seats >= SERVICE_CORRIDOR_MIN_SEATS
+    ? SERVICE_CORRIDOR_TABLE_START_Y
+    : DEFAULT_TABLE_START_Y
+}
+
+function minDoorWindowDistance(doors = [], windows = []) {
+  if (!doors.length || !windows.length) return 0
+  let best = Infinity
+  for (const door of doors) {
+    for (const window of windows) {
+      const distance = Math.hypot((Number(door.x) || 0) - (Number(window.x) || 0), (Number(door.y) || 0) - (Number(window.y) || 0))
+      best = Math.min(best, distance)
+    }
+  }
+  return Number.isFinite(best) ? best : 0
+}
+
+function tableWidthUtilization(tables = [], floor = LAYOUT_DEFAULT_FLOOR) {
+  if (!tables.length) return 0
+  const minX = Math.min(...tables.map((table) => Number(table.x) || 0))
+  const maxX = Math.max(...tables.map((table) => Number(table.x) || 0))
+  return Math.max(0, Math.min(1, (maxX - minX) / Math.max(1, floor.width)))
+}
+
+function tableDistributionBounds(layout) {
+  const bounds = floorBoundsForLayout(layout)
+  const offset = tableStartOffsetForLayout(layout)
+  const top = Math.min(bounds.bottom, bounds.y + offset)
+  return {
+    ...bounds,
+    y: top
+  }
 }
 
 // 从左上向右下紧凑排布已有餐桌。
@@ -443,7 +493,7 @@ function arrangeTablesCompact(baseLayout, tables) {
 // 将餐桌按地面比例分散到网格单元中，再就近寻找无碰撞点。
 function arrangeTablesSpread(baseLayout, tables) {
   const arranged = []
-  const bounds = floorBoundsForLayout(baseLayout)
+  const bounds = tableDistributionBounds(baseLayout)
   const floorWidth = bounds.right - bounds.x
   const floorHeight = bounds.bottom - bounds.y
   const count = tables.length
@@ -643,7 +693,8 @@ export function createDefaultLayout(config) {
   const numWindows = clampInteger(config?.num_windows, 1, 30)
   const floor = floorSizeFromConfig(config)
   const doors = []
-  let draft = { floor, doors, windows: [], tables: [] }
+  const targetSeats = normalizeSeatCount(config?.num_seats, LAYOUT_MAX_EDITABLE_SEATS)
+  let draft = { floor, doors, windows: [], tables: [], target_seats_for_default_layout: targetSeats }
   // 默认至少保留一个入口，后续门窗和餐桌都基于这个草稿布局避障。
   doors.push({
     id: 'D1',
@@ -666,6 +717,100 @@ export function createDefaultLayout(config) {
   const numSeats = normalizeSeatCount(config?.num_seats, calculateLayoutSeatLimit(draft))
   const tables = placeTablesForSeats(draft, numSeats) || []
   return { floor, doors, windows, tables }
+}
+
+// 用简单可解释的流线指标评价布局是否适合 advanced 模式的室内排队。
+export function evaluateLayoutFlow(layout, config = {}) {
+  const floor = sanitizeFloorSize(layout?.floor)
+  const bounds = floorBoundsForLayout({ floor })
+  const tables = layout?.tables || []
+  const windows = layout?.windows || []
+  const doors = layout?.doors || []
+  const seats = totalLayoutSeats(layout) || normalizeSeatCount(config?.num_seats, LAYOUT_MAX_EDITABLE_SEATS)
+  const firstTableY = tables.length
+    ? Math.min(...tables.map((table) => Number(table.y) || bounds.bottom))
+    : bounds.bottom
+  const serviceCorridorDepth = Math.max(0, firstTableY - bounds.y)
+  const desiredCorridorDepth = seats >= SERVICE_CORRIDOR_MIN_SEATS ? SERVICE_CORRIDOR_TABLE_START_Y : DEFAULT_TABLE_START_Y
+  const corridorScore = Math.min(100, (serviceCorridorDepth / Math.max(1, desiredCorridorDepth)) * 100)
+  const windowShareWidth = windows.length ? floor.width / windows.length : floor.width
+  const queueReadinessScore = Math.min(100, corridorScore * 0.65 + Math.min(100, windowShareWidth) * 0.35)
+  const entryClearance = minDoorWindowDistance(doors, windows)
+  const entryScore = Math.min(100, entryClearance)
+  const density = seats / Math.max(1, floor.width * floor.height / 10000)
+  const densityPenalty = Math.max(0, density - 16) * 2
+  const widthUtilization = tableWidthUtilization(tables, floor)
+  const widthUtilizationScore = widthUtilization * 100
+  const score = Math.max(0, Math.round((
+    corridorScore * 0.4 +
+    queueReadinessScore * 0.32 +
+    entryScore * 0.18 +
+    widthUtilizationScore * 0.1 -
+    densityPenalty
+  ) * 10) / 10)
+  return {
+    score,
+    serviceCorridorDepth: Math.round(serviceCorridorDepth * 10) / 10,
+    queueReadinessScore: Math.round(queueReadinessScore * 10) / 10,
+    entryClearance: Math.round(entryClearance * 10) / 10,
+    density: Math.round(density * 10) / 10,
+    tableWidthUtilization: Math.round(widthUtilization * 1000) / 1000
+  }
+}
+
+// 生成一个偏向室内蛇形排队的确定性布局：窗口上墙、入口侧墙、餐桌从服务通道后开始。
+export function optimizeLayoutForFlow(layout, config = {}) {
+  const currentFloor = sanitizeFloorSize(layout?.floor)
+  const seats = normalizeSeatCount(totalLayoutSeats(layout) || config?.num_seats, LAYOUT_MAX_EDITABLE_SEATS)
+  const numWindows = clampInteger((layout?.windows || []).length || config?.num_windows, 1, 30)
+  const regenerated = createDefaultLayout({
+    ...config,
+    num_windows: numWindows,
+    num_seats: seats,
+    floor: currentFloor,
+    preserve_floor_size: true
+  })
+  const sourceTables = (layout?.tables || []).length
+    ? layout.tables
+    : regenerated.tables
+  const optimized = arrangeLayoutTables({
+    ...regenerated,
+    tables: sourceTables,
+    target_seats_for_default_layout: seats
+  }, 'spread')
+  const doors = optimized.doors.map((door, index) => ({
+    ...door,
+    arrival_share: Number(layout?.doors?.[index]?.arrival_share ?? door.arrival_share ?? 1)
+  }))
+  const windows = optimizedServiceWindows(
+    { ...optimized, doors },
+    layout?.windows || []
+  )
+  return { ...optimized, doors, windows }
+}
+
+function optimizedServiceWindows(layout, sourceWindows = []) {
+  const bounds = floorBoundsForLayout(layout)
+  const windows = []
+  const sourceCount = layout?.windows?.length || 0
+  for (let index = 0; index < sourceCount; index += 1) {
+    const base = layout.windows[index]
+    const source = sourceWindows[index] || {}
+    const preferred = snapAndClampPoint(
+      bounds.x + (bounds.right - bounds.x) * ((index + 1) / (sourceCount + 1)),
+      bounds.y,
+      'window',
+      { ...base, wall_side: 'top' },
+      bounds
+    )
+    const point = findAvailableWallPosition({ ...layout, windows }, 'window', base.id, index, preferred) || preferred
+    windows.push({
+      ...base,
+      ...point,
+      service_rate_factor: Number(source.service_rate_factor ?? base.service_rate_factor ?? 1)
+    })
+  }
+  return windows
 }
 
 // 增减窗口数量，新增窗口会自动寻找不碰撞的墙面位置。
@@ -734,7 +879,8 @@ export function arrangeLayoutTables(layout, mode = 'spread') {
   const baseLayout = {
     ...layout,
     floor: sanitizeFloorSize(layout?.floor),
-    tables: []
+    tables: [],
+    target_seats_for_default_layout: Number(layout?.target_seats_for_default_layout) || totalLayoutSeats(layout)
   }
   const strategy = mode === 'compact' ? 'compact' : 'spread'
   const arranged = strategy === 'compact'
@@ -1028,10 +1174,28 @@ function sanitizeCapacity(capacity) {
 
 // 从配置对象读取 floor 字段，兼容旧的 floor_width/floor_height 字段。
 function floorSizeFromConfig(config) {
-  return sanitizeFloorSize(config?.floor || {
+  const floor = sanitizeFloorSize(config?.floor || {
     width: config?.floor_width,
     height: config?.floor_height
   })
+  if (config?.preserve_floor_size) return floor
+  return expandFloorForDefaultServiceCorridor(floor, config)
+}
+
+function expandFloorForDefaultServiceCorridor(floor, config = {}) {
+  const seats = normalizeSeatCount(config?.num_seats, LAYOUT_MAX_EDITABLE_SEATS)
+  if (seats < SERVICE_CORRIDOR_MIN_SEATS) return floor
+  const tableCount = buildTableCapacities(seats).length
+  const usableWidth = Math.max(1, floor.width - 152)
+  const columns = Math.max(1, Math.floor(usableWidth / 80) + 1)
+  const rows = Math.max(1, Math.ceil(tableCount / columns))
+  const requiredHeight = SERVICE_CORRIDOR_TABLE_START_Y + (rows - 1) * DEFAULT_TABLE_ROW_STEP + 90
+  if (requiredHeight <= floor.height) return floor
+  const height = Math.ceil(requiredHeight / LAYOUT_SIZE_LIMITS.step) * LAYOUT_SIZE_LIMITS.step
+  return constrainFloorArea({
+    ...floor,
+    height
+  }, floor)
 }
 
 // 清洗地面位置和尺寸，并在必要时套用最大面积约束。

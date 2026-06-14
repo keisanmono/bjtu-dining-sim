@@ -76,8 +76,10 @@ class SimulationStore:
                     _json(result.metrics.chart_data),
                     _json(
                         {
+                            "active_window_utilization": result.metrics.active_window_utilization,
                             "avg_party_gather_wait": result.metrics.avg_party_gather_wait,
                             "avg_party_seat_wait": result.metrics.avg_party_seat_wait,
+                            "avg_post_service_to_seat_time": result.metrics.avg_post_service_to_seat_time,
                             "party_window_split_count": result.metrics.party_window_split_count,
                             "party_split_count": result.metrics.party_split_count,
                             "shared_table_count": result.metrics.shared_table_count,
@@ -323,6 +325,8 @@ def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
     # 数据库保存紧凑 JSON，接口返回时恢复为前端可直接使用的对象。
     data["queue_lengths"] = json.loads(data.pop("queue_lengths_json"))
     data["snapshot"] = json.loads(data.pop("snapshot_json"))
+    if "clock_minute" in data["snapshot"]:
+        data["clock_minute"] = data["snapshot"]["clock_minute"]
     return data
 
 

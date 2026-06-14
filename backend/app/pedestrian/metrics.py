@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
-from .agents import AgentState, PedestrianAgent
+from .agents import PedestrianAgent
 from .grid import Cell, GridData, cell_to_point
 
 
@@ -16,17 +16,17 @@ class MovementMetrics:
 
 
 def movement_metrics(agents: dict[int, PedestrianAgent], tick_seconds: int, max_density: int = 0) -> MovementMetrics:
-    active = [agent for agent in agents.values() if agent.state is not AgentState.EXITED]
+    tracked = list(agents.values())
     walking_seconds = [
         agent.walking_distance_cells * tick_seconds
-        for agent in active
+        for agent in tracked
         if agent.walking_distance_cells > 0
     ]
     avg_walking_time = sum(walking_seconds) / len(walking_seconds) if walking_seconds else 0.0
-    avg_stuck_ticks = sum(agent.stuck_ticks for agent in active) / len(active) if active else 0.0
+    avg_stuck_ticks = sum(agent.stuck_ticks for agent in tracked) / len(tracked) if tracked else 0.0
     return MovementMetrics(
         avg_walking_time=round(avg_walking_time, 2),
-        movement_conflict_count=sum(agent.conflict_count for agent in active),
+        movement_conflict_count=sum(agent.conflict_count for agent in tracked),
         avg_stuck_ticks=round(avg_stuck_ticks, 2),
         max_density=max_density,
     )

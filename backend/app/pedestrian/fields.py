@@ -67,24 +67,26 @@ class DensityField:
     def from_occupied_cells(cls, occupied_cells: set[Cell], grid: GridData, radius: int = 1) -> "DensityField":
         radius = max(0, int(radius))
         densities: dict[Cell, int] = {}
-        for col in range(grid.cols):
-            for row in range(grid.rows):
-                cell = (col, row)
-                if not is_walkable(cell, grid):
-                    continue
-                count = 0
-                for occupied in occupied_cells:
-                    if max(abs(occupied[0] - col), abs(occupied[1] - row)) <= radius:
-                        count += 1
-                if count:
-                    densities[cell] = count
+        for occupied_col, occupied_row in occupied_cells:
+            for col in range(occupied_col - radius, occupied_col + radius + 1):
+                for row in range(occupied_row - radius, occupied_row + radius + 1):
+                    cell = (col, row)
+                    if not is_walkable(cell, grid):
+                        continue
+                    densities[cell] = densities.get(cell, 0) + 1
         return cls(densities=densities)
 
     def density(self, cell: Cell) -> int:
         return self.densities.get(cell, 0)
 
-    def penalty(self, cell: Cell, threshold: int = 3) -> float:
+    def density_without(self, cell: Cell, excluded_cell: Cell | None, radius: int = 1) -> int:
         density = self.density(cell)
+        if excluded_cell is not None and max(abs(excluded_cell[0] - cell[0]), abs(excluded_cell[1] - cell[1])) <= max(0, int(radius)):
+            density -= 1
+        return max(0, density)
+
+    def penalty(self, cell: Cell, threshold: int = 3, excluded_cell: Cell | None = None, radius: int = 1) -> float:
+        density = self.density_without(cell, excluded_cell, radius) if excluded_cell is not None else self.density(cell)
         if density <= 0:
             return 0.0
         return float(max(0, density - max(0, threshold) + 1))

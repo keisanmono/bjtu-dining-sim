@@ -9,6 +9,7 @@ from .campus import (
     CampusBuildingDemandData,
     CampusDemandConfigData,
     build_campus_arrival_schedule,
+    build_mixed_campus_arrival_schedule,
     cafeteria_choice_probabilities,
 )
 from .simulation import (
@@ -17,6 +18,7 @@ from .simulation import (
     MetricsSummary,
     SimulationConfigData,
     _default_layout,
+    normalize_arrival_schedule_to_simulation_start,
     run_simulation,
 )
 
@@ -261,9 +263,25 @@ def _estimate_arrival_schedule(config: SimulationConfigData) -> dict[int, float]
     campus = config.campus_demand
     if campus and campus.enabled and campus.cafeteria_id:
         # 校园模式使用真实下课到达分布；推荐只评估候选资源和下课峰安排。
+        if campus.residential_sources or (campus.population_pool is not None and campus.population_pool.enabled):
+            schedule = build_mixed_campus_arrival_schedule(
+                cafeteria_id=campus.cafeteria_id,
+                buildings=campus.buildings,
+                residential_sources=campus.residential_sources,
+                population_pool=campus.population_pool,
+                meal_period=campus.meal_period,
+                seed=config.seed,
+                residential_release_profile=campus.residential_release_profile,
+            )["schedule"]
+            schedule = normalize_arrival_schedule_to_simulation_start(schedule, config.simulation_start_minute)
+            return {minute: float(count) for minute, count in schedule.items()}
+        schedule = normalize_arrival_schedule_to_simulation_start(
+            build_campus_arrival_schedule(campus.cafeteria_id, campus.buildings, seed=config.seed),
+            config.simulation_start_minute,
+        )
         return {
             minute: float(count)
-            for minute, count in build_campus_arrival_schedule(campus.cafeteria_id, campus.buildings, seed=config.seed).items()
+            for minute, count in schedule.items()
         }
     # 手动模式没有随机采样，直接使用每分钟期望到达率做快速估算。
     return {
@@ -366,6 +384,7 @@ def _candidate_layout(base: SimulationConfigData, windows: int, seats: int) -> D
                 candidate_tables.append(default_table)
 
     return DiningLayoutData(
+        floor=base.layout.floor or default.floor,
         doors=list(base.layout.doors) or list(default.doors),
         windows=candidate_windows,
         tables=candidate_tables,
