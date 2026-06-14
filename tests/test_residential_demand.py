@@ -75,6 +75,32 @@ class ResidentialDemandTests(unittest.TestCase):
         self.assertGreater(sum(result["schedule"].values()), 0)
         self.assertGreater(result["breakdown"]["residential_arrived"], 0)
 
+    def test_fallback_duration_routes_missing_residential_source_to_target(self):
+        result = build_mixed_campus_arrival_schedule(
+            cafeteria_id="xuesi",
+            buildings=[],
+            residential_sources=[CampusResidentialDemandData("jiayuan_a", population_override=20)],
+            population_pool=None,
+            meal_period="breakfast",
+            seed=25,
+            fallback_duration_min=8,
+            residential_data={
+                "residential_areas": [
+                    {
+                        "id": "jiayuan_a",
+                        "name": "嘉园A座",
+                        "campus_area": "嘉园片区",
+                        "capacity_weight": 1,
+                        "exclude_from_simulation": False,
+                    }
+                ],
+                "walk_times": {},
+            },
+        )
+
+        self.assertEqual(result["breakdown"]["residential_arrived"], 20)
+        self.assertEqual(result["breakdown"]["residential_source_walk_times"]["jiayuan_a"]["xuesi"]["source"], "fallback_duration_min")
+
     def test_breakfast_residential_window_arrives_more_than_teaching(self):
         result = build_mixed_campus_arrival_schedule(
             cafeteria_id="xuesi",
@@ -323,6 +349,73 @@ class ResidentialDemandTests(unittest.TestCase):
             self.assertEqual(payload["walk_times"]["jiayuan_a"]["minghu"]["duration_s"], 160)
             self.assertFalse(any("路线失败" in warning for warning in payload["warnings"]))
             self.assertFalse(any("BAIDU_MAP_AK was not available" in warning for warning in payload["warnings"]))
+
+    def test_generate_script_retries_sources_with_previous_geocode_failure(self):
+        import scripts.generate_residential_walk_times as generator
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            campus_path = tmp_path / "campus_walk_times.json"
+            residential_path = tmp_path / "campus_residential_sources.json"
+            campus_path.write_text(json.dumps({
+                "locations": {
+                    "cafeterias": [
+                        {"id": "xuesi", "name": "学四食堂", "lat": 39.955, "lng": 116.35}
+                    ]
+                }
+            }, ensure_ascii=False), encoding="utf-8")
+            residential_path.write_text(json.dumps({
+                "residential_areas": [
+                    {
+                        "id": "jiayuan_a",
+                        "name": "嘉园A座",
+                        "address_query": "北京交通大学 嘉园A座",
+                        "lat": None,
+                        "lng": None,
+                        "geocode_status": "failed",
+                        "exclude_from_simulation": True,
+                    }
+                ],
+                "walk_times": {},
+                "warnings": ["jiayuan_a 定位失败：timeout"],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            original_paths = (generator.CAMPUS_WALK_TIMES_PATH, generator.RESIDENTIAL_PATH)
+            original_env = os.environ.get("BAIDU_MAP_AK")
+            original_geocode = generator._geocode
+            original_route = generator._walking_route
+            geocode_calls = []
+
+            def fake_geocode(address, _ak):
+                geocode_calls.append(address)
+                return {"lat": 39.95, "lng": 116.34}, None
+
+            def fake_route(_origin, _cafeteria, _ak):
+                return {"distance_m": 200, "duration_s": 160, "duration_min": 3, "source": "baidu_walking_api"}, None
+
+            generator.CAMPUS_WALK_TIMES_PATH = campus_path
+            generator.RESIDENTIAL_PATH = residential_path
+            generator._geocode = fake_geocode
+            generator._walking_route = fake_route
+            os.environ["BAIDU_MAP_AK"] = "test-ak"
+            try:
+                with redirect_stdout(io.StringIO()):
+                    exit_code = generator.main()
+            finally:
+                generator.CAMPUS_WALK_TIMES_PATH, generator.RESIDENTIAL_PATH = original_paths
+                generator._geocode = original_geocode
+                generator._walking_route = original_route
+                if original_env is None:
+                    os.environ.pop("BAIDU_MAP_AK", None)
+                else:
+                    os.environ["BAIDU_MAP_AK"] = original_env
+
+            payload = json.loads(residential_path.read_text(encoding="utf-8"))
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(geocode_calls, ["北京交通大学 嘉园A座"])
+            self.assertEqual(payload["residential_areas"][0]["geocode_status"], "success")
+            self.assertFalse(payload["residential_areas"][0]["exclude_from_simulation"])
+            self.assertEqual(payload["walk_times"]["jiayuan_a"]["xuesi"]["duration_s"], 160)
 
     def test_walking_route_retries_baidu_quota_status_before_success(self):
         import scripts.generate_residential_walk_times as generator

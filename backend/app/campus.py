@@ -526,7 +526,11 @@ def build_mixed_campus_arrival_schedule(
             }
             warnings.append(f"缺少 {source_id} 到 {cafeteria_id} 的宿舍步行时间，使用 fallback_duration_min={fallback_duration_min}。")
         source_walk_times.setdefault(source_id, {})[cafeteria_id] = route
-        target_probability = 1.0 if force_target else _residential_target_probability(data, source_id, cafeteria_id)
+        target_probability = (
+            1.0
+            if force_target or route.get("source") == "fallback_duration_min"
+            else _residential_target_probability(data, source_id, cafeteria_id)
+        )
         route_seconds = int(route["duration_s"])
         for _ in range(source_population):
             if residential_rng.random() > target_probability:

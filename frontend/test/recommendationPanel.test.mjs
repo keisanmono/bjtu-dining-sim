@@ -393,6 +393,18 @@ test('applying campus recommendation writes peak schedule back to editable rows'
   assert.equal(source.includes('release_percent: releasePercentFromRatio(building.release_ratio ?? 1)'), true)
 })
 
+// 验证应用校园推荐后同步宿舍/人口池表单源，避免下一次运行重新序列化旧默认值。
+test('applying campus recommendation syncs residential and population pool forms', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('applyCampusPopulationPoolConfig(campusDemand.population_pool)'), true)
+  assert.equal(source.includes('applyCampusResidentialProfileConfig(campusDemand.residential_release_profile)'), true)
+  assert.equal(source.includes('applyCampusResidentialSourcesConfig(campusDemand.residential_sources)'), true)
+  assert.equal(source.includes('campusPopulationPoolForm.total_population_pool = Math.max(0, Math.round(Number(pool.total_population_pool) || 0))'), true)
+  assert.equal(source.includes('campusResidentialProfileForm.start_time = formatClockMinute(profile.start_minute)'), true)
+  assert.equal(source.includes('residentialPopulationOverrides[source.residential_id] = Math.max(0, Math.round(Number(source.population_override) || 0))'), true)
+})
+
 // 验证校园就餐比例在页面上按百分比编辑并转换为后端比例。
 test('campus release control is edited as a percentage', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')

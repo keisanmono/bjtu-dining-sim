@@ -244,6 +244,24 @@ class FloorFieldTests(unittest.TestCase):
 
         self.assertNotIn(next_cell, field["blocked"])
 
+    # 验证 legacy floor-field 包装保留 floor origin，避免带偏移布局下点坐标被映射到错误格。
+    def test_next_cell_by_floor_field_preserves_grid_origin_for_point_agents(self):
+        layout = {
+            "floor": {"x": 24, "y": 24, "width": 312, "height": 240},
+            "doors": [],
+            "windows": [],
+            "tables": [],
+        }
+        grid = grid_from_layout(layout, cell_size=20)
+        target = {"x": 120, "y": 72}
+        field = build_static_floor_field(layout, target)
+
+        next_cell = next_cell_by_floor_field(agent={"x": 48, "y": 72}, grid=field, target=target)
+
+        self.assertEqual(field["origin_x"], grid.origin_x)
+        self.assertEqual(field["origin_y"], grid.origin_y)
+        self.assertEqual(next_cell, (2, 2))
+
     # 验证目标格即使位于桌面 footprint 内，兼容包装也会改用附近可达格作为终点。
     def test_next_cell_can_enter_blocked_target_cell(self):
         layout = {

@@ -46,7 +46,7 @@ def main() -> int:
             source["exclude_from_simulation"] = True
             warnings.append(f"禁止的宿舍聚合 source {source_id} 已排除。")
             continue
-        if source.get("exclude_from_simulation"):
+        if source.get("exclude_from_simulation") and source.get("geocode_status") != "failed":
             continue
 
         if not refresh and _has_cached_location(source):
@@ -66,6 +66,7 @@ def main() -> int:
             source["lng"] = location["lng"]
             source["coordinate_source"] = "baidu_geocoding"
             source["geocode_status"] = "success"
+            source["exclude_from_simulation"] = False
         source_routes = {} if refresh else dict(walk_times.get(source_id, {}))
 
         for cafeteria in cafeterias:

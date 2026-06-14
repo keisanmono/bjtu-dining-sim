@@ -739,6 +739,7 @@ const campusResidentialProfileForm = reactive({
   distribution: DEFAULT_RESIDENTIAL_RELEASE_PROFILES.lunch.distribution
 })
 const residentialCapacityWeights = reactive({})
+const residentialPopulationOverrides = reactive({})
 
 // ECharts 容器和实例：records 或 metrics 变化后会触发图表刷新。
 const queueChartEl = ref(null)
@@ -892,7 +893,7 @@ const residentialAllocatedPopulation = computed(() => (
 ))
 const campusResidentialTableRows = computed(() => (
   editableResidentialSources.value.map((source) => {
-    const population = residentialAllocatedPopulation.value[source.id] || 0
+    const population = residentialSourcePopulation(source.id)
     return {
       source_id: source.id,
       source_name: source.name,
@@ -903,7 +904,7 @@ const campusResidentialTableRows = computed(() => (
       release_mode: '时间窗口',
       release_window: residentialReleaseWindowLabel(),
       walk_minutes_label: `${residentialWalkMinutes(source.id)} min`,
-      basis: 'residual 按 source 权重'
+      basis: residentialPopulationOverrides[source.id] == null ? 'residual 按 source 权重' : '推荐人口覆盖'
     }
   })
 ))
@@ -911,7 +912,7 @@ const campusResidentialDemandPayload = computed(() => (
   editableResidentialSources.value.map((source) => ({
     residential_id: source.id,
     release_ratio: 1,
-    population_override: residentialAllocatedPopulation.value[source.id] || 0,
+    population_override: residentialSourcePopulation(source.id),
     source_type: 'residential'
   }))
 ))
@@ -1026,6 +1027,7 @@ function applyMealPeriodDefaults() {
 }
 
 function syncCampusPopulationDefaults(mealPeriod) {
+  clearResidentialPopulationOverrides()
   const pool = campusLocations.value.population_pool_defaults?.[mealPeriod]
     || DEFAULT_POPULATION_POOL_BY_PERIOD[mealPeriod]
     || DEFAULT_POPULATION_POOL_BY_PERIOD.lunch
@@ -1040,6 +1042,38 @@ function syncCampusPopulationDefaults(mealPeriod) {
   campusResidentialProfileForm.end_time = formatClockMinute(profile.end_minute)
   campusResidentialProfileForm.peak_time = formatClockMinute(profile.peak_minute ?? Math.round((profile.start_minute + profile.end_minute) / 2))
   campusResidentialProfileForm.distribution = profile.distribution || 'triangular'
+}
+
+function applyCampusPopulationPoolConfig(pool) {
+  if (!pool) return
+  campusPopulationPoolForm.total_population_pool = Math.max(0, Math.round(Number(pool.total_population_pool) || 0))
+  campusPopulationPoolForm.meal_participation_percent = Math.round(clampRatio(pool.meal_participation_rate ?? 1) * 100)
+  campusPopulationPoolForm.other_known_population = Math.max(0, Math.round(Number(pool.other_known_population) || 0))
+}
+
+function applyCampusResidentialProfileConfig(profile) {
+  if (!profile) return
+  campusResidentialProfileForm.residential_participation_percent = Math.round(clampRatio(profile.residential_participation_rate ?? 1) * 100)
+  campusResidentialProfileForm.start_time = formatClockMinute(profile.start_minute)
+  campusResidentialProfileForm.end_time = formatClockMinute(profile.end_minute)
+  campusResidentialProfileForm.peak_time = formatClockMinute(profile.peak_minute ?? Math.round((Number(profile.start_minute) + Number(profile.end_minute)) / 2))
+  campusResidentialProfileForm.distribution = profile.distribution || 'triangular'
+}
+
+function applyCampusResidentialSourcesConfig(sources) {
+  clearResidentialPopulationOverrides()
+  for (const source of sources || []) {
+    if (!source?.residential_id) continue
+    if (source.population_override != null) {
+      residentialPopulationOverrides[source.residential_id] = Math.max(0, Math.round(Number(source.population_override) || 0))
+    }
+  }
+}
+
+function clearResidentialPopulationOverrides() {
+  Object.keys(residentialPopulationOverrides).forEach((key) => {
+    delete residentialPopulationOverrides[key]
+  })
 }
 
 function seedResidentialCapacityWeights(sources) {
@@ -1146,6 +1180,9 @@ function applyCampusDemandConfig(campusDemand) {
   arrivalMode.value = 'campus'
   selectedCafeteriaId.value = campusDemand.cafeteria_id || selectedCafeteriaId.value
   campusSourceMode.value = campusDemand.source_mode || 'manual'
+  applyCampusPopulationPoolConfig(campusDemand.population_pool)
+  applyCampusResidentialProfileConfig(campusDemand.residential_release_profile)
+  applyCampusResidentialSourcesConfig(campusDemand.residential_sources)
   // 推荐接口返回的是 building_id，页面展示需要补回教学楼名称。
   const buildingNames = new Map(
     (campusLocations.value.teaching_buildings || []).map((building) => [building.id, building.name])
@@ -1560,6 +1597,14 @@ function residentialCapacityWeight(residentialId) {
 
 function updateResidentialCapacityWeight(residentialId, value) {
   residentialCapacityWeights[residentialId] = Math.max(0, Number(value) || 0)
+  delete residentialPopulationOverrides[residentialId]
+}
+
+function residentialSourcePopulation(residentialId) {
+  if (residentialPopulationOverrides[residentialId] != null) {
+    return Math.max(0, Math.round(Number(residentialPopulationOverrides[residentialId]) || 0))
+  }
+  return residentialAllocatedPopulation.value[residentialId] || 0
 }
 
 function allocateResidentialPopulationByWeight(population, sources) {
