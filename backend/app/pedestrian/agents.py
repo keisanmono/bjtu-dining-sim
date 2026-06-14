@@ -33,6 +33,7 @@ class PedestrianAgent:
     table_index: int | None = None
     stuck_ticks: int = 0
     walking_distance_cells: int = 0
+    walking_time_seconds: float = 0.0
     conflict_count: int = 0
     wait_ticks: int = 0
     path_cells: list[Cell] = field(default_factory=list)

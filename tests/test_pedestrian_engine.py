@@ -72,6 +72,22 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertGreater(agent.walking_distance_cells, 0)
         self.assertEqual(agent.path_cells[0], start)
 
+    # 验证默认 advanced CA 速度按 DES 行走速度换算为每 tick 多格微步，而不是 5 秒只走一格。
+    def test_default_tick_budget_reaches_nearby_window_within_two_ticks(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(112))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        engine.set_agent_target_window(person.student_id, 0)
+
+        first_tick_events = engine.tick(0)
+        second_tick_events = engine.tick(5)
+
+        agent = engine.agents[person.student_id]
+        self.assertIn(agent.cell, agent.target_cells)
+        self.assertEqual(agent.state, AgentState.QUEUEING)
+        self.assertGreaterEqual(agent.walking_distance_cells, 20)
+        self.assertGreater(len(first_tick_events) + len(second_tick_events), 2)
+
     # 验证同一分钟同入口到达的学生不会被注入到同一个 CA cell 里形成非物理堆叠。
     def test_spawn_arrivals_spreads_batch_across_entry_cells(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(111))
@@ -191,7 +207,7 @@ class PedestrianEngineTests(unittest.TestCase):
         finally:
             DensityField.from_occupied_cells = original_from_occupied
 
-        self.assertLessEqual(calls["count"], 2)
+        self.assertLessEqual(calls["count"], engine._movement_budget_cells_per_tick() + 1)
 
     # 验证同队小组成员启用凝聚后不会持续拉开距离。
     def test_group_cohesion_prevents_unbounded_spread(self):
@@ -259,8 +275,49 @@ class PedestrianEngineTests(unittest.TestCase):
 
         engine.tick(0)
 
-        self.assertEqual(engine.agents[mover.student_id].cell, (13, 6))
+        self.assertIn((13, 6), engine.agents[mover.student_id].path_cells)
+        self.assertNotEqual(engine.agents[mover.student_id].cell, (13, 7))
         self.assertEqual([item["student_id"] for item in engine.agent_snapshots()], [mover.student_id])
+
+    # 验证服务开始只改状态，不把仍在远处的队首凭空挪到 service cell。
+    def test_set_agent_service_does_not_teleport_agent_to_service_cell(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(201))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[person.student_id]
+        agent.cell = (3, 13)
+        agent.path_cells = [agent.cell]
+
+        engine.set_agent_service(person.student_id, 0)
+
+        self.assertEqual(agent.state, AgentState.SERVICE)
+        self.assertEqual(agent.cell, (3, 13))
+        self.assertEqual(agent.path_cells, [(3, 13)])
+
+    # 验证吃完离场先进入 TO_EXIT 并用 CA 走向出口，到达后才转为 EXITED。
+    def test_set_agent_exited_animates_to_exit_before_exit_state(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(202))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[person.student_id]
+        agent.cell = (18, 24)
+        agent.path_cells = [agent.cell]
+        engine.set_agent_seated(person.student_id, table_index=0, preserve_cell=True)
+
+        engine.set_agent_exited(person.student_id)
+
+        self.assertEqual(agent.state, AgentState.TO_EXIT)
+        self.assertEqual(agent.target_cells, engine.grid.exit_cells)
+
+        events = []
+        for tick in range(10):
+            events.extend(engine.tick(tick * 5))
+            if agent.state is AgentState.EXITED:
+                break
+
+        self.assertEqual(agent.state, AgentState.EXITED)
+        self.assertTrue(any(event["type"] == "pedestrian_move" for event in events))
+        self.assertGreater(agent.walking_distance_cells, 0)
 
     # 验证后端默认布局会按规模留出可达通道，不生成缺少 approach cell 的餐桌。
     def test_default_layout_tables_have_approach_targets_for_advanced_grid(self):
@@ -297,6 +354,51 @@ class PedestrianEngineTests(unittest.TestCase):
 
         self.assertNotEqual(intended, agent.cell)
         self.assertLess(abs(intended[0] - 10) + abs(intended[1] - 21), abs(agent.cell[0] - 10) + abs(agent.cell[1] - 21))
+
+    # 验证静止排队/服务人员不会在动态场中凭空沉积足迹。
+    def test_dynamic_field_deposit_only_tracks_agents_that_moved_this_tick(self):
+        engine = PedestrianEngine(
+            engine_layout(),
+            movement_config(dynamic_field_decay=1.0, dynamic_field_diffusion=0.0),
+            random.Random(181),
+        )
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        service = engine.agents[1]
+        queueing = engine.agents[2]
+        service.state = AgentState.SERVICE
+        service.cell = (10, 10)
+        service.target_cells = {service.cell}
+        queueing.state = AgentState.QUEUEING
+        queueing.cell = (11, 10)
+        queueing.target_cells = {queueing.cell}
+
+        engine.tick(0)
+
+        self.assertEqual(engine.dynamic_field.values, {})
+
+    # 验证真实移动者在本 tick 结束后只在移动后的 cell 沉积动态场。
+    def test_dynamic_field_deposits_moved_agent_final_cell(self):
+        engine = PedestrianEngine(
+            engine_layout(),
+            movement_config(dynamic_field_decay=1.0, dynamic_field_diffusion=0.0),
+            random.Random(182),
+        )
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[person.student_id]
+        start = (10, 10)
+        target = (12, 10)
+        agent.state = AgentState.TO_TABLE
+        agent.cell = start
+        agent.target_cells = {target}
+        agent.path_cells = [start]
+
+        engine.tick(0)
+
+        self.assertEqual(agent.cell, target)
+        self.assertEqual(engine.dynamic_field.values.get(target), 1.0)
+        self.assertNotIn(start, engine.dynamic_field.values)
 
     # 验证 agent 被前方占用持续阻塞后，会选择侧移而不是无限原地停滞。
     def test_stuck_agent_prefers_sidestep_over_waiting_forever(self):
@@ -335,8 +437,9 @@ class PedestrianEngineTests(unittest.TestCase):
 
         engine.tick(0)
 
-        self.assertEqual(passer.cell, (10, 9))
-        self.assertIn(blocker.cell, {(9, 9), (11, 9), (10, 10)})
+        self.assertIn((10, 9), passer.path_cells)
+        self.assertEqual(passer.cell, (10, 8))
+        self.assertTrue(any(cell in {(9, 9), (11, 9), (10, 10)} for cell in blocker.path_cells))
         self.assertNotEqual(passer.cell, blocker.cell)
 
     # 验证借过不会挤开正在服务、已入座或已离开的非通道对象。
@@ -376,7 +479,8 @@ class PedestrianEngineTests(unittest.TestCase):
 
         engine.tick(0)
 
-        self.assertEqual(passer.cell, (10, 9))
+        self.assertIn((10, 9), passer.path_cells)
+        self.assertEqual(passer.cell, (10, 8))
         self.assertNotEqual(queueing.cell, passer.cell)
 
 

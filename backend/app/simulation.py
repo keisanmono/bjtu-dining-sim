@@ -1363,9 +1363,7 @@ class DiningSimulationRunner:
         service_cell = self.pedestrian_engine.grid.service_cells.get(window_index)
         if agent is None or service_cell is None:
             return False
-        queue_cells = self.pedestrian_engine.grid.queue_cells_by_window.get(window_index, [])
-        service_front = [service_cell, *queue_cells[:16]]
-        return min(abs(agent.cell[0] - cell[0]) + abs(agent.cell[1] - cell[1]) for cell in service_front) <= 1
+        return abs(agent.cell[0] - service_cell[0]) + abs(agent.cell[1] - service_cell[1]) <= 1
 
     # 按可用容量、距离、拼桌惩罚、空座浪费和拥挤度为小组选择餐桌。
     def _choose_table_for_party(self, party: DiningParty) -> int | None:
@@ -1688,6 +1686,13 @@ class DiningSimulationRunner:
             or bool(self.seated)
             or bool(self.waiting_to_queue_student_ids)
             or bool(self.pending_entry_students)
+            or self._has_active_exit_pedestrians()
+        )
+
+    def _has_active_exit_pedestrians(self) -> bool:
+        return bool(
+            self.pedestrian_engine is not None
+            and any(agent.state is AgentState.TO_EXIT for agent in self.pedestrian_engine.agents.values())
         )
 
     def _uses_advanced_movement_coupling(self) -> bool:

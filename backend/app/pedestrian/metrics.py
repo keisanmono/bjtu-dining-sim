@@ -18,9 +18,9 @@ class MovementMetrics:
 def movement_metrics(agents: dict[int, PedestrianAgent], tick_seconds: int, max_density: int = 0) -> MovementMetrics:
     tracked = list(agents.values())
     walking_seconds = [
-        agent.walking_distance_cells * tick_seconds
+        float(getattr(agent, "walking_time_seconds", 0.0) or 0.0)
         for agent in tracked
-        if agent.walking_distance_cells > 0
+        if float(getattr(agent, "walking_time_seconds", 0.0) or 0.0) > 0
     ]
     avg_walking_time = sum(walking_seconds) / len(walking_seconds) if walking_seconds else 0.0
     avg_stuck_ticks = sum(agent.stuck_ticks for agent in tracked) / len(tracked) if tracked else 0.0

@@ -19,7 +19,6 @@ from .simulation import (
     SimulationConfigData,
     _default_layout,
     normalize_arrival_schedule_to_simulation_start,
-    run_simulation,
 )
 
 

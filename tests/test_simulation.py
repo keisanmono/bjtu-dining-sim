@@ -17,6 +17,7 @@ from app.simulation import (
     CampusDemandConfigData,
     CampusFloorDemandData,
     DiningLayoutData,
+    DiningSeat,
     DiningSimulationRunner,
     LayoutDoorData,
     LayoutFloorData,
@@ -285,6 +286,11 @@ class DiningSimulationTests(unittest.TestCase):
 
         agent = runner.pedestrian_engine.agents[student.student_id]
         agent.cell = runner.pedestrian_engine.grid.queue_cells_by_window[0][15]
+        runner._start_window_services(minute=0)
+
+        self.assertIsNone(runner.windows[0])
+
+        agent.cell = runner.pedestrian_engine.grid.service_cells[0]
         runner._start_window_services(minute=0)
 
         self.assertIsNotNone(runner.windows[0])
@@ -644,6 +650,129 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertGreaterEqual(result.metrics.avg_stuck_ticks, 0)
         self.assertGreater(result.metrics.max_density, 0)
 
+    # 验证高级 movement metrics 在确定性冲突场景中记录真实冲突和行走时间，而不只是字段存在。
+    def test_advanced_floor_field_metrics_capture_deterministic_conflict(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=DiningLayoutData(
+                    doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+                    windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
+                    tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+                ),
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                floor_randomness=0.0,
+            )
+        )
+        people = runner._create_party_students(minute=0, person_count=3)
+        runner.pedestrian_engine.spawn_arrivals(people, door_index=0)
+        target = (8, 8)
+        for cell, agent in zip([(7, 8), (9, 8), (8, 7)], runner.pedestrian_engine.agents.values()):
+            agent.cell = cell
+            agent.state = AgentState.TO_WINDOW
+            agent.target_cells = {target}
+
+        runner.pedestrian_engine.tick(0)
+        metrics = runner._snapshot()["movement_metrics"]
+
+        self.assertEqual(metrics["movement_conflict_count"], 2)
+        self.assertGreater(metrics["avg_walking_time"], 0)
+        self.assertGreater(metrics["max_density"], 0)
+
+    # 验证实时快照里的累计 movement 指标不会随 EXITED 或后续记录出现倒退。
+    def test_advanced_snapshot_cumulative_movement_metrics_do_not_regress(self):
+        result = run_simulation(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=8,
+                arrival_rate=4.0,
+                service_time_mean=0.5,
+                dining_time_mean=1.0,
+                duration_min=6,
+                seed=20260616,
+                movement_model="advanced_floor_field",
+                party_size_distribution={1: 1.0},
+            )
+        )
+
+        conflict_counts = [
+            int(record.snapshot["movement_metrics"]["movement_conflict_count"])
+            for record in result.records
+            if "movement_metrics" in record.snapshot
+        ]
+        max_densities = [
+            int(record.snapshot["movement_metrics"]["max_density"])
+            for record in result.records
+            if "movement_metrics" in record.snapshot
+        ]
+
+        self.assertEqual(conflict_counts, sorted(conflict_counts))
+        self.assertEqual(max_densities, sorted(max_densities))
+
+    # 验证吃完后 DES 指标立即释放座位，但 advanced 行人先进入 TO_EXIT 可视离场。
+    def test_dining_completion_releases_seat_and_starts_to_exit_animation(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        runner.pedestrian_engine.spawn_arrivals([student], door_index=0)
+        agent = runner.pedestrian_engine.agents[student.student_id]
+        agent.cell = (18, 24)
+        runner.pedestrian_engine.set_agent_seated(student.student_id, table_index=0, preserve_cell=True)
+        runner.seated = [DiningSeat(student=student, remaining=1, table_index=0)]
+        runner.table_occupied_seats[0] = 1
+        runner.table_party_ids[0].add(student.party_id)
+
+        left_count = runner._advance_dining(minute=3)
+
+        self.assertEqual(left_count, 1)
+        self.assertEqual(runner.total_left, 1)
+        self.assertEqual(runner.table_occupied_seats[0], 0)
+        self.assertEqual(agent.state, AgentState.TO_EXIT)
+        self.assertNotEqual(agent.state, AgentState.EXITED)
+
+        pedestrian_result = runner.pedestrian_engine.run_for_minute(180, 240)
+
+        self.assertIsNotNone(pedestrian_result["timeline"])
+        self.assertTrue(
+            any(event["type"] == "pedestrian_move" for event in pedestrian_result["timeline"]["events"])
+        )
+
+    # 验证仿真结束判断会等待 TO_EXIT 行人走完离场动画。
+    def test_done_waits_for_active_to_exit_pedestrians(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                duration_min=5,
+                movement_model="advanced_floor_field",
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        runner.pedestrian_engine.spawn_arrivals([student], door_index=0)
+        agent = runner.pedestrian_engine.agents[student.student_id]
+        agent.state = AgentState.TO_EXIT
+        agent.cell = (18, 24)
+        agent.target_cells = set(runner.pedestrian_engine.grid.exit_cells)
+        runner.current_minute = runner.arrival_horizon_minute
+
+        self.assertFalse(runner.done)
+
     # 验证预占座和高级行人模式同时开启时容量不溢出，且小队能最终入座。
     def test_preemptive_reservation_with_advanced_floor_field_keeps_capacity_and_seats_parties(self):
         layout = DiningLayoutData(
@@ -992,17 +1121,21 @@ class DiningSimulationTests(unittest.TestCase):
             peak_count_options=[1, 2, 3, 4],
             top_k=4,
         )
-        # 若候选枚举误调用完整仿真，测试应立即失败。
-        def fail_if_full_simulation_runs(config):
-            raise AssertionError("校园推荐候选应使用快速估算器，而不是完整仿真。")
+        estimator_calls = []
+        original_estimator = optimization_module._estimate_recommendation_metrics
 
-        original_run_simulation = optimization_module.run_simulation
-        optimization_module.run_simulation = fail_if_full_simulation_runs
+        def counted_estimator(config):
+            estimator_calls.append(config)
+            return original_estimator(config)
+
+        optimization_module._estimate_recommendation_metrics = counted_estimator
         try:
             recommendation = optimization_module.recommend_config(request)
         finally:
-            optimization_module.run_simulation = original_run_simulation
+            optimization_module._estimate_recommendation_metrics = original_estimator
 
+        self.assertFalse(hasattr(optimization_module, "run_simulation"))
+        self.assertGreater(len(estimator_calls), 1)
         self.assertEqual(len(recommendation.ranking), 4)
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any("峰下课" in candidate.strategy for candidate in recommendation.ranking))
@@ -1070,17 +1203,21 @@ class DiningSimulationTests(unittest.TestCase):
             top_k=3,
         )
 
-        # 若手动候选枚举误调用完整仿真，测试应立即失败。
-        def fail_if_full_simulation_runs(config):
-            raise AssertionError("手动平均推荐候选应使用快速估算器，而不是完整仿真。")
+        estimator_calls = []
+        original_estimator = optimization_module._estimate_recommendation_metrics
 
-        original_run_simulation = optimization_module.run_simulation
-        optimization_module.run_simulation = fail_if_full_simulation_runs
+        def counted_estimator(config):
+            estimator_calls.append(config)
+            return original_estimator(config)
+
+        optimization_module._estimate_recommendation_metrics = counted_estimator
         try:
             recommendation = optimization_module.recommend_config(request)
         finally:
-            optimization_module.run_simulation = original_run_simulation
+            optimization_module._estimate_recommendation_metrics = original_estimator
 
+        self.assertFalse(hasattr(optimization_module, "run_simulation"))
+        self.assertGreater(len(estimator_calls), 1)
         self.assertEqual(len(recommendation.ranking), 3)
         self.assertGreater(recommendation.baseline_metrics.total_arrived, 0)
         self.assertTrue(any(candidate.config.num_windows > request.base_config.num_windows for candidate in recommendation.ranking))

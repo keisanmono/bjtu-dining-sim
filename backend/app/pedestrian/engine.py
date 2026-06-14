@@ -7,8 +7,12 @@ from typing import Any, Callable
 from .agents import AgentState, PartyMovementState, PedestrianAgent
 from .fields import DensityField, DynamicField, build_static_field, wall_distance_or_penalty
 from .grid import Cell, GridData, cell_to_point, grid_from_layout, is_walkable, neighbors
-from .metrics import density_hotspots, movement_metrics
-from .queueing import build_window_queue_cells, update_queue_targets
+from .metrics import density_hotspots as build_density_hotspots
+from .metrics import movement_metrics
+from .queueing import build_window_queue_cells
+
+
+DES_WALKING_SPEED_UNITS_PER_SEC = 38.0
 
 
 class PedestrianEngine:
@@ -32,6 +36,8 @@ class PedestrianEngine:
         self.entry_spawn_cells: dict[int, list[Cell]] = {}
         self.max_density = 0
         self.tick_seconds = max(1, int(getattr(config, "movement_tick_seconds", 5)))
+        speed = float(getattr(config, "walking_speed_units_per_sec", DES_WALKING_SPEED_UNITS_PER_SEC))
+        self.walking_speed_units_per_sec = speed if math.isfinite(speed) and speed > 0 else DES_WALKING_SPEED_UNITS_PER_SEC
 
     def spawn_arrivals(self, students: list[Any], door_index: int = 0) -> None:
         occupied_cells = {
@@ -151,8 +157,6 @@ class PedestrianEngine:
             return
         service = self.grid.service_cells.get(window_index)
         if service is not None:
-            agent.cell = service
-            agent.path_cells.append(service)
             agent.target_cells = {service}
         agent.state = AgentState.SERVICE
         agent.target_type = "service"
@@ -188,14 +192,60 @@ class PedestrianEngine:
         agent = self.agents.get(student_id)
         if agent is None:
             return
-        agent.state = AgentState.EXITED
         agent.target_type = "exit"
         agent.target_cells = set(self.grid.exit_cells)
+        if not agent.path_cells:
+            agent.path_cells.append(agent.cell)
+        if not agent.target_cells or agent.cell in agent.target_cells:
+            agent.state = AgentState.EXITED
+            return
+        agent.state = AgentState.TO_EXIT
 
     def tick(self, current_time_sec: int) -> list[dict[str, Any]]:
         self._update_queue_targets()
         self._refresh_party_centers()
+        budget = self._movement_budget_cells_per_tick()
+        step_duration = self.tick_seconds / budget
+        events: list[dict[str, Any]] = []
+        moved_agent_ids: set[int] = set()
+        active_agent_ids: set[int] = set()
+        for step_index in range(budget):
+            step_time = current_time_sec + step_index * step_duration
+            step_events, step_moved_ids, step_active_ids = self._movement_micro_step(step_time, step_duration)
+            events.extend(step_events)
+            moved_agent_ids.update(step_moved_ids)
+            active_agent_ids.update(step_active_ids)
+
+        for student_id in active_agent_ids:
+            agent = self.agents.get(student_id)
+            if agent is None or not self._is_movable(agent):
+                continue
+            if student_id in moved_agent_ids:
+                agent.stuck_ticks = 0
+                continue
+            agent.wait_ticks += 1
+            agent.stuck_ticks += 1
+
+        for student_id in moved_agent_ids:
+            agent = self.agents.get(student_id)
+            if agent is not None and self._occupies_walkable_cell(agent):
+                self.dynamic_field.deposit(agent.cell)
+        self.dynamic_field.step(self.grid)
+        self._update_density_metric()
+        self._refresh_party_centers()
+        return events
+
+    def _movement_budget_cells_per_tick(self) -> int:
+        cells = self.walking_speed_units_per_sec * self.tick_seconds / max(self.grid.cell_size, 1e-9)
+        return max(1, int(round(cells)))
+
+    def _movement_micro_step(
+        self,
+        current_time_sec: float,
+        duration_sec: float,
+    ) -> tuple[list[dict[str, Any]], set[int], set[int]]:
         movable = [agent for agent in self.agents.values() if self._is_movable(agent)]
+        active_ids = {agent.student_id for agent in movable}
         occupied_by = {
             agent.cell: agent
             for agent in self.agents.values()
@@ -219,6 +269,7 @@ class PedestrianEngine:
             intended_by_agent[agent.student_id] = intended
 
         events: list[dict[str, Any]] = []
+        moved_agent_ids: set[int] = set()
         winners: dict[int, Cell] = {}
         conflict_losers: set[int] = set()
         for target, contenders in intents.items():
@@ -257,24 +308,20 @@ class PedestrianEngine:
                 agent.previous_cell = previous
                 agent.cell = target
                 agent.walking_distance_cells += 1
+                agent.walking_time_seconds += duration_sec
                 agent.path_cells.append(target)
-                frame = {"time_sec": current_time_sec, **cell_to_point(target, self.grid)}
+                frame = {"time_sec": current_time_sec + duration_sec, **cell_to_point(target, self.grid)}
                 agent.frames.append(frame)
-                events.append(self._movement_event(agent, previous, target, current_time_sec))
+                events.append(self._movement_event(agent, previous, target, current_time_sec, duration_sec))
+                moved_agent_ids.add(agent.student_id)
                 agent.stuck_ticks = 0
-            else:
-                agent.wait_ticks += 1
-                agent.stuck_ticks += 1
             if agent.target_cells and agent.cell in agent.target_cells and agent.state is AgentState.TO_WINDOW:
                 agent.state = AgentState.QUEUEING
+            if agent.target_cells and agent.cell in agent.target_cells and agent.state is AgentState.TO_EXIT:
+                agent.state = AgentState.EXITED
 
-        for agent in self.agents.values():
-            if self._occupies_walkable_cell(agent):
-                self.dynamic_field.deposit(agent.cell)
-        self.dynamic_field.step(self.grid)
-        self._update_density_metric()
         self._refresh_party_centers()
-        return events
+        return events, moved_agent_ids, active_ids
 
     def run_for_minute(
         self,
@@ -347,7 +394,7 @@ class PedestrianEngine:
             for cell, density in local_density.densities.items()
             if density >= threshold
         }
-        return density_hotspots(dense_cells, self.grid, threshold=1)[:24]
+        return build_density_hotspots(dense_cells, self.grid, threshold=1)[:24]
 
     def metrics_snapshot(self) -> dict[str, float | int]:
         metrics = movement_metrics(self.agents, self.tick_seconds, self.max_density)
@@ -664,7 +711,6 @@ class PedestrianEngine:
             )
 
     def _update_queue_targets(self) -> None:
-        update_queue_targets(self.agents.values(), self.window_queues, self.grid)
         for window_index, queue in list(self.window_queues.items()):
             queue_cells = build_window_queue_cells(self.grid, window_index)
             if not queue_cells:
@@ -673,7 +719,13 @@ class PedestrianEngine:
                 agent = self.agents.get(student_id)
                 if agent is None:
                     continue
-                agent.target_cells = {queue_cells[min(position, len(queue_cells) - 1)]}
+                target = queue_cells[min(position, len(queue_cells) - 1)]
+                agent.desired_window_index = window_index
+                agent.target_type = "window_queue"
+                agent.target_id = window_index
+                agent.target_cells = {target}
+                if agent.cell == target:
+                    agent.state = AgentState.QUEUEING
 
     def _update_density_metric(self) -> None:
         occupied = {
@@ -697,9 +749,19 @@ class PedestrianEngine:
             AgentState.TO_EXIT,
         }
 
-    def _movement_event(self, agent: PedestrianAgent, start: Cell, end: Cell, current_time_sec: int) -> dict[str, Any]:
+    def _movement_event(
+        self,
+        agent: PedestrianAgent,
+        start: Cell,
+        end: Cell,
+        current_time_sec: float,
+        duration_sec: float | None = None,
+    ) -> dict[str, Any]:
         start_point = cell_to_point(start, self.grid)
         end_point = cell_to_point(end, self.grid)
+        duration = float(duration_sec if duration_sec is not None else self.tick_seconds)
+        arrive_time_sec = current_time_sec + duration
+        playback_duration_ms = max(24, int(round(duration * 40)))
         return {
             "type": "pedestrian_move",
             "party_id": agent.party_id,
@@ -708,17 +770,17 @@ class PedestrianEngine:
             "member_count": 1,
             "state": agent.state.value,
             "start_time_sec": current_time_sec,
-            "arrive_time_sec": current_time_sec + self.tick_seconds,
-            "duration_sec": self.tick_seconds,
+            "arrive_time_sec": arrive_time_sec,
+            "duration_sec": duration,
             "playback_start_ms": 0,
-            "playback_duration_ms": max(120, self.tick_seconds * 40),
-            "playback_end_ms": max(120, self.tick_seconds * 40),
+            "playback_duration_ms": playback_duration_ms,
+            "playback_end_ms": playback_duration_ms,
             "from": start_point,
             "to": end_point,
             "path": [start_point, end_point],
             "frames": [
                 {"time_sec": current_time_sec, **start_point, "progress": 0.0},
-                {"time_sec": current_time_sec + self.tick_seconds, **end_point, "progress": 1.0},
+                {"time_sec": arrive_time_sec, **end_point, "progress": 1.0},
             ],
         }
 
