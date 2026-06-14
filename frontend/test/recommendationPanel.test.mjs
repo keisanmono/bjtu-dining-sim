@@ -123,6 +123,9 @@ test('simulation preview renders a realistic cafeteria floor plan via LayoutEdit
   assert.equal(appSource.includes('function onLayoutUpdate(nextLayout, meta = {})'), true)
   assert.equal(appSource.includes('meta?.transient'), true)
   assert.equal(appSource.includes('meta?.forceSeatLimit'), true)
+  assert.equal(appSource.includes('optimizeLayoutForFlow'), true)
+  assert.equal(appSource.includes('一键优化布局'), true)
+  assert.equal(appSource.includes('optimizeCurrentLayout'), true)
 
   // The old card-style preview is gone.
   assert.equal(appSource.includes('<section class="entrance-zone"'), false)
@@ -262,11 +265,82 @@ test('config form exposes campus demand controls with live and random buttons', 
   assert.equal(source.includes('loadCampusOccupancy'), true)
 })
 
+// 验证校园到达配置只保留一张合并表，不再显示总览卡片或单独来源明细区块。
+test('campus config uses one combined source table without duplicate summary or detail section', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('来源明细'), false)
+  assert.equal(source.includes('人流拆分预览'), false)
+  assert.equal(source.includes('campusPopulationSummaryItems'), false)
+  assert.equal(source.includes('campusSourceDetailRows'), false)
+  assert.equal(source.includes('campusPopulationPoolPayload'), true)
+  assert.equal(source.includes('population_pool: campusPopulationPoolPayload.value'), true)
+  assert.equal(styleSource.includes('.campus-population-summary'), false)
+  assert.equal(styleSource.includes('.campus-population-note'), false)
+  assert.equal(styleSource.includes('.campus-source-detail-title'), false)
+})
+
+// 验证校园到达配置把每个教学楼 source 和每个宿舍 source 合并到同一张表。
+test('campus config appends residential sources into the editable campus table', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('<el-table :data="campusCombinedRows" class="campus-table" size="small">'), true)
+  assert.equal(source.includes('campusResidentialTableRows'), true)
+  assert.equal(source.includes('campusCombinedRows'), true)
+  assert.equal(source.includes('campusTableSourceName'), true)
+  assert.equal(source.includes('campusTableSourceType'), true)
+  assert.equal(source.includes('campusTableWalkMinutes'), true)
+  assert.equal(source.includes('campusTableChoiceProbability'), true)
+  assert.equal(source.includes('residentialAllocatedPopulation'), true)
+  assert.equal(source.includes('allocateResidentialPopulationByWeight'), true)
+  assert.equal(source.includes('residentialWalkMinutes'), true)
+  assert.equal(source.includes('residentialReleaseWindowLabel'), true)
+  assert.equal(source.includes("source_type: '宿舍'"), true)
+  assert.equal(source.includes('campusLocations.value.residential_walk_times'), true)
+  assert.equal(source.includes('v-if="isResidentialCampusRow(row)"'), true)
+  assert.equal(source.includes('v-else'), true)
+})
+
+// 验证当前食堂到达人数会乘以食堂选择概率，而不是显示 source 原始人数。
+test('campus table arrival population is weighted by cafeteria choice probability', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('campusTableArrivalPopulation'), true)
+  assert.equal(source.includes('campusReleasedPopulation(row) * campusTableChoiceProbability(row)'), true)
+  assert.equal(source.includes('row.population * campusTableChoiceProbability(row)'), true)
+  assert.equal(source.includes('return `${formatNumber(campusTableArrivalPopulation(row))} 人`'), true)
+  assert.equal(source.includes('if (isResidentialCampusRow(row)) return row.population_label'), false)
+})
+
+// 验证校园人口池、宿舍释放窗口、宿舍参与率和宿舍权重都能手动编辑。
+test('campus residential population parameters are manually editable', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('class="campus-population-controls"'), true)
+  assert.equal(source.includes('label="潜在人群池"'), true)
+  assert.equal(source.includes('v-model="campusPopulationPoolForm.total_population_pool"'), true)
+  assert.equal(source.includes('label="食堂参与率"'), true)
+  assert.equal(source.includes('v-model="campusPopulationPoolForm.meal_participation_percent"'), true)
+  assert.equal(source.includes('label="其他已知来源"'), true)
+  assert.equal(source.includes('v-model="campusPopulationPoolForm.other_known_population"'), true)
+  assert.equal(source.includes('label="宿舍参与率"'), true)
+  assert.equal(source.includes('v-model="campusResidentialProfileForm.residential_participation_percent"'), true)
+  assert.equal(source.includes('v-model="campusResidentialProfileForm.start_time"'), true)
+  assert.equal(source.includes('v-model="campusResidentialProfileForm.end_time"'), true)
+  assert.equal(source.includes('v-model="campusResidentialProfileForm.peak_time"'), true)
+  assert.equal(source.includes(':model-value="residentialCapacityWeight(row.source_id)"'), true)
+  assert.equal(source.includes('@update:model-value="updateResidentialCapacityWeight(row.source_id, $event)"'), true)
+  assert.equal(source.includes('residential_release_profile: campusResidentialReleaseProfilePayload.value'), true)
+  assert.equal(styleSource.includes('.campus-population-controls'), true)
+})
+
 // 验证校园楼层人数表按内容自然展开，而不是固定高度滚动。
 test('campus floor population table expands vertically instead of scrolling', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
-  assert.equal(source.includes('<el-table :data="campusRows" class="campus-table" size="small">'), true)
+  assert.equal(source.includes('<el-table :data="campusCombinedRows" class="campus-table" size="small">'), true)
   assert.equal(source.includes('class="campus-table" size="small" height='), false)
   assert.equal(source.includes('class="campus-table" size="small" max-height='), false)
 })
@@ -331,6 +405,38 @@ test('campus release control is edited as a percentage', () => {
   assert.equal(source.includes('v-model="row.release_ratio" :min="0" :max="1"'), false)
 })
 
+// 验证实时运行页使用真实时钟显示，不再暴露抽象 t 分钟。
+test('run page displays concrete clock time instead of abstract t minutes', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('当前时刻：{{ currentClockLabel }}'), true)
+  assert.equal(source.includes('t = {{ currentMinute }} min'), false)
+  assert.equal(source.includes('const currentClockMinute = computed'), true)
+  assert.equal(source.includes('formatClockMinute(currentClockMinute.value)'), true)
+})
+
+// 验证教学楼下课时间按 HH:MM 输入并转换为绝对分钟提交。
+test('campus dismissal control uses concrete clock time strings', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('v-model="row.dismissal_time"'), true)
+  assert.equal(source.includes('parseClockTime(row.dismissal_time ?? row.dismissal_minute)'), true)
+  assert.equal(source.includes('dismissal_time: formatClockMinute'), true)
+  assert.equal(source.includes('v-model="row.dismissal_minute" :min="0" :max="240"'), false)
+})
+
+// 验证分析页指标说明区分完成就餐、已入座、全程利用率和等座排队等待。
+test('analysis metric labels separate seating, dining completion, and seat queue wait semantics', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes("label: '全程窗口利用率'"), true)
+  assert.equal(source.includes('服务忙碌期'), true)
+  assert.equal(source.includes('完成就餐 ${m?.total_left || 0} 人 / 已入座 ${m?.throughput || 0} 人'), true)
+  assert.equal(source.includes('等座排队等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}'), true)
+  assert.equal(source.includes('入座完成耗时 ${formatMinutes(m?.avg_post_service_to_seat_time || 0)}'), true)
+  assert.equal(source.includes('hint: `等座等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}`'), false)
+})
+
 // 验证校园人数加载按钮只对当前请求来源显示 loading。
 test('campus occupancy buttons show loading only for the requested source', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
@@ -369,7 +475,8 @@ test('live run queue card shows current queue first and peak queue as context', 
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
   assert.equal(source.includes('const peakQueue = metrics.value?.peak_queue ?? livePeakQueue.value'), true)
-  assert.equal(source.includes("{ label: '当前排队人数', value: queue, hint: `峰值排队 ${peakQueue} 人` }"), true)
+  assert.equal(source.includes('const entryWaiting = record?.snapshot?.entry_waiting_count'), true)
+  assert.equal(source.includes("{ label: '当前排队人数', value: queue, hint: `峰值 ${peakQueue} 人 / 边界待入 ${entryWaiting} 人` }"), true)
   assert.equal(source.includes("label: '峰值排队长度'"), false)
   assert.equal(source.includes('hint: `当前 ${queue} 人`'), false)
 })
@@ -398,9 +505,11 @@ test('live run renders the editable layout as a live dining map with party group
   assert.equal(mapSource.includes('table-shape'), true)
   assert.equal(mapSource.includes('table-occupancy'), true)
   assert.equal(mapSource.includes('party-group'), true)
-  // Queue and waiting parties are not painted on the map. The queue is shown
-  // in the detail panel below; the waiting count is reported by the metric card.
-  assert.equal(mapSource.includes('queue-party'), false)
+  // Window queues are painted on the map so long queues remain visible without
+  // opening the detail panel. Waiting-for-seat parties remain a metric only.
+  assert.equal(mapSource.includes('queue-group'), true)
+  assert.equal(mapSource.includes('queue-capsule'), true)
+  assert.equal(mapSource.includes('queue-overflow'), true)
   assert.equal(mapSource.includes('waiting-party'), false)
   assert.equal(mapSource.includes('waiting-zone'), false)
   assert.equal(mapSource.includes('window-detail-panel'), true)

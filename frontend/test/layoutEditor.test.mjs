@@ -30,6 +30,7 @@ import {
   itemBounds,
   itemOverlapsLayout,
   maxFloorDimensionForArea,
+  optimizeLayoutForFlow,
   rebuildLayoutTablesForSeats,
   resizeLayoutFloor,
   resizeLayoutFloorFromHandle,
@@ -40,6 +41,7 @@ import {
   snapToGrid,
   tableTypeForCapacity,
   totalLayoutSeats,
+  evaluateLayoutFlow,
   zoomViewBox
 } from '../src/layoutEditor.js'
 import { buildSimulationConfigPayload } from '../src/layout.js'
@@ -377,7 +379,7 @@ test('resize handles refuse to shrink walls into existing tables', () => {
   const layout = createDefaultLayout({ num_windows: 4, num_seats: 120 })
   const bounds = floorBoundsForLayout(layout)
 
-  const blocked = resizeLayoutFloorFromHandle(layout, 'corner', bounds.right - 40, bounds.bottom - 40)
+  const blocked = resizeLayoutFloorFromHandle(layout, 'corner', bounds.right - 120, bounds.bottom - 120)
 
   assert.equal(blocked.floor.width, layout.floor.width)
   assert.equal(blocked.floor.height, layout.floor.height)
@@ -584,6 +586,55 @@ test('rebuilt table count is clamped to the computed floor capacity', () => {
 
   assert.equal(totalLayoutSeats(rebuilt), limit)
   assertNoLayoutOverlaps(rebuilt)
+})
+
+// 消融测试：同一拥挤布局经流线优化后，服务通道和综合得分应显著提升。
+test('flow optimization improves a cramped layout in ablation metrics', () => {
+  const baseline = resizeLayoutFloor(createDefaultLayout({ num_windows: 4, num_seats: 120 }), {
+    width: 560,
+    height: 760
+  })
+  const cramped = {
+    ...baseline,
+    tables: baseline.tables.map((table, index) => ({
+      ...table,
+      x: baseline.floor.x + 76 + (index % 3) * 80,
+      y: baseline.floor.y + 96 + Math.floor(index / 3) * 52
+    }))
+  }
+
+  const before = evaluateLayoutFlow(cramped, { num_windows: 4, num_seats: 120 })
+  const optimized = optimizeLayoutForFlow(cramped, { num_windows: 4, num_seats: 120 })
+  const after = evaluateLayoutFlow(optimized, { num_windows: 4, num_seats: 120 })
+
+  assert.equal(optimized.windows.length, cramped.windows.length)
+  assert.equal(totalLayoutSeats(optimized), totalLayoutSeats(cramped))
+  assert.deepEqual(optimized.floor, cramped.floor)
+  assertNoLayoutOverlaps(optimized)
+  assert.ok(after.serviceCorridorDepth > before.serviceCorridorDepth)
+  assert.ok(after.score > before.score + 20, `expected score improvement, before=${before.score}, after=${after.score}`)
+  assert.ok(after.queueReadinessScore > before.queueReadinessScore)
+})
+
+// 回归测试：一键优化只能重排窗口和餐桌，不能改动物理食堂边界。
+test('flow optimization preserves the cafeteria floor size while spreading a sparse oversized layout', () => {
+  const wide = resizeLayoutFloor(createDefaultLayout({ num_windows: 4, num_seats: 120 }), {
+    width: 1380,
+    height: 760
+  })
+
+  const optimized = optimizeLayoutForFlow(wide, { num_windows: 4, num_seats: 120 })
+  const flow = evaluateLayoutFlow(optimized, { num_windows: 4, num_seats: 120 })
+  const xs = optimized.tables.map((table) => table.x)
+  const tableSpan = Math.max(...xs) - Math.min(...xs)
+  const utilization = tableSpan / optimized.floor.width
+
+  assert.equal(totalLayoutSeats(optimized), totalLayoutSeats(wide))
+  assert.equal(optimized.windows.length, wide.windows.length)
+  assertNoLayoutOverlaps(optimized)
+  assert.deepEqual(optimized.floor, wide.floor)
+  assert.ok(utilization >= 0.35, `expected table width utilization >= 0.35, got ${utilization}`)
+  assert.ok(flow.serviceCorridorDepth >= 150, `expected service corridor depth >= 150, got ${flow.serviceCorridorDepth}`)
 })
 
 // 验证拖拽编辑后的门窗餐桌坐标会进入后端仿真请求体。

@@ -1,0 +1,252 @@
+{
+  "advanced_signal": {
+    "advanced_rows": 1,
+    "max_density": 8,
+    "movement_conflict_count_sum": 1970,
+    "rows_with_spatial_signal": 1
+  },
+  "benchmark_version": "2026-06-13-movement-baseline-v2",
+  "confidence_by_preset": {
+    "balanced": {
+      "avg_wait": {
+        "mean": 18.098,
+        "p50": 22.805,
+        "p90": 24.159,
+        "p95": 24.394,
+        "std": 10.668
+      },
+      "peak_queue": {
+        "mean": 555.0,
+        "p50": 499.5,
+        "p90": 1048.5,
+        "p95": 1133.25,
+        "std": 515.609
+      },
+      "realism_score": {
+        "mean": 38.115,
+        "p50": 42.0,
+        "p90": 42.0,
+        "p95": 42.0,
+        "std": 7.77
+      },
+      "runtime_sec": {
+        "mean": 41.873,
+        "p50": 23.621,
+        "p90": 92.16,
+        "p95": 104.528,
+        "std": 51.681
+      },
+      "sample_count": 4
+    },
+    "fast": {
+      "avg_wait": {
+        "mean": 17.988,
+        "p50": 22.705,
+        "p90": 24.058,
+        "p95": 24.289,
+        "std": 10.682
+      },
+      "peak_queue": {
+        "mean": 554.75,
+        "p50": 499.5,
+        "p90": 1048.5,
+        "p95": 1133.25,
+        "std": 515.966
+      },
+      "realism_score": {
+        "mean": 25.803,
+        "p50": 30.0,
+        "p90": 30.0,
+        "p95": 30.0,
+        "std": 8.395
+      },
+      "runtime_sec": {
+        "mean": 4.998,
+        "p50": 2.683,
+        "p90": 11.178,
+        "p95": 12.712,
+        "std": 6.355
+      },
+      "sample_count": 4
+    },
+    "quality": {
+      "avg_wait": {
+        "mean": 14.07,
+        "p50": 14.07,
+        "p90": 14.07,
+        "p95": 14.07,
+        "std": 0.0
+      },
+      "peak_queue": {
+        "mean": 5.0,
+        "p50": 5.0,
+        "p90": 5.0,
+        "p95": 5.0,
+        "std": 0.0
+      },
+      "realism_score": {
+        "mean": 81.34,
+        "p50": 81.34,
+        "p90": 81.34,
+        "p95": 81.34,
+        "std": 0.0
+      },
+      "runtime_sec": {
+        "mean": 12.487,
+        "p50": 12.487,
+        "p90": 12.487,
+        "p95": 12.487,
+        "std": 0.0
+      },
+      "sample_count": 1
+    }
+  },
+  "fairness": {
+    "groups_checked": 4,
+    "groups_with_mismatched_arrival_streams": 0,
+    "mismatched_groups": []
+  },
+  "generated_at": "2026-06-13T08:01:49.141807+00:00",
+  "mean_by_model": {
+    "advanced_floor_field": {
+      "avg_wait": 14.07,
+      "avg_walking_time": 599.34,
+      "max_density": 8.0,
+      "movement_conflict_count": 1970.0,
+      "peak_queue": 5.0,
+      "realism_score": 81.34,
+      "runtime_sec": 12.4868
+    },
+    "path": {
+      "avg_wait": 17.988,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 554.75,
+      "realism_score": 25.803,
+      "runtime_sec": 4.9982
+    },
+    "static_floor_field": {
+      "avg_wait": 18.098,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 555.0,
+      "realism_score": 38.115,
+      "runtime_sec": 41.8725
+    }
+  },
+  "mean_by_preset": {
+    "balanced": {
+      "avg_wait": 18.098,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 555.0,
+      "realism_score": 38.115,
+      "runtime_sec": 41.8725
+    },
+    "fast": {
+      "avg_wait": 17.988,
+      "avg_walking_time": 0.0,
+      "max_density": 0.0,
+      "movement_conflict_count": 0.0,
+      "peak_queue": 554.75,
+      "realism_score": 25.803,
+      "runtime_sec": 4.9982
+    },
+    "quality": {
+      "avg_wait": 14.07,
+      "avg_walking_time": 599.34,
+      "max_density": 8.0,
+      "movement_conflict_count": 1970.0,
+      "peak_queue": 5.0,
+      "realism_score": 81.34,
+      "runtime_sec": 12.4868
+    }
+  },
+  "models": [
+    "advanced_floor_field",
+    "path",
+    "static_floor_field"
+  ],
+  "outputs": {
+    "csv": "data/benchmarks/movement_stress_benchmark.csv",
+    "doc": "docs/movement_stress_benchmark.md",
+    "summary": "data/benchmarks/movement_stress_summary.json"
+  },
+  "quality_presets": [
+    "fast",
+    "balanced",
+    "quality"
+  ],
+  "realism_score_by_preset": {
+    "balanced": {
+      "mean": 38.115,
+      "p50": 42.0,
+      "p90": 42.0,
+      "p95": 42.0,
+      "std": 7.77
+    },
+    "fast": {
+      "mean": 25.803,
+      "p50": 30.0,
+      "p90": 30.0,
+      "p95": 30.0,
+      "std": 8.395
+    },
+    "quality": {
+      "mean": 81.34,
+      "p50": 81.34,
+      "p90": 81.34,
+      "p95": 81.34,
+      "std": 0.0
+    }
+  },
+  "row_count": 9,
+  "scenarios": [
+    "stress_single_cafeteria_0300",
+    "stress_single_cafeteria_0800",
+    "stress_single_cafeteria_1500",
+    "stress_single_cafeteria_3000"
+  ],
+  "stress": {
+    "default_quality_target_cap": 300,
+    "max_runtime_sec": 116.8954,
+    "max_total_arrived": 3018,
+    "quality_target_arrivals": [
+      300
+    ],
+    "rows": 9,
+    "runtime_by_preset": {
+      "balanced": {
+        "mean": 41.873,
+        "p50": 23.621,
+        "p90": 92.16,
+        "p95": 104.528,
+        "std": 51.681
+      },
+      "fast": {
+        "mean": 4.998,
+        "p50": 2.683,
+        "p90": 11.178,
+        "p95": 12.712,
+        "std": 6.355
+      },
+      "quality": {
+        "mean": 12.487,
+        "p50": 12.487,
+        "p90": 12.487,
+        "p95": 12.487,
+        "std": 0.0
+      }
+    },
+    "target_arrivals": [
+      300,
+      800,
+      1500,
+      3000
+    ]
+  },
+  "suite": "stress"
+}

@@ -11,18 +11,20 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 
 DATA_PATH = Path(__file__).resolve().parent / "data" / "campus_walk_times.json"
+RESIDENTIAL_DATA_PATH = Path(__file__).resolve().parent / "data" / "campus_residential_sources.json"
 DEFAULT_FLOOR_SECONDS = 32
 DEFAULT_CHOICE_POWER = 2.4
 LIVE_TIMEOUT_SEC = 6
 LIVE_RETRY_COUNT = 1
 CLASSROOM_CAPACITY_URL = "http://yaya.csoci.com:2333/api/classnum/"
 _LIVE_OCCUPANCY_CACHE: dict[str, dict[str, Any]] = {}
+FORBIDDEN_RESIDENTIAL_SOURCE_IDS = {"main_dorms", "east_dorms"}
 
 DEFAULT_BUILDING_FLOORS: dict[str, int] = {
     "siyuan": 5,
@@ -48,6 +50,49 @@ DEFAULT_FLOOR_CAPACITY: dict[str, int] = {
     "no17": 120,
 }
 
+DEFAULT_POPULATION_POOL_BY_PERIOD: dict[str, dict[str, Any]] = {
+    "breakfast": {
+        "enabled": True,
+        "meal_period": "breakfast",
+        "total_population_pool": 12000,
+        "total_population_mode": "manual",
+        "meal_participation_rate": 0.55,
+        "other_known_population": 0,
+        "residential_allocation_mode": "capacity_weight",
+        "residual_policy": "clamp_zero",
+    },
+    "lunch": {
+        "enabled": True,
+        "meal_period": "lunch",
+        "total_population_pool": 15000,
+        "total_population_mode": "manual",
+        "meal_participation_rate": 0.75,
+        "other_known_population": 400,
+        "residential_allocation_mode": "capacity_weight",
+        "residual_policy": "clamp_zero",
+    },
+    "dinner": {
+        "enabled": True,
+        "meal_period": "dinner",
+        "total_population_pool": 15000,
+        "total_population_mode": "manual",
+        "meal_participation_rate": 0.70,
+        "other_known_population": 500,
+        "residential_allocation_mode": "capacity_weight",
+        "residual_policy": "clamp_zero",
+    },
+    "weekend": {
+        "enabled": True,
+        "meal_period": "weekend",
+        "total_population_pool": 10000,
+        "total_population_mode": "manual",
+        "meal_participation_rate": 0.50,
+        "other_known_population": 200,
+        "residential_allocation_mode": "capacity_weight",
+        "residual_policy": "clamp_zero",
+    },
+}
+
 
 @dataclass(frozen=True)
 # 单层教学楼人数输入，用于把“几楼有多少人”转换成到达食堂的时间分布。
@@ -66,17 +111,99 @@ class CampusBuildingDemandData:
 
 
 @dataclass(frozen=True)
+# 单个宿舍/公寓楼住宅来源配置；id 必须对应一个真实点位 source。
+class CampusResidentialDemandData:
+    residential_id: str
+    release_ratio: float = 1.0
+    population_override: int | None = None
+    source_type: str = "residential"
+
+
+@dataclass(frozen=True)
+# 本时段潜在就餐人群池，用于扣除教学楼等已知来源后估算宿舍残差人口。
+class CampusPopulationPoolData:
+    enabled: bool = False
+    meal_period: str = "lunch"
+    total_population_pool: int = 0
+    total_population_mode: str = "manual"
+    meal_participation_rate: float = 1.0
+    other_known_population: int = 0
+    residential_allocation_mode: str = "capacity_weight"
+    residual_policy: str = "clamp_zero"
+
+
+@dataclass(frozen=True)
+# 宿舍来源释放 profile；教学楼仍由 dismissal_minute 事件驱动，不使用该窗口。
+class ResidentialReleaseProfile:
+    meal_period: str
+    start_minute: int
+    end_minute: int
+    peak_minute: int | None = None
+    distribution: str = "triangular"
+    residential_participation_rate: float = 1.0
+
+
+@dataclass(frozen=True)
 # 校园到达模式的完整配置，仿真器会据此跳过手动泊松到达。
 class CampusDemandConfigData:
     enabled: bool = False
     cafeteria_id: str | None = None
     source_mode: str = "manual"
     buildings: list[CampusBuildingDemandData] = field(default_factory=list)
+    residential_sources: list[CampusResidentialDemandData] = field(default_factory=list)
+    population_pool: CampusPopulationPoolData | None = None
+    residential_release_profile: ResidentialReleaseProfile | None = None
+    meal_period: str = "lunch"
 
 
 # 读取内置校园步行时间 JSON，后续接口和到达计划都基于这份数据。
 def load_campus_walk_times() -> dict[str, Any]:
     return json.loads(DATA_PATH.read_text(encoding="utf-8"))
+
+
+# 读取宿舍来源 JSON。文件可以包含 API 待补齐 warning，但结构必须保持扁平。
+def load_residential_sources() -> dict[str, Any]:
+    return json.loads(RESIDENTIAL_DATA_PATH.read_text(encoding="utf-8"))
+
+
+def _residential_source_summary() -> list[dict[str, Any]]:
+    data = load_residential_sources()
+    sources: list[dict[str, Any]] = []
+    for source in data.get("residential_areas", []):
+        source_id = str(source.get("id", ""))
+        if source_id in FORBIDDEN_RESIDENTIAL_SOURCE_IDS:
+            continue
+        if source.get("parent_id") or source.get("children") or source.get("type") == "group":
+            continue
+        sources.append(
+            {
+                "id": source_id,
+                "name": source.get("name", ""),
+                "campus_area": source.get("campus_area", ""),
+                "capacity_weight": source.get("capacity_weight", 0),
+                "exclude_from_simulation": bool(source.get("exclude_from_simulation", False)),
+                "confidence": source.get("confidence", ""),
+                "geocode_status": source.get("geocode_status", ""),
+            }
+        )
+    return sources
+
+
+def _residential_release_profiles() -> dict[str, dict[str, Any]]:
+    return {
+        period: asdict(default_residential_release_profile(period))
+        for period in DEFAULT_POPULATION_POOL_BY_PERIOD
+    }
+
+
+def _residential_walk_times() -> dict[str, Any]:
+    residential_data = load_residential_sources()
+    source_ids = {source["id"] for source in _residential_source_summary()}
+    return {
+        source_id: routes
+        for source_id, routes in residential_data.get("walk_times", {}).items()
+        if source_id in source_ids
+    }
 
 
 # 返回前端需要展示的食堂、教学楼、默认楼层数和步行时间。
@@ -95,6 +222,10 @@ def campus_locations() -> dict[str, Any]:
             for building in data["locations"]["teaching_buildings"]
         ],
         "walk_times": data["walk_times"],
+        "residential_sources": _residential_source_summary(),
+        "residential_walk_times": _residential_walk_times(),
+        "residential_release_profiles": _residential_release_profiles(),
+        "population_pool_defaults": copy.deepcopy(DEFAULT_POPULATION_POOL_BY_PERIOD),
     }
 
 
@@ -133,6 +264,143 @@ def cafeteria_choice_probabilities(building_id: str, choice_power: float = DEFAU
     return {cafeteria_id: weight / total for cafeteria_id, weight in weights.items()}
 
 
+# 按宿舍到食堂步行时长计算食堂选择概率，仍以每个宿舍独立路径为基础。
+def residential_cafeteria_choice_probabilities(
+    residential_id: str,
+    choice_power: float = DEFAULT_CHOICE_POWER,
+    residential_data: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    data = residential_data or load_residential_sources()
+    walk_times = data.get("walk_times", {})
+    if residential_id not in walk_times:
+        raise KeyError(f"未知宿舍来源：{residential_id}")
+    durations = {
+        cafeteria_id: max(1, int(route["duration_s"]))
+        for cafeteria_id, route in walk_times[residential_id].items()
+        if isinstance(route, dict) and route.get("duration_s")
+    }
+    if not durations:
+        raise KeyError(f"缺少宿舍来源 {residential_id} 的步行时间。")
+    nearest = min(durations.values())
+    weights = {
+        cafeteria_id: math.pow(nearest / duration, max(0.1, choice_power))
+        for cafeteria_id, duration in durations.items()
+    }
+    total = sum(weights.values())
+    return {cafeteria_id: weight / total for cafeteria_id, weight in weights.items()}
+
+
+def default_residential_release_profile(meal_period: str) -> ResidentialReleaseProfile:
+    period = (meal_period or "lunch").lower()
+    profiles = {
+        "breakfast": ResidentialReleaseProfile("breakfast", 420, 510, 465, "triangular", 0.45),
+        "lunch": ResidentialReleaseProfile("lunch", 660, 780, 720, "triangular", 0.65),
+        "dinner": ResidentialReleaseProfile("dinner", 1020, 1140, 1080, "triangular", 0.75),
+        "weekend": ResidentialReleaseProfile("weekend", 510, 780, 660, "triangular", 0.50),
+    }
+    return profiles.get(period, profiles["lunch"])
+
+
+def sample_residential_departure_minute(profile: ResidentialReleaseProfile, rng: random.Random) -> int:
+    start = int(profile.start_minute)
+    end = int(profile.end_minute)
+    if end < start:
+        start, end = end, start
+    if profile.distribution == "uniform":
+        value = rng.uniform(start, end)
+    elif profile.distribution == "normal_truncated":
+        peak = profile.peak_minute if profile.peak_minute is not None else (start + end) / 2
+        std = max(1.0, (end - start) / 6)
+        for _ in range(200):
+            value = rng.gauss(peak, std)
+            if start <= value <= end:
+                break
+        else:
+            value = min(end, max(start, peak))
+    else:
+        peak = profile.peak_minute if profile.peak_minute is not None else (start + end) / 2
+        value = rng.triangular(start, end, peak)
+    return int(round(min(end, max(start, value))))
+
+
+def estimate_teaching_population(buildings: list[CampusBuildingDemandData]) -> int:
+    total = 0
+    for building in buildings:
+        release_ratio = _clamp(building.release_ratio, 0.0, 1.0)
+        for floor in building.floors:
+            total += max(0, int(round(floor.count * release_ratio)))
+    return total
+
+
+def estimate_residential_population_from_residual(
+    total_population_pool: int,
+    meal_participation_rate: float,
+    teaching_population: int,
+    other_known_population: int,
+    residential_areas: list[Any],
+    residential_participation_rate: float = 1.0,
+    overrides: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    effective_meal_population = int(round(max(0, total_population_pool) * _clamp(meal_participation_rate, 0.0, 1.0)))
+    residual_raw = max(0, effective_meal_population - max(0, teaching_population) - max(0, other_known_population))
+    residential_population = int(round(residual_raw * _clamp(residential_participation_rate, 0.0, 1.0)))
+    valid_sources = _valid_residential_sources(residential_areas)
+    overrides = {
+        source_id: max(0, int(value))
+        for source_id, value in (overrides or {}).items()
+        if source_id not in FORBIDDEN_RESIDENTIAL_SOURCE_IDS
+    }
+    valid_ids = {_source_value(source, "id") for source in valid_sources}
+    usable_overrides = {source_id: value for source_id, value in overrides.items() if source_id in valid_ids}
+    overridden_total = min(residential_population, sum(usable_overrides.values()))
+    remaining_population = max(0, residential_population - overridden_total)
+    allocatable_sources = [source for source in valid_sources if _source_value(source, "id") not in usable_overrides]
+    allocated = _allocate_by_weight(remaining_population, allocatable_sources)
+
+    residential_by_source: dict[str, int] = {}
+    for source in valid_sources:
+        source_id = str(_source_value(source, "id"))
+        if source_id in usable_overrides:
+            residential_by_source[source_id] = usable_overrides[source_id]
+        else:
+            residential_by_source[source_id] = allocated.get(source_id, 0)
+
+    # 如果覆盖人数因为超过总量被截断，按 source id 稳定扣减，保证总和仍等于 residential_population。
+    current_total = sum(residential_by_source.values())
+    if current_total > residential_population:
+        overflow = current_total - residential_population
+        for source_id in sorted(residential_by_source, reverse=True):
+            reduction = min(overflow, residential_by_source[source_id])
+            residential_by_source[source_id] -= reduction
+            overflow -= reduction
+            if overflow <= 0:
+                break
+
+    residential_by_area: dict[str, int] = {}
+    for source in valid_sources:
+        source_id = str(_source_value(source, "id"))
+        area = str(_source_value(source, "campus_area", "未分类"))
+        residential_by_area[area] = residential_by_area.get(area, 0) + residential_by_source.get(source_id, 0)
+
+    return {
+        "total_population_pool": max(0, int(total_population_pool)),
+        "meal_participation_rate": _clamp(meal_participation_rate, 0.0, 1.0),
+        "effective_meal_population": effective_meal_population,
+        "teaching_population": max(0, int(teaching_population)),
+        "other_known_population": max(0, int(other_known_population)),
+        "residual_raw": residual_raw,
+        "residential_participation_rate": _clamp(residential_participation_rate, 0.0, 1.0),
+        "residential_population": residential_population,
+        "residential_allocation_mode": "capacity_weight",
+        "residential_by_source": residential_by_source,
+        "residential_by_area": residential_by_area,
+        "residential_overrides": {
+            source_id: {"population": residential_by_source.get(source_id, 0), "overridden": True}
+            for source_id in usable_overrides
+        },
+    }
+
+
 # 把楼层人数展开为“第几分钟到达多少人”，同时考虑下楼、步行波动和食堂选择概率。
 def build_campus_arrival_schedule(
     cafeteria_id: str,
@@ -169,6 +437,138 @@ def build_campus_arrival_schedule(
                 )
                 schedule[max(0, int(arrival_second // 60))] += 1
     return dict(sorted(schedule.items()))
+
+
+def build_mixed_campus_arrival_schedule(
+    cafeteria_id: str,
+    buildings: list[CampusBuildingDemandData],
+    residential_sources: list[CampusResidentialDemandData],
+    population_pool: CampusPopulationPoolData | None,
+    meal_period: str,
+    seed: int,
+    force_target: bool = False,
+    fallback_duration_min: int | None = None,
+    residential_data: dict[str, Any] | None = None,
+    residential_release_profile: ResidentialReleaseProfile | None = None,
+) -> dict[str, Any]:
+    if cafeteria_id not in known_cafeteria_ids():
+        raise ValueError(f"未知食堂：{cafeteria_id}")
+
+    teaching_schedule = build_campus_arrival_schedule(cafeteria_id, buildings, seed=seed, force_target=force_target)
+    teaching_population = estimate_teaching_population(buildings)
+    teaching_arrived = sum(teaching_schedule.values())
+    data = residential_data or load_residential_sources()
+    profile = residential_release_profile or default_residential_release_profile(
+        meal_period or (population_pool.meal_period if population_pool else "lunch")
+    )
+    selected_areas = _select_residential_areas(data.get("residential_areas", []), residential_sources)
+    overrides = {
+        item.residential_id: max(0, int(item.population_override))
+        for item in residential_sources
+        if item.population_override is not None and item.residential_id not in FORBIDDEN_RESIDENTIAL_SOURCE_IDS
+    }
+    warnings = list(data.get("warnings", []))
+
+    if population_pool and population_pool.enabled:
+        residual = estimate_residential_population_from_residual(
+            total_population_pool=population_pool.total_population_pool,
+            meal_participation_rate=population_pool.meal_participation_rate,
+            teaching_population=teaching_population,
+            other_known_population=population_pool.other_known_population,
+            residential_areas=selected_areas,
+            residential_participation_rate=profile.residential_participation_rate,
+            overrides=overrides,
+        )
+    else:
+        residual = estimate_residential_population_from_residual(
+            total_population_pool=sum(overrides.values()),
+            meal_participation_rate=1.0,
+            teaching_population=0,
+            other_known_population=0,
+            residential_areas=selected_areas,
+            residential_participation_rate=1.0,
+            overrides=overrides,
+        )
+        residual["total_population_pool"] = 0
+        residual["meal_participation_rate"] = 0.0
+        residual["effective_meal_population"] = 0
+        residual["residual_raw"] = sum(overrides.values())
+        residual["residential_population"] = sum(residual["residential_by_source"].values())
+        residual["residential_by_area"] = _residential_by_area_from_sources(selected_areas, residual["residential_by_source"])
+
+    source_options = {item.residential_id: item for item in residential_sources}
+    residential_schedule: Counter[int] = Counter()
+    arrival_minutes_by_source: dict[str, list[int]] = {}
+    source_walk_times: dict[str, dict[str, Any]] = {}
+    residential_rng = random.Random(seed + 7919)
+    source_by_id = {str(_source_value(source, "id")): source for source in selected_areas}
+
+    for source_id, population in residual["residential_by_source"].items():
+        if source_id in FORBIDDEN_RESIDENTIAL_SOURCE_IDS:
+            continue
+        source = source_by_id.get(source_id)
+        if source is None:
+            warnings.append(f"宿舍来源 {source_id} 不在 residential_areas 中，已跳过。")
+            continue
+        config_item = source_options.get(source_id)
+        release_ratio = _clamp(config_item.release_ratio if config_item else 1.0, 0.0, 1.0)
+        source_population = max(0, int(round(population * release_ratio)))
+        route = _residential_route(data, source_id, cafeteria_id)
+        if route is None:
+            if fallback_duration_min is None:
+                warnings.append(f"缺少 {source_id} 到 {cafeteria_id} 的宿舍步行时间，已跳过该宿舍来源。")
+                continue
+            route = {
+                "distance_m": 0,
+                "duration_s": max(1, int(fallback_duration_min)) * 60,
+                "duration_min": max(1, int(fallback_duration_min)),
+                "source": "fallback_duration_min",
+            }
+            warnings.append(f"缺少 {source_id} 到 {cafeteria_id} 的宿舍步行时间，使用 fallback_duration_min={fallback_duration_min}。")
+        source_walk_times.setdefault(source_id, {})[cafeteria_id] = route
+        target_probability = 1.0 if force_target else _residential_target_probability(data, source_id, cafeteria_id)
+        route_seconds = int(route["duration_s"])
+        for _ in range(source_population):
+            if residential_rng.random() > target_probability:
+                continue
+            departure_minute = sample_residential_departure_minute(profile, residential_rng)
+            arrival_second = departure_minute * 60 + _route_seconds_with_variation(route_seconds, residential_rng)
+            arrival_minute = max(0, int(arrival_second // 60))
+            residential_schedule[arrival_minute] += 1
+            arrival_minutes_by_source.setdefault(source_id, []).append(arrival_minute)
+
+    combined = Counter(teaching_schedule)
+    combined.update(residential_schedule)
+    schedule = dict(sorted(combined.items()))
+    residential_arrived = sum(residential_schedule.values())
+    residential_profile = asdict(profile)
+    breakdown = {
+        "teaching_population": teaching_population,
+        "effective_meal_population": residual["effective_meal_population"],
+        "residential_population": residual["residential_population"],
+        "residential_by_source": residual["residential_by_source"],
+        "residential_by_area": residual["residential_by_area"],
+        "residential_overrides": residual.get("residential_overrides", {}),
+        "total_population_pool": residual["total_population_pool"],
+        "meal_participation_rate": residual["meal_participation_rate"],
+        "other_known_population": residual["other_known_population"],
+        "residual_raw": residual["residual_raw"],
+        "residential_allocation_mode": residual["residential_allocation_mode"],
+        "teaching_arrived": teaching_arrived,
+        "residential_arrived": residential_arrived,
+        "total_arrived": teaching_arrived + residential_arrived,
+        "teaching_release_mode": "event",
+        "residential_release_mode": "time_window",
+        "residential_release_profile": residential_profile,
+        "residential_source_count": len([source_id for source_id, count in residual["residential_by_source"].items() if count > 0]),
+        "residential_arrival_minutes_by_source": {
+            source_id: sorted(minutes)
+            for source_id, minutes in arrival_minutes_by_source.items()
+        },
+        "residential_source_walk_times": source_walk_times,
+        "warnings": warnings,
+    }
+    return {"schedule": schedule, "breakdown": breakdown}
 
 
 # 在没有实时数据时，为每栋楼生成可复现的楼层人数模拟数据。
@@ -370,6 +770,95 @@ def _route_seconds_with_variation(route_seconds: int, rng: random.Random) -> int
         multiplier = rng.uniform(1.22, 1.72)
     linger = 0 if rng.random() < 0.78 else rng.randint(30, 180)
     return max(30, int(round(route_seconds * multiplier + linger)))
+
+
+def _source_value(source: Any, key: str, default: Any = None) -> Any:
+    if isinstance(source, dict):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
+def _valid_residential_sources(residential_areas: list[Any]) -> list[Any]:
+    valid = []
+    for source in residential_areas:
+        source_id = str(_source_value(source, "id", ""))
+        if source_id in FORBIDDEN_RESIDENTIAL_SOURCE_IDS:
+            continue
+        if _source_value(source, "parent_id") is not None or _source_value(source, "children") is not None:
+            continue
+        if _source_value(source, "type") == "group":
+            continue
+        if bool(_source_value(source, "exclude_from_simulation", False)):
+            continue
+        try:
+            weight = float(_source_value(source, "capacity_weight", 0))
+        except (TypeError, ValueError):
+            weight = 0
+        if source_id and weight > 0:
+            valid.append(source)
+    return valid
+
+
+def _allocate_by_weight(total: int, sources: list[Any]) -> dict[str, int]:
+    total = max(0, int(total))
+    if total <= 0 or not sources:
+        return {str(_source_value(source, "id")): 0 for source in sources}
+    weights = [max(0.0, float(_source_value(source, "capacity_weight", 0))) for source in sources]
+    weight_sum = sum(weights)
+    if weight_sum <= 0:
+        return {str(_source_value(source, "id")): 0 for source in sources}
+    raw_allocations = [total * weight / weight_sum for weight in weights]
+    floors = [int(math.floor(value)) for value in raw_allocations]
+    remainder = total - sum(floors)
+    order = sorted(
+        range(len(sources)),
+        key=lambda index: (-(raw_allocations[index] - floors[index]), str(_source_value(sources[index], "id"))),
+    )
+    for index in order[:remainder]:
+        floors[index] += 1
+    return {str(_source_value(source, "id")): count for source, count in zip(sources, floors)}
+
+
+def _select_residential_areas(
+    residential_areas: list[Any],
+    residential_sources: list[CampusResidentialDemandData],
+) -> list[Any]:
+    requested = {
+        source.residential_id
+        for source in residential_sources
+        if source.residential_id not in FORBIDDEN_RESIDENTIAL_SOURCE_IDS
+    }
+    if not requested:
+        return list(residential_areas)
+    return [
+        source
+        for source in residential_areas
+        if str(_source_value(source, "id", "")) in requested
+    ]
+
+
+def _residential_by_area_from_sources(sources: list[Any], residential_by_source: dict[str, int]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for source in sources:
+        source_id = str(_source_value(source, "id", ""))
+        if source_id not in residential_by_source:
+            continue
+        area = str(_source_value(source, "campus_area", "未分类"))
+        result[area] = result.get(area, 0) + residential_by_source[source_id]
+    return result
+
+
+def _residential_route(data: dict[str, Any], residential_id: str, cafeteria_id: str) -> dict[str, Any] | None:
+    route = data.get("walk_times", {}).get(residential_id, {}).get(cafeteria_id)
+    return route if isinstance(route, dict) and route.get("duration_s") else None
+
+
+def _residential_target_probability(data: dict[str, Any], residential_id: str, cafeteria_id: str) -> float:
+    try:
+        probabilities = residential_cafeteria_choice_probabilities(residential_id, residential_data=data)
+    except KeyError:
+        return 0.0
+    return probabilities.get(cafeteria_id, 0.0)
 
 
 # 安全读取接口中的人数/容量字段，异常或负值统一当作 0。

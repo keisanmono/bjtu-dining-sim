@@ -124,6 +124,17 @@ input {
   font-weight: 700;
 }
 
+.layout-panel-title {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.panel-title-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .config-form,
 .campus-form {
   display: grid;
@@ -296,6 +307,22 @@ input {
   align-items: end;
 }
 
+.campus-population-controls {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dbe6f0;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+
+.campus-population-control-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
 .campus-source-field .el-form-item__content {
   min-height: 32px;
   align-items: center;
@@ -320,6 +347,42 @@ input {
   color: #36536f;
   font-size: 12px;
   font-weight: 700;
+}
+
+.campus-readonly-cell {
+  color: #36536f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.campus-readonly-source {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.campus-readonly-source strong {
+  color: #1f4f85;
+  font-size: 13px;
+}
+
+.campus-readonly-source span {
+  color: #6b7b8f;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.campus-weight-input {
+  display: grid;
+  grid-template-columns: 28px minmax(76px, 100px);
+  align-items: center;
+  gap: 6px;
+  color: #6b7b8f;
+  font-size: 12px;
+}
+
+.campus-weight-input .el-input-number {
+  width: 100px;
 }
 
 .floor-inputs {
@@ -667,6 +730,24 @@ input {
   mix-blend-mode: multiply;
 }
 
+.queue-group {
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.2));
+}
+
+.queue-capsule {
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 0.8;
+  opacity: 0.9;
+}
+
+.queue-overflow {
+  fill: #2c3f55;
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 0.9;
+  opacity: 0.95;
+}
+
 .party-group {
   filter: drop-shadow(0 1px 1.2px rgba(15, 23, 42, 0.18));
 }
@@ -986,6 +1067,7 @@ input {
   .metric-grid,
   .config-recommend-summary,
   .config-field-grid,
+  .campus-population-control-grid,
   .campus-toolbar,
   .candidate-range-grid {
     grid-template-columns: 1fr;

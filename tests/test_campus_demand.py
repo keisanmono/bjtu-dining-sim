@@ -126,6 +126,41 @@ class CampusDemandTests(unittest.TestCase):
         self.assertEqual(result.metrics.total_left, result.metrics.total_arrived)
         self.assertLess(len(result.records), 120)
 
+    # 验证真实钟点下课时间会按仿真起始时间归一化，避免 11:00 场景空跑 660 分钟。
+    def test_campus_schedule_is_relative_to_simulation_start_clock(self):
+        campus = CampusDemandConfigData(
+            enabled=True,
+            cafeteria_id="xuesi",
+            source_mode="manual",
+            buildings=[
+                CampusBuildingDemandData(
+                    building_id="no9",
+                    dismissal_minute=660,
+                    release_ratio=1.0,
+                    floors=[CampusFloorDemandData(floor=1, count=8)],
+                )
+            ],
+        )
+        config = SimulationConfigData(
+            num_windows=4,
+            num_seats=20,
+            arrival_rate=99.0,
+            service_time_mean=0.2,
+            dining_time_mean=1.0,
+            duration_min=60,
+            seed=6,
+            simulation_start_minute=660,
+            campus_demand=campus,
+        )
+
+        result = run_simulation(config)
+        first_arrival = next(record for record in result.records if record.arrived_count > 0)
+
+        self.assertLess(first_arrival.t, 30)
+        self.assertEqual(first_arrival.clock_minute, 660 + first_arrival.t)
+        self.assertEqual(first_arrival.snapshot["clock_minute"], first_arrival.clock_minute)
+        self.assertLess(len(result.records), 120)
+
     # 验证随机楼层人数在相同 seed 下可复现，并按楼层返回。
     def test_random_floor_occupancy_is_reproducible_and_floor_level(self):
         first = generate_random_floor_occupancy(["no9"], seed=9)

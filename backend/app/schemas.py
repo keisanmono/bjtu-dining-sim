@@ -10,13 +10,19 @@ from .campus import (
     CampusBuildingDemandData,
     CampusDemandConfigData,
     CampusFloorDemandData,
+    CampusPopulationPoolData,
+    CampusResidentialDemandData,
+    ResidentialReleaseProfile as ResidentialReleaseProfileData,
 )
 from .simulation import (
     DiningLayoutData,
     LayoutDoorData,
+    LayoutFloorData,
     LayoutTableData,
     LayoutWindowData,
+    MOVEMENT_PRESET_FIELDS,
     SimulationConfigData,
+    apply_movement_quality_preset,
 )
 
 
@@ -48,8 +54,17 @@ class LayoutTable(BaseModel):
     rotation: int = 0
 
 
+# 食堂地面尺寸，前端布局编辑器会用它表达大规模食堂平面。
+class LayoutFloor(BaseModel):
+    width: float = Field(default=360.0, gt=0)
+    height: float = Field(default=640.0, gt=0)
+    x: float = 0.0
+    y: float = 0.0
+
+
 # 一张完整食堂平面图，包含入口、窗口和餐桌三类对象。
 class DiningLayout(BaseModel):
+    floor: LayoutFloor | None = None
     doors: list[LayoutDoor]
     windows: list[LayoutWindow]
     tables: list[LayoutTable]
@@ -69,12 +84,43 @@ class CampusBuildingDemand(BaseModel):
     floors: list[CampusFloorDemand] = Field(default_factory=list)
 
 
+class CampusResidentialDemand(BaseModel):
+    residential_id: str
+    release_ratio: float = Field(default=1.0, ge=0, le=1)
+    population_override: int | None = Field(default=None, ge=0)
+    source_type: str = "residential"
+
+
+class CampusPopulationPool(BaseModel):
+    enabled: bool = False
+    meal_period: str = "lunch"
+    total_population_pool: int = Field(default=0, ge=0)
+    total_population_mode: str = "manual"
+    meal_participation_rate: float = Field(default=1.0, ge=0, le=1)
+    other_known_population: int = Field(default=0, ge=0)
+    residential_allocation_mode: str = "capacity_weight"
+    residual_policy: str = "clamp_zero"
+
+
+class ResidentialReleaseProfile(BaseModel):
+    meal_period: str
+    start_minute: int = Field(ge=0)
+    end_minute: int = Field(ge=0)
+    peak_minute: int | None = Field(default=None, ge=0)
+    distribution: str = "triangular"
+    residential_participation_rate: float = Field(default=1.0, ge=0, le=1)
+
+
 # 校园到达模式的接口配置，启用后后端会按教学楼人数生成到达表。
 class CampusDemandConfig(BaseModel):
     enabled: bool = False
     cafeteria_id: str | None = None
     source_mode: str = "manual"
     buildings: list[CampusBuildingDemand] = Field(default_factory=list)
+    residential_sources: list[CampusResidentialDemand] = Field(default_factory=list)
+    population_pool: CampusPopulationPool | None = None
+    residential_release_profile: ResidentialReleaseProfile | None = None
+    meal_period: str = "lunch"
 
 
 # 前端提交的核心仿真配置；Field 约束保证接口层先挡住明显非法参数。
@@ -82,9 +128,11 @@ class SimulationConfig(BaseModel):
     num_windows: int = Field(default=4, ge=1, le=30)
     num_seats: int = Field(default=120, ge=1, le=2000)
     arrival_rate: float = Field(default=8.0, gt=0)
-    service_time_mean: float = Field(default=3.0, gt=0)
+    service_time_mean: float = Field(default=0.5, gt=0)
     dining_time_mean: float = Field(default=20.0, gt=0)
     duration_min: int = Field(default=60, ge=5, le=360)
+    simulation_start_minute: int = Field(default=0, ge=0, lt=24 * 60)
+    meal_period: str = "lunch"
     seed: int = Field(default=20)
     peak_start_min: int = Field(default=15, ge=0)
     peak_end_min: int = Field(default=40, ge=0)
@@ -95,9 +143,13 @@ class SimulationConfig(BaseModel):
     party_size_distribution: dict[int, float] = Field(default_factory=lambda: {1: 1.0})
     campus_demand: CampusDemandConfig | None = None
     window_choice_temperature: float = Field(default=0.0, ge=0)
+    window_switch_cooldown_min: int = Field(default=0, ge=0)
+    window_switch_threshold_min: float = Field(default=2.0, ge=0)
+    window_switch_penalty_min: float = Field(default=0.5, ge=0)
     table_choice_temperature: float = Field(default=0.0, ge=0)
     preempt_seat_probability: float = Field(default=0.0, ge=0, le=1)
     seat_holder_min_party_size: int = Field(default=2, ge=1)
+    movement_quality_preset: str | None = None
     movement_model: str = "path"
     movement_tick_seconds: int = Field(default=5, gt=0, le=15)
     floor_cell_size: float = Field(default=12.0, gt=0)
@@ -115,6 +167,8 @@ class SimulationConfig(BaseModel):
     queue_spacing_cells: int = Field(default=1, ge=0)
     personal_space_radius_cells: int = Field(default=1, ge=0)
     congestion_density_threshold: int = Field(default=3, ge=0)
+    advanced_movement_coupling: bool = True
+    entry_spawn_radius_cells: int = Field(default=3, ge=1)
 
     # 把接口层 Pydantic 模型转换为仿真层 dataclass，同时递归转换 layout/campus_demand。
     def to_data(self) -> SimulationConfigData:
@@ -126,6 +180,7 @@ class SimulationConfig(BaseModel):
         if layout is not None:
             # 前端传来的平面图会变成仿真层 dataclass，后续算法只依赖 dataclass 字段。
             payload["layout"] = DiningLayoutData(
+                floor=LayoutFloorData(**layout["floor"]) if layout.get("floor") is not None else None,
                 doors=[LayoutDoorData(**door) for door in layout["doors"]],
                 windows=[LayoutWindowData(**window) for window in layout["windows"]],
                 tables=[LayoutTableData(**table) for table in layout["tables"]],
@@ -148,8 +203,32 @@ class SimulationConfig(BaseModel):
                     )
                     for building in campus_demand["buildings"]
                 ],
+                residential_sources=[
+                    CampusResidentialDemandData(
+                        residential_id=source["residential_id"],
+                        release_ratio=source["release_ratio"],
+                        population_override=source["population_override"],
+                        source_type=source["source_type"],
+                    )
+                    for source in campus_demand["residential_sources"]
+                ],
+                population_pool=(
+                    CampusPopulationPoolData(**campus_demand["population_pool"])
+                    if campus_demand["population_pool"] is not None
+                    else None
+                ),
+                residential_release_profile=(
+                    ResidentialReleaseProfileData(**campus_demand["residential_release_profile"])
+                    if campus_demand.get("residential_release_profile") is not None
+                    else None
+                ),
+                meal_period=campus_demand["meal_period"],
             )
-        return SimulationConfigData(**payload)
+        explicit_movement_fields = set(self.model_fields_set).intersection(MOVEMENT_PRESET_FIELDS)
+        return apply_movement_quality_preset(
+            SimulationConfigData(**payload),
+            explicit_fields=explicit_movement_fields,
+        )
 
 
 # 参数校验接口返回结构：errors 阻止运行，warnings 只提醒潜在风险。

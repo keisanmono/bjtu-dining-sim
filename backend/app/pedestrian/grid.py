@@ -10,7 +10,10 @@ Cell = tuple[int, int]
 DEFAULT_CELL_SIZE = 12.0
 DEFAULT_WIDTH = 360.0
 DEFAULT_HEIGHT = 640.0
-DEFAULT_QUEUE_CELLS = 12
+DEFAULT_QUEUE_CELLS = 48
+MIN_SERPENTINE_QUEUE_CELLS = 120
+MAX_SERPENTINE_QUEUE_CELLS = 240
+QUEUE_ROW_SEGMENT_CELLS = 10
 
 
 @dataclass(frozen=True)
@@ -18,6 +21,8 @@ class GridData:
     cell_size: float
     cols: int
     rows: int
+    origin_x: float = 0.0
+    origin_y: float = 0.0
     blocked_cells: set[Cell] = field(default_factory=set)
     door_cells: dict[int, Cell] = field(default_factory=dict)
     window_cells: dict[int, set[Cell]] = field(default_factory=dict)
@@ -36,7 +41,13 @@ def grid_from_layout(layout: Any, cell_size: float, allow_diagonal: bool = False
     bounds = _floor_bounds(layout)
     cols = max(1, int(math.ceil(bounds["width"] / cell_size)))
     rows = max(1, int(math.ceil(bounds["height"] / cell_size)))
-    grid = GridData(cell_size=cell_size, cols=cols, rows=rows)
+    grid = GridData(
+        cell_size=cell_size,
+        cols=cols,
+        rows=rows,
+        origin_x=bounds["x"],
+        origin_y=bounds["y"],
+    )
 
     blocked: set[Cell] = set()
     table_cells: dict[int, set[Cell]] = {}
@@ -49,9 +60,11 @@ def grid_from_layout(layout: Any, cell_size: float, allow_diagonal: bool = False
     window_cells: dict[int, set[Cell]] = {}
     service_cells: dict[int, Cell] = {}
     queue_cells_by_window: dict[int, list[Cell]] = {}
+    window_normals: dict[int, tuple[int, int]] = {}
     for idx, window in enumerate(_field(layout, "windows", []) or []):
         footprint_cells = _cells_for_rect(_centered_box(window, _opening_footprint("window", _wall_side(window))), grid)
         window_cells[idx] = footprint_cells
+        window_normals[idx] = _wall_normal(_wall_side(window))
 
     object.__setattr__(grid, "blocked_cells", blocked)
     object.__setattr__(grid, "table_cells", table_cells)
@@ -85,8 +98,30 @@ def grid_from_layout(layout: Any, cell_size: float, allow_diagonal: bool = False
         }
         service = nearest_walkable_cell(point_to_cell(point, grid), grid)
         service_cells[idx] = service
-        queue_cells_by_window[idx] = _queue_cells_from_service(service, normal, grid)
     object.__setattr__(grid, "service_cells", service_cells)
+
+    ingress_reserved = _ingress_reserved_cells(grid, radius=1)
+    service_head_reserved = {
+        idx: _service_head_reserved_cells(service, window_normals.get(idx, (0, 1)), grid, radius=3)
+        for idx, service in service_cells.items()
+    }
+    reserved_queue_cells: set[Cell] = set()
+    for idx, service in service_cells.items():
+        forbidden = set(ingress_reserved)
+        forbidden.update(cell for window_idx, cell in service_cells.items() if window_idx != idx)
+        for window_idx, cells in service_head_reserved.items():
+            if window_idx != idx:
+                forbidden.update(cells)
+        forbidden.update(reserved_queue_cells)
+        queue_cells = _queue_cells_from_service(
+            service,
+            window_normals.get(idx, (0, 1)),
+            grid,
+            forbidden=forbidden,
+            target_count=_queue_target_count(grid, window_count=len(service_cells)),
+        )
+        queue_cells_by_window[idx] = queue_cells
+        reserved_queue_cells.update(queue_cells)
     object.__setattr__(grid, "queue_cells_by_window", queue_cells_by_window)
     return grid
 
@@ -96,14 +131,20 @@ def point_to_cell(point: Any, grid: GridData) -> Cell:
         return _clamp_cell((int(point[0]), int(point[1])), grid)
     x = float(_field(point, "x", 0.0) or 0.0)
     y = float(_field(point, "y", 0.0) or 0.0)
-    return _clamp_cell((int(math.floor(x / grid.cell_size)), int(math.floor(y / grid.cell_size))), grid)
+    return _clamp_cell(
+        (
+            int(math.floor((x - grid.origin_x) / grid.cell_size)),
+            int(math.floor((y - grid.origin_y) / grid.cell_size)),
+        ),
+        grid,
+    )
 
 
 def cell_to_point(cell: Cell, grid: GridData) -> dict[str, float]:
     col, row = _clamp_cell(cell, grid)
     return {
-        "x": round((col + 0.5) * grid.cell_size, 1),
-        "y": round((row + 0.5) * grid.cell_size, 1),
+        "x": round(grid.origin_x + (col + 0.5) * grid.cell_size, 1),
+        "y": round(grid.origin_y + (row + 0.5) * grid.cell_size, 1),
     }
 
 
@@ -142,33 +183,163 @@ def nearest_walkable_cell(cell: Cell, grid: GridData) -> Cell:
     return start
 
 
-def _queue_cells_from_service(service: Cell, normal: tuple[int, int], grid: GridData) -> list[Cell]:
+def _queue_cells_from_service(
+    service: Cell,
+    normal: tuple[int, int],
+    grid: GridData,
+    forbidden: set[Cell] | None = None,
+    target_count: int = DEFAULT_QUEUE_CELLS,
+) -> list[Cell]:
+    forbidden = forbidden or set()
+    target_count = max(1, int(target_count))
     cells = [service]
-    last = service
-    for distance in range(1, DEFAULT_QUEUE_CELLS):
-        candidate = (service[0] + normal[0] * distance, service[1] + normal[1] * distance)
-        if not _in_bounds(candidate, grid):
-            break
-        if is_walkable(candidate, grid) and candidate not in cells:
-            cells.append(candidate)
-            last = candidate
+    reachable = _reachable_walkable_cells(service, grid)
+    rows: dict[int, list[tuple[int, Cell]]] = {}
+    for candidate in reachable:
+        if candidate == service or candidate in forbidden:
             continue
-        replacement = nearest_walkable_cell(candidate, grid)
-        if replacement not in cells and is_walkable(replacement, grid):
-            cells.append(replacement)
-            last = replacement
-        else:
-            side = (normal[1], normal[0])
-            alternatives = [
-                (last[0] + side[0], last[1] + side[1]),
-                (last[0] - side[0], last[1] - side[1]),
-            ]
-            for alternative in alternatives:
-                if is_walkable(alternative, grid) and alternative not in cells:
-                    cells.append(alternative)
-                    last = alternative
-                    break
+        forward = _forward_distance(service, candidate, normal)
+        if forward < 0:
+            continue
+        rows.setdefault(forward, []).append((_lateral_distance(service, candidate, normal), candidate))
+
+    initial_direction = _queue_initial_lateral_direction(rows)
+    current_lateral = 0
+    ordered_forwards = sorted(rows)
+    for row_offset, forward in enumerate(ordered_forwards):
+        if len(cells) >= target_count:
+            break
+        direction = initial_direction if row_offset % 2 == 0 else -initial_direction
+        row_candidates = _serpentine_row_segment(
+            rows[forward],
+            current_lateral=current_lateral,
+            direction=direction,
+            limit=QUEUE_ROW_SEGMENT_CELLS,
+        )
+        for lateral, candidate in row_candidates:
+            cells.append(candidate)
+            current_lateral = lateral
+            if len(cells) >= target_count:
+                break
     return cells
+
+
+def _queue_initial_lateral_direction(rows: dict[int, list[tuple[int, Cell]]]) -> int:
+    positive_span = 0
+    negative_span = 0
+    for row in rows.values():
+        for lateral, _cell in row:
+            positive_span = max(positive_span, lateral)
+            negative_span = min(negative_span, lateral)
+    return 1 if positive_span >= abs(negative_span) else -1
+
+
+def _serpentine_row_segment(
+    row: list[tuple[int, Cell]],
+    current_lateral: int,
+    direction: int,
+    limit: int,
+) -> list[tuple[int, Cell]]:
+    ordered = sorted(row)
+    if direction >= 0:
+        segment = [item for item in ordered if item[0] >= current_lateral]
+        if not segment:
+            segment = ordered
+    else:
+        segment = [item for item in reversed(ordered) if item[0] <= current_lateral]
+        if not segment:
+            segment = list(reversed(ordered))
+    closest = min(ordered, key=lambda item: abs(item[0] - current_lateral))
+    if segment and abs(segment[0][0] - current_lateral) > abs(closest[0] - current_lateral):
+        if closest[0] >= current_lateral:
+            segment = [item for item in ordered if item[0] >= current_lateral]
+        else:
+            segment = [item for item in reversed(ordered) if item[0] <= current_lateral]
+    contiguous: list[tuple[int, Cell]] = []
+    for item in segment:
+        if contiguous and abs(item[0] - contiguous[-1][0]) > 2:
+            break
+        contiguous.append(item)
+        if len(contiguous) >= max(1, int(limit)):
+            break
+    return contiguous or segment[:1]
+
+
+def _queue_target_count(grid: GridData, window_count: int) -> int:
+    window_count = max(1, int(window_count))
+    walkable_cells = max(1, grid.cols * grid.rows - len(grid.blocked_cells))
+    fair_share = walkable_cells // (window_count * 2)
+    return max(DEFAULT_QUEUE_CELLS, min(MAX_SERPENTINE_QUEUE_CELLS, max(MIN_SERPENTINE_QUEUE_CELLS, fair_share)))
+
+
+def _reachable_walkable_cells(start: Cell, grid: GridData) -> set[Cell]:
+    if not is_walkable(start, grid):
+        return set()
+    frontier: deque[Cell] = deque([start])
+    seen = {start}
+    while frontier:
+        current = frontier.popleft()
+        for candidate in neighbors(current, grid, allow_diagonal=False):
+            if candidate in seen or not is_walkable(candidate, grid):
+                continue
+            seen.add(candidate)
+            frontier.append(candidate)
+    return seen
+
+
+def _queue_neighbor_order(cell: Cell, normal: tuple[int, int]) -> list[Cell]:
+    side = (normal[1], normal[0])
+    offsets = [
+        normal,
+        side,
+        (-side[0], -side[1]),
+        (-normal[0], -normal[1]),
+    ]
+    return [(cell[0] + dc, cell[1] + dr) for dc, dr in offsets]
+
+
+def _forward_distance(service: Cell, candidate: Cell, normal: tuple[int, int]) -> int:
+    return (candidate[0] - service[0]) * normal[0] + (candidate[1] - service[1]) * normal[1]
+
+
+def _lateral_distance(service: Cell, candidate: Cell, normal: tuple[int, int]) -> int:
+    side = (normal[1], normal[0])
+    return (candidate[0] - service[0]) * side[0] + (candidate[1] - service[1]) * side[1]
+
+
+def _service_head_reserved_cells(service: Cell, normal: tuple[int, int], grid: GridData, radius: int) -> set[Cell]:
+    side = (normal[1], normal[0])
+    reserved: set[Cell] = set()
+    for forward in range(0, max(0, radius) + 1):
+        for lateral in range(-radius, radius + 1):
+            if forward + abs(lateral) > radius:
+                continue
+            candidate = (
+                service[0] + normal[0] * forward + side[0] * lateral,
+                service[1] + normal[1] * forward + side[1] * lateral,
+            )
+            if is_walkable(candidate, grid):
+                reserved.add(candidate)
+    return reserved
+
+
+def _ingress_reserved_cells(grid: GridData, radius: int) -> set[Cell]:
+    reserved: set[Cell] = set()
+    for door_cell in grid.door_cells.values():
+        frontier: deque[tuple[Cell, int]] = deque([(door_cell, 0)])
+        seen = {door_cell}
+        while frontier:
+            current, distance = frontier.popleft()
+            if is_walkable(current, grid):
+                reserved.add(current)
+            if distance >= radius:
+                continue
+            for neighbor in neighbors(current, grid, allow_diagonal=True):
+                if neighbor in seen:
+                    continue
+                seen.add(neighbor)
+                frontier.append((neighbor, distance + 1))
+    return reserved
 
 
 def _approach_ring(cells: set[Cell], grid: GridData, allow_diagonal: bool) -> set[Cell]:
@@ -189,10 +360,16 @@ def _approach_ring(cells: set[Cell], grid: GridData, allow_diagonal: bool) -> se
 
 
 def _cells_for_rect(box: dict[str, float], grid: GridData) -> set[Cell]:
-    left = max(0, int(math.floor(box["left"] / grid.cell_size)))
-    right = min(grid.cols - 1, int(math.floor(max(box["left"], box["right"] - 1e-6) / grid.cell_size)))
-    top = max(0, int(math.floor(box["top"] / grid.cell_size)))
-    bottom = min(grid.rows - 1, int(math.floor(max(box["top"], box["bottom"] - 1e-6) / grid.cell_size)))
+    left = max(0, int(math.floor((box["left"] - grid.origin_x) / grid.cell_size)))
+    right = min(
+        grid.cols - 1,
+        int(math.floor((max(box["left"], box["right"] - 1e-6) - grid.origin_x) / grid.cell_size)),
+    )
+    top = max(0, int(math.floor((box["top"] - grid.origin_y) / grid.cell_size)))
+    bottom = min(
+        grid.rows - 1,
+        int(math.floor((max(box["top"], box["bottom"] - 1e-6) - grid.origin_y) / grid.cell_size)),
+    )
     return {
         (col, row)
         for col in range(left, right + 1)
@@ -255,7 +432,14 @@ def _floor_bounds(layout: Any) -> dict[str, float]:
     floor = _field(layout, "floor", None)
     width = float(_field(floor, "width", DEFAULT_WIDTH) or DEFAULT_WIDTH)
     height = float(_field(floor, "height", DEFAULT_HEIGHT) or DEFAULT_HEIGHT)
-    return {"width": max(DEFAULT_CELL_SIZE, width), "height": max(DEFAULT_CELL_SIZE, height)}
+    x = float(_field(floor, "x", 0.0) or 0.0)
+    y = float(_field(floor, "y", 0.0) or 0.0)
+    return {
+        "x": x if math.isfinite(x) else 0.0,
+        "y": y if math.isfinite(y) else 0.0,
+        "width": max(DEFAULT_CELL_SIZE, width),
+        "height": max(DEFAULT_CELL_SIZE, height),
+    }
 
 
 def _clamp_cell(cell: Cell, grid: GridData) -> Cell:
