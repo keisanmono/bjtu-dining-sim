@@ -11,10 +11,8 @@ DEFAULT_CELL_SIZE = 12.0
 DEFAULT_WIDTH = 360.0
 DEFAULT_HEIGHT = 640.0
 DEFAULT_QUEUE_CELLS = 48
-MIN_SERPENTINE_QUEUE_CELLS = 120
-MAX_SERPENTINE_QUEUE_CELLS = 240
-QUEUE_ROW_SEGMENT_CELLS = 1
-QUEUE_LATERAL_SPAN_CELLS = 2
+MIN_QUEUE_CELLS = 120
+MAX_QUEUE_CELLS = 240
 
 
 @dataclass(frozen=True)
@@ -193,237 +191,82 @@ def _queue_cells_from_service(
 ) -> list[Cell]:
     forbidden = forbidden or set()
     target_count = max(1, int(target_count))
-    reachable = _reachable_walkable_cells(service, grid)
-    all_rows: dict[int, list[tuple[int, Cell]]] = {}
-    rows: dict[int, list[tuple[int, Cell]]] = {}
-    for candidate in reachable:
-        if candidate == service or candidate in forbidden:
-            continue
-        forward = _forward_distance(service, candidate, normal)
-        if forward <= 0:
-            continue
-        lateral = _lateral_distance(service, candidate, normal)
-        all_rows.setdefault(forward, []).append((lateral, candidate))
-        if abs(lateral) <= QUEUE_LATERAL_SPAN_CELLS:
-            rows.setdefault(forward, []).append((lateral, candidate))
-
-    queue_cells = _queue_path_from_rows(rows, target_count)
-    if queue_cells:
-        return queue_cells
-    return _queue_path_from_rows(all_rows, target_count)
+    return _straight_queue_cells_from_service(service, normal, grid, forbidden, target_count)
 
 
-def _queue_path_from_rows(rows: dict[int, list[tuple[int, Cell]]], target_count: int) -> list[Cell]:
-    if not rows:
-        return []
-    initial_direction = _queue_initial_lateral_direction(rows)
-    current_lateral = 0
-    ordered_forwards = sorted(rows)
-    ordered_candidates: list[Cell] = []
-    for row_offset, forward in enumerate(ordered_forwards):
-        if len(ordered_candidates) >= target_count * 3:
-            break
-        direction = initial_direction if row_offset % 2 == 0 else -initial_direction
-        row_candidates = _serpentine_row_segment(
-            rows[forward],
-            current_lateral=current_lateral,
-            direction=direction,
-            limit=QUEUE_ROW_SEGMENT_CELLS,
-        )
-        next_forward = ordered_forwards[row_offset + 1] if row_offset + 1 < len(ordered_forwards) else None
-        if next_forward is not None:
-            row_candidates = _trim_row_for_next_row_transition(row_candidates, rows[next_forward])
-        for lateral, candidate in row_candidates:
-            ordered_candidates.append(candidate)
-            current_lateral = lateral
-    allowed = {cell for row in rows.values() for _lateral, cell in row}
-    return _continuous_queue_path(ordered_candidates, allowed, target_count)
-
-
-def _continuous_queue_path(candidates: list[Cell], allowed: set[Cell], target_count: int) -> list[Cell]:
+def _straight_queue_cells_from_service(
+    service: Cell,
+    normal: tuple[int, int],
+    grid: GridData,
+    forbidden: set[Cell],
+    target_count: int,
+) -> list[Cell]:
     cells: list[Cell] = []
     used: set[Cell] = set()
-    for candidate in candidates:
-        if len(cells) >= target_count:
+    current = service
+    side_order = _queue_detour_side_order(service, normal, grid)
+    detour_side: tuple[int, int] | None = None
+
+    while len(cells) < target_count:
+        forward = (current[0] + normal[0], current[1] + normal[1])
+        if _queue_cell_available(forward, grid, forbidden, used):
+            cells.append(forward)
+            used.add(forward)
+            current = forward
+            detour_side = None
+            continue
+        if not _queue_cell_is_table_block(forward, grid):
             break
-        if candidate in used or candidate not in allowed:
-            continue
-        if not cells:
-            cells.append(candidate)
-            used.add(candidate)
-            continue
-        if _manhattan(cells[-1], candidate) == 1:
-            cells.append(candidate)
-            used.add(candidate)
-            continue
-        connector = _queue_connector_path(cells[-1], candidate, allowed - used)
-        if connector is None:
-            continue
-        for cell in connector[1:]:
-            if len(cells) >= target_count:
-                break
-            if cell in used or cell not in allowed:
-                continue
-            cells.append(cell)
-            used.add(cell)
-    _extend_queue_greedily(cells, used, allowed, target_count)
-    return cells[:target_count]
 
-
-def _extend_queue_greedily(cells: list[Cell], used: set[Cell], allowed: set[Cell], target_count: int) -> None:
-    while cells and len(cells) < target_count:
-        current = cells[-1]
-        options = [
-            cell
-            for cell in _orthogonal_neighbor_cells(current)
-            if cell in allowed and cell not in used
-        ]
-        if not options:
-            return
-        next_cell = min(
-            options,
-            key=lambda cell: (
-                _unvisited_neighbor_count(cell, allowed, used),
-                cell[1],
-                cell[0],
+        detour_options = list(side_order)
+        if detour_side is not None:
+            detour_options = [detour_side, *[side for side in detour_options if side != detour_side]]
+        detour = next(
+            (
+                (current[0] + side[0], current[1] + side[1], side)
+                for side in detour_options
+                if _queue_cell_available((current[0] + side[0], current[1] + side[1]), grid, forbidden, used)
             ),
+            None,
         )
+        if detour is None:
+            break
+        next_cell = (detour[0], detour[1])
         cells.append(next_cell)
         used.add(next_cell)
+        current = next_cell
+        detour_side = detour[2]
+    return cells
 
 
-def _unvisited_neighbor_count(cell: Cell, allowed: set[Cell], used: set[Cell]) -> int:
-    return sum(1 for neighbor in _orthogonal_neighbor_cells(cell) if neighbor in allowed and neighbor not in used)
+def _queue_cell_available(cell: Cell, grid: GridData, forbidden: set[Cell], used: set[Cell]) -> bool:
+    return _in_bounds(cell, grid) and cell not in forbidden and cell not in used and is_walkable(cell, grid)
 
 
-def _queue_connector_path(start: Cell, goal: Cell, open_cells: set[Cell], max_steps: int = 18) -> list[Cell] | None:
-    if start == goal:
-        return [start]
-    frontier: deque[tuple[Cell, list[Cell]]] = deque([(start, [start])])
-    seen = {start}
-    while frontier:
-        current, path = frontier.popleft()
-        if len(path) > max_steps:
-            continue
-        for candidate in _orthogonal_neighbor_cells(current):
-            if candidate in seen:
-                continue
-            if candidate != goal and candidate not in open_cells:
-                continue
-            next_path = [*path, candidate]
-            if candidate == goal:
-                return next_path
-            seen.add(candidate)
-            frontier.append((candidate, next_path))
-    return None
+def _queue_cell_is_table_block(cell: Cell, grid: GridData) -> bool:
+    return _in_bounds(cell, grid) and cell in grid.blocked_cells
 
 
-def _orthogonal_neighbor_cells(cell: Cell) -> list[Cell]:
-    col, row = cell
-    return [(col + 1, row), (col - 1, row), (col, row + 1), (col, row - 1)]
+def _queue_detour_side_order(service: Cell, normal: tuple[int, int], grid: GridData) -> list[tuple[int, int]]:
+    sides = [(normal[1], -normal[0]), (-normal[1], normal[0])]
+    return sorted(sides, key=lambda side: -_queue_side_clearance(service, side, grid))
 
 
-def _manhattan(first: Cell, second: Cell) -> int:
-    return abs(first[0] - second[0]) + abs(first[1] - second[1])
-
-
-def _queue_initial_lateral_direction(rows: dict[int, list[tuple[int, Cell]]]) -> int:
-    positive_span = 0
-    negative_span = 0
-    for row in rows.values():
-        for lateral, _cell in row:
-            positive_span = max(positive_span, lateral)
-            negative_span = min(negative_span, lateral)
-    return 1 if positive_span >= abs(negative_span) else -1
-
-
-def _serpentine_row_segment(
-    row: list[tuple[int, Cell]],
-    current_lateral: int,
-    direction: int,
-    limit: int,
-) -> list[tuple[int, Cell]]:
-    ordered = sorted(row)
-    if direction >= 0:
-        segment = [item for item in ordered if item[0] >= current_lateral]
-        if not segment:
-            segment = ordered
-    else:
-        segment = [item for item in reversed(ordered) if item[0] <= current_lateral]
-        if not segment:
-            segment = list(reversed(ordered))
-    closest = min(ordered, key=lambda item: abs(item[0] - current_lateral))
-    if segment and abs(segment[0][0] - current_lateral) > abs(closest[0] - current_lateral):
-        if closest[0] >= current_lateral:
-            segment = [item for item in ordered if item[0] >= current_lateral]
-        else:
-            segment = [item for item in reversed(ordered) if item[0] <= current_lateral]
-    contiguous: list[tuple[int, Cell]] = []
-    for item in segment:
-        if contiguous and abs(item[0] - contiguous[-1][0]) > 2:
-            break
-        contiguous.append(item)
-        if len(contiguous) >= max(1, int(limit)):
-            break
-    return contiguous or segment[:1]
-
-
-def _trim_row_for_next_row_transition(
-    row_candidates: list[tuple[int, Cell]],
-    next_row: list[tuple[int, Cell]],
-) -> list[tuple[int, Cell]]:
-    if len(row_candidates) <= 1 or not next_row:
-        return row_candidates
-    next_cells = [cell for _lateral, cell in next_row]
-    trimmed = list(row_candidates)
-    while len(trimmed) > 1:
-        last = trimmed[-1][1]
-        if min(abs(last[0] - cell[0]) + abs(last[1] - cell[1]) for cell in next_cells) <= 3:
-            break
-        trimmed.pop()
-    return trimmed
+def _queue_side_clearance(service: Cell, side: tuple[int, int], grid: GridData) -> int:
+    clearance = 0
+    current = service
+    while True:
+        current = (current[0] + side[0], current[1] + side[1])
+        if not _in_bounds(current, grid) or current in grid.blocked_cells:
+            return clearance
+        clearance += 1
 
 
 def _queue_target_count(grid: GridData, window_count: int) -> int:
     window_count = max(1, int(window_count))
     walkable_cells = max(1, grid.cols * grid.rows - len(grid.blocked_cells))
-    fair_share = walkable_cells // (window_count * 8)
-    return max(DEFAULT_QUEUE_CELLS, min(MAX_SERPENTINE_QUEUE_CELLS, fair_share))
-
-
-def _reachable_walkable_cells(start: Cell, grid: GridData) -> set[Cell]:
-    if not is_walkable(start, grid):
-        return set()
-    frontier: deque[Cell] = deque([start])
-    seen = {start}
-    while frontier:
-        current = frontier.popleft()
-        for candidate in neighbors(current, grid, allow_diagonal=False):
-            if candidate in seen or not is_walkable(candidate, grid):
-                continue
-            seen.add(candidate)
-            frontier.append(candidate)
-    return seen
-
-
-def _queue_neighbor_order(cell: Cell, normal: tuple[int, int]) -> list[Cell]:
-    side = (normal[1], normal[0])
-    offsets = [
-        normal,
-        side,
-        (-side[0], -side[1]),
-        (-normal[0], -normal[1]),
-    ]
-    return [(cell[0] + dc, cell[1] + dr) for dc, dr in offsets]
-
-
-def _forward_distance(service: Cell, candidate: Cell, normal: tuple[int, int]) -> int:
-    return (candidate[0] - service[0]) * normal[0] + (candidate[1] - service[1]) * normal[1]
-
-
-def _lateral_distance(service: Cell, candidate: Cell, normal: tuple[int, int]) -> int:
-    side = (normal[1], normal[0])
-    return (candidate[0] - service[0]) * side[0] + (candidate[1] - service[1]) * side[1]
+    fair_share = walkable_cells // (window_count * 2)
+    return max(DEFAULT_QUEUE_CELLS, min(MAX_QUEUE_CELLS, max(MIN_QUEUE_CELLS, fair_share)))
 
 
 def _service_head_reserved_cells(service: Cell, normal: tuple[int, int], grid: GridData, radius: int) -> set[Cell]:

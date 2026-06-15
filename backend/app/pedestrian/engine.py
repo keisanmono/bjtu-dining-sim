@@ -445,8 +445,7 @@ class PedestrianEngine:
         intents: dict[Cell, list[tuple[PedestrianAgent, float]]] = defaultdict(list)
         intended_by_agent: dict[int, Cell] = {}
         for agent in sorted(movable, key=lambda item: item.student_id):
-            occupied = set(occupied_all)
-            occupied.discard(agent.cell)
+            occupied = self._occupied_cells_for_agent(agent, occupied_by, occupied_all)
             intended, cost = self._intended_move(
                 agent,
                 occupied_cells=occupied,
@@ -464,6 +463,16 @@ class PedestrianEngine:
             if len(contenders) == 1:
                 agent, _cost = contenders[0]
                 winners[agent.student_id] = target
+                continue
+            queue_passthrough_winners = self._queue_passthrough_winners(target, contenders, occupied_by)
+            if queue_passthrough_winners:
+                winners.update(queue_passthrough_winners)
+                winner_ids = set(queue_passthrough_winners)
+                for loser, _cost in contenders:
+                    if loser.student_id in winner_ids:
+                        continue
+                    conflict_losers.add(loser.student_id)
+                    loser.conflict_count += 1
                 continue
             ordered = sorted(
                 contenders,
@@ -517,6 +526,54 @@ class PedestrianEngine:
 
         self._refresh_party_centers()
         return events, moved_agent_ids, active_ids
+
+    def _occupied_cells_for_agent(
+        self,
+        agent: PedestrianAgent,
+        occupied_by: dict[Cell, PedestrianAgent],
+        occupied_all: set[Cell],
+    ) -> set[Cell]:
+        occupied = set(occupied_all)
+        occupied.discard(agent.cell)
+        if self._agent_can_pass_through_queue(agent):
+            for cell, occupant in occupied_by.items():
+                if occupant.state is AgentState.QUEUEING:
+                    occupied.discard(cell)
+        return occupied
+
+    def _agent_can_pass_through_queue(self, agent: PedestrianAgent) -> bool:
+        return agent.state in {
+            AgentState.ENTERING,
+            AgentState.WAITING_GROUP,
+            AgentState.TO_TABLE,
+            AgentState.TO_EXIT,
+        }
+
+    def _queue_passthrough_winners(
+        self,
+        target: Cell,
+        contenders: list[tuple[PedestrianAgent, float]],
+        occupied_by: dict[Cell, PedestrianAgent],
+    ) -> dict[int, Cell]:
+        queue_occupant = occupied_by.get(target)
+        if queue_occupant is None or queue_occupant.state is not AgentState.QUEUEING:
+            return {}
+        queue_contender = next(
+            (agent for agent, _cost in contenders if agent.student_id == queue_occupant.student_id),
+            queue_occupant,
+        )
+        passers = [
+            (agent, cost)
+            for agent, cost in contenders
+            if agent.student_id != queue_occupant.student_id and self._agent_can_pass_through_queue(agent)
+        ]
+        if not passers:
+            return {}
+        passer, _cost = min(passers, key=lambda item: (item[1], item[0].student_id))
+        return {
+            queue_contender.student_id: target,
+            passer.student_id: target,
+        }
 
     def run_for_minute(
         self,
@@ -756,13 +813,14 @@ class PedestrianEngine:
         if queue_info is not None:
             queue_window, queue_slot_index, queue_owner = queue_info
             if queue_owner is not None and queue_owner != agent.student_id:
-                if not self._agent_can_use_tail_slot(agent, queue_window, queue_slot_index):
+                if not self._agent_can_pass_through_queue(agent) and not self._agent_can_use_tail_slot(agent, queue_window, queue_slot_index):
                     return False
             if (
                 queue_owner is None
                 and self._queue_slot_window_has_assignments(cell)
                 and cell not in agent.target_cells
                 and not self._agent_can_use_tail_slot(agent, queue_window, queue_slot_index)
+                and not self._agent_can_pass_through_queue(agent)
                 and not self._agent_can_use_unowned_queue_slot(agent)
             ):
                 return False

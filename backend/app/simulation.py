@@ -6,6 +6,7 @@ import heapq
 import math
 import random
 import uuid
+from collections import defaultdict, deque
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
@@ -195,6 +196,7 @@ class SimulationConfigData:
     congestion_density_threshold: int = 3
     advanced_movement_coupling: bool = True
     entry_spawn_radius_cells: int = 3
+    entry_queue_patience_min: int = 20
 
     # 基于当前不可变配置生成字段替换后的新配置，推荐模块用于构造候选方案。
     def with_updates(self, **updates: Any) -> "SimulationConfigData":
@@ -591,13 +593,15 @@ class DiningSimulationRunner:
             )
         self.arrival_horizon_minute = self._arrival_horizon_minute()
         # 下面这些列表就是仿真“现场”：每分钟都会原地更新。
-        self.queues: list[list[Student]] = [[] for _ in range(len(self.layout.windows))]
+        self.queues: list[deque[Student]] = [deque() for _ in range(len(self.layout.windows))]
         self.windows: list[WindowService | None] = [None for _ in range(len(self.layout.windows))]
         self.waiting_for_seat: list[DiningParty] = []
         self.walking_to_seat: list[WalkingSeatTransfer] = []
         self.seated: list[DiningSeat] = []
         self.waiting_to_queue_student_ids: set[int] = set()
         self.pending_entry_students: list[tuple[int, int, Student]] = []
+        self.entry_seat_wait_table_by_student: dict[int, int] = {}
+        self.unserved_left_this_minute = 0
         self.next_entry_sequence = 0
         self.entered_this_minute = 0
         self.table_occupied_seats: list[int] = [0 for _ in self.layout.tables]
@@ -655,6 +659,7 @@ class DiningSimulationRunner:
         self._move_ready_parties_to_seat_wait(served_students, minute)
         self._seat_waiting_students(minute, timeline_events=timeline_events)
         self.entered_this_minute = 0
+        self.unserved_left_this_minute = 0
         arrivals = self._generate_arrivals(minute)
         self._enqueue_arrivals(arrivals)
         started_windows = self._start_window_services(minute, start_offsets=window_elapsed)
@@ -699,7 +704,7 @@ class DiningSimulationRunner:
             arrived_count=len(arrivals),
             served_count=len(served_students),
             seated_count=seated_count,
-            left_count=left_count,
+            left_count=left_count + self.unserved_left_this_minute,
             timeline=merge_timelines(
                 self._build_step_timeline(step_start_sec, step_end_sec, timeline_events),
                 pedestrian_timeline,
@@ -1101,6 +1106,7 @@ class DiningSimulationRunner:
     def _admit_due_entry_students(self, current_time_sec: int) -> int:
         if self.pedestrian_engine is None:
             return 0
+        self._move_entry_seat_waiters_to_window_queues(current_time_sec)
         admitted_total = 0
         due_by_door: dict[int, list[tuple[int, int, Student]]] = {}
         while self.pending_entry_students and self.pending_entry_students[0][0] <= current_time_sec:
@@ -1112,25 +1118,150 @@ class DiningSimulationRunner:
         retry_time_sec = current_time_sec + max(1, int(getattr(self.pedestrian_engine, "tick_seconds", 5)))
         for door_index, entries in due_by_door.items():
             available_cells = self.pedestrian_engine.available_entry_cells(door_index, limit=len(entries))
-            allowed = min(len(entries), len(available_cells))
-            if allowed <= 0:
+            if not available_cells:
                 for _entry_time, sequence, student in entries:
-                    heapq.heappush(self.pending_entry_students, (retry_time_sec, sequence, student))
+                    if self._entry_queue_wait_expired(student, current_time_sec):
+                        self._mark_student_left_unserved(student, math.floor(current_time_sec / 60))
+                    else:
+                        heapq.heappush(self.pending_entry_students, (retry_time_sec, sequence, student))
                 continue
-            students = [entry[2] for entry in entries[:allowed]]
+            admitted: list[tuple[int, Student, int]] = []
+            seated_waiters: list[tuple[int, Student, int]] = []
+            reserved_by_window: dict[int, int] = defaultdict(int)
+            for _entry_time, sequence, student in entries:
+                if len(admitted) + len(seated_waiters) >= len(available_cells):
+                    heapq.heappush(self.pending_entry_students, (retry_time_sec, sequence, student))
+                    continue
+                window_index = self._choose_window_with_queue_capacity(student, reserved_by_window)
+                if window_index is None:
+                    table_index = self._choose_entry_wait_table(student)
+                    if table_index is not None:
+                        seated_waiters.append((sequence, student, table_index))
+                        continue
+                    if self._entry_queue_wait_expired(student, current_time_sec):
+                        self._mark_student_left_unserved(student, math.floor(current_time_sec / 60))
+                    else:
+                        heapq.heappush(self.pending_entry_students, (retry_time_sec, sequence, student))
+                    continue
+                reserved_by_window[window_index] = reserved_by_window.get(window_index, 0) + 1
+                admitted.append((sequence, student, window_index))
+            if not admitted and not seated_waiters:
+                continue
+            students = [
+                *(student for _sequence, student, _window_index in admitted),
+                *(student for _sequence, student, _table_index in seated_waiters),
+            ]
             self.pedestrian_engine.spawn_arrivals(students, door_index=door_index)
-            for student in students:
-                idx = self._choose_window_for_student(student)
+            for _sequence, student, idx in admitted:
                 self._assign_student_to_window_queue(
                     student,
                     idx,
                     queue_enter_time=math.floor(current_time_sec / 60),
                 )
+            for _sequence, student, table_index in seated_waiters:
+                self._assign_student_to_entry_seat_wait(student, table_index)
             admitted_total += len(students)
-            for _entry_time, sequence, student in entries[allowed:]:
-                heapq.heappush(self.pending_entry_students, (retry_time_sec, sequence, student))
         self.entered_this_minute += admitted_total
         return admitted_total
+
+    def _move_entry_seat_waiters_to_window_queues(self, current_time_sec: int) -> int:
+        if not self.entry_seat_wait_table_by_student:
+            return 0
+        moved = 0
+        reserved_by_window: dict[int, int] = defaultdict(int)
+        minute = math.floor(current_time_sec / 60)
+        for student_id in list(self.entry_seat_wait_table_by_student):
+            student = self.students.get(student_id)
+            if student is None or student.leave_time is not None or student.service_start_time is not None:
+                self._release_entry_wait_seat(student_id)
+                continue
+            window_index = self._choose_window_with_queue_capacity(student, reserved_by_window)
+            if window_index is None:
+                continue
+            reserved_by_window[window_index] = reserved_by_window.get(window_index, 0) + 1
+            self._release_entry_wait_seat(student_id)
+            self._assign_student_to_window_queue(student, window_index, queue_enter_time=minute)
+            moved += 1
+        return moved
+
+    def _choose_entry_wait_table(self, student: Student) -> int | None:
+        if not self.layout.tables:
+            return None
+        door = self.layout.doors[min(student.door_index, len(self.layout.doors) - 1)]
+        candidates: list[tuple[float, int]] = []
+        for idx, table in enumerate(self.layout.tables):
+            occupied = self.table_occupied_seats[idx] + self.table_reserved_seats[idx]
+            if table.capacity - occupied <= 0:
+                continue
+            if not self._table_has_movement_target(idx):
+                continue
+            distance_cost = _distance(door, table) * 0.015
+            crowd_cost = occupied / max(1, table.capacity)
+            candidates.append((distance_cost + crowd_cost, idx))
+        if not candidates:
+            return None
+        return self._choose_by_softmax_cost(candidates, self.config.table_choice_temperature)
+
+    def _assign_student_to_entry_seat_wait(self, student: Student, table_index: int) -> None:
+        self._release_entry_wait_seat(student.student_id)
+        bounded_index = min(max(0, int(table_index)), max(0, len(self.table_reserved_seats) - 1))
+        self.table_reserved_seats[bounded_index] += 1
+        self.entry_seat_wait_table_by_student[student.student_id] = bounded_index
+        student.window_index = None
+        if self.pedestrian_engine is not None:
+            self.pedestrian_engine.set_agent_seated(student.student_id, bounded_index)
+
+    def _release_entry_wait_seat(self, student_id: int) -> None:
+        table_index = self.entry_seat_wait_table_by_student.pop(student_id, None)
+        if table_index is None or table_index < 0 or table_index >= len(self.table_reserved_seats):
+            return
+        self.table_reserved_seats[table_index] = max(0, self.table_reserved_seats[table_index] - 1)
+
+    def _choose_window_with_queue_capacity(
+        self,
+        student: Student,
+        reserved_by_window: dict[int, int] | None = None,
+    ) -> int | None:
+        reserved_by_window = reserved_by_window or {}
+        candidates = [
+            (
+                self._window_choice_cost(student, idx)
+                + reserved_by_window.get(idx, 0) * max(0.1, self.config.service_time_mean),
+                idx,
+            )
+            for idx in range(len(self.queues))
+            if self._window_queue_load(idx) + reserved_by_window.get(idx, 0) < self._window_queue_capacity(idx)
+        ]
+        if not candidates:
+            return None
+        return self._choose_by_softmax_cost(candidates, self.config.window_choice_temperature)
+
+    def _window_queue_capacity(self, window_index: int) -> int:
+        if self.pedestrian_engine is None:
+            return 10**9
+        return len(self.pedestrian_engine.grid.queue_cells_by_window.get(window_index, []))
+
+    def _window_queue_load(self, window_index: int) -> int:
+        return len(self.queues[window_index]) + self._pending_window_queue_count(window_index)
+
+    def _entry_queue_wait_expired(self, student: Student, current_time_sec: int) -> bool:
+        patience = max(1, int(getattr(self.config, "entry_queue_patience_min", 20)))
+        return math.floor(current_time_sec / 60) - student.arrival_time >= patience
+
+    def _mark_student_left_unserved(self, student: Student, minute: int) -> None:
+        if student.leave_time is not None:
+            return
+        self._release_entry_wait_seat(student.student_id)
+        student.leave_time = minute
+        student.window_index = None
+        party = self.parties.get(student.party_id)
+        if party is not None and student.student_id in party.student_ids:
+            self._release_party_reserved_table(party)
+            party.student_ids.remove(student.student_id)
+            if not party.student_ids and party in self.waiting_for_seat:
+                self.waiting_for_seat.remove(party)
+        self.total_left += 1
+        self.unserved_left_this_minute += 1
 
     def _bounded_door_index(self, door_index: int) -> int:
         if not self.layout.doors:
@@ -1393,7 +1524,8 @@ class DiningSimulationRunner:
             return False
         if not self._window_head_ready_for_service(idx):
             return False
-        student = self.queues[idx].pop(0)
+        queue = self.queues[idx]
+        student = queue.popleft() if hasattr(queue, "popleft") else queue.pop(0)
         self.waiting_to_queue_student_ids.discard(student.student_id)
         if self._uses_advanced_movement_coupling():
             self._sync_window_physical_queue(idx)
@@ -1417,11 +1549,19 @@ class DiningSimulationRunner:
         window_index: int,
         queue_enter_time: int | None = None,
     ) -> None:
-        self._move_student_to_window_queue(student, window_index)
         if queue_enter_time is not None:
             student.queue_enter_time = queue_enter_time
         if self._uses_advanced_movement_coupling():
+            bounded_index = min(max(0, int(window_index)), max(0, len(self.queues) - 1))
+            for queue in self.queues:
+                if student in queue:
+                    queue.remove(student)
+            student.window_index = bounded_index
             self.waiting_to_queue_student_ids.add(student.student_id)
+            if self.pedestrian_engine is not None:
+                self.pedestrian_engine.set_agent_target_window(student.student_id, bounded_index)
+        else:
+            self._move_student_to_window_queue(student, window_index)
         self._update_party_window_split_metric(student.party_id)
 
     def _move_student_to_window_queue(self, student: Student, window_index: int) -> None:
@@ -1797,6 +1937,7 @@ class DiningSimulationRunner:
             or bool(self.seated)
             or bool(self.waiting_to_queue_student_ids)
             or bool(self.pending_entry_students)
+            or bool(self.entry_seat_wait_table_by_student)
             or self._has_active_exit_pedestrians()
         )
 
@@ -1866,6 +2007,7 @@ class DiningSimulationRunner:
         physical_queue_lengths = [len(queue) for queue in self.queues]
         walking_to_window_count = len(self.waiting_to_queue_student_ids)
         entry_waiting_count = len(self.pending_entry_students)
+        entry_seat_waiting_count = len(self.entry_seat_wait_table_by_student)
         snapshot = {
             "minute": self.current_minute,
             "clock_minute": self.config.simulation_start_minute + self.current_minute,
@@ -1873,7 +2015,12 @@ class DiningSimulationRunner:
             "queue_lengths": physical_queue_lengths,
             "physical_queue_lengths": physical_queue_lengths,
             "walking_to_window_count": walking_to_window_count,
-            "total_waiting_pressure": entry_waiting_count + walking_to_window_count + sum(physical_queue_lengths),
+            "total_waiting_pressure": (
+                entry_waiting_count
+                + entry_seat_waiting_count
+                + walking_to_window_count
+                + sum(physical_queue_lengths)
+            ),
             "queue_groups": self._queue_groups_snapshot(),
             "busy_windows": [window is not None for window in self.windows],
             "window_services": self._window_services_snapshot(),
@@ -1886,6 +2033,7 @@ class DiningSimulationRunner:
             "waiting_parties": self._waiting_parties_snapshot(),
             "entry_queue_lengths": self._pending_entry_counts_by_door(),
             "entry_waiting_count": entry_waiting_count,
+            "entry_seat_waiting_count": entry_seat_waiting_count,
             "entered_count": self.entered_this_minute,
             # walking_parties 是跨分钟仍在走的人；timeline 只记录本分钟新发生的走路事件。
             "walking_to_seat_count": sum(transfer.party.size for transfer in self.walking_to_seat),
@@ -2124,7 +2272,7 @@ class DiningSimulationRunner:
             if party.ready_time is not None and party.seat_assignment_time is not None
         ]
         avg_wait = _average(student.seat_time - student.arrival_time for student in seated_students)
-        avg_queue_wait = _average(student.service_start_time - student.arrival_time for student in served_students)
+        avg_queue_wait = _average(student.service_start_time - student.queue_enter_time for student in served_students)
         avg_post_service_to_seat_time = _average(student.seat_time - student.service_end_time for student in seat_wait_students)
         avg_seat_wait = _average(party.seat_assignment_time - party.ready_time for party in assigned_parties)
         # 峰值类指标从每分钟记录中取最大值，反映整个运行过程中的最拥堵时刻。
