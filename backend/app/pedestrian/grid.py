@@ -194,6 +194,7 @@ def _queue_cells_from_service(
     forbidden = forbidden or set()
     target_count = max(1, int(target_count))
     reachable = _reachable_walkable_cells(service, grid)
+    all_rows: dict[int, list[tuple[int, Cell]]] = {}
     rows: dict[int, list[tuple[int, Cell]]] = {}
     for candidate in reachable:
         if candidate == service or candidate in forbidden:
@@ -202,10 +203,19 @@ def _queue_cells_from_service(
         if forward <= 0:
             continue
         lateral = _lateral_distance(service, candidate, normal)
-        if abs(lateral) > QUEUE_LATERAL_SPAN_CELLS:
-            continue
-        rows.setdefault(forward, []).append((lateral, candidate))
+        all_rows.setdefault(forward, []).append((lateral, candidate))
+        if abs(lateral) <= QUEUE_LATERAL_SPAN_CELLS:
+            rows.setdefault(forward, []).append((lateral, candidate))
 
+    queue_cells = _queue_path_from_rows(rows, target_count)
+    if queue_cells:
+        return queue_cells
+    return _queue_path_from_rows(all_rows, target_count)
+
+
+def _queue_path_from_rows(rows: dict[int, list[tuple[int, Cell]]], target_count: int) -> list[Cell]:
+    if not rows:
+        return []
     initial_direction = _queue_initial_lateral_direction(rows)
     current_lateral = 0
     ordered_forwards = sorted(rows)

@@ -13,7 +13,7 @@ import app.pedestrian.fields as fields_module
 from app.pedestrian.fields import DensityField
 from app.pedestrian.engine import PedestrianEngine
 from app.pedestrian.metrics import movement_metrics
-from app.pedestrian.grid import is_walkable, neighbors
+from app.pedestrian.grid import GridData, _queue_cells_from_service, is_walkable, neighbors
 from app.simulation import (
     DiningLayoutData,
     LayoutDoorData,
@@ -835,6 +835,32 @@ class PedestrianEngineTests(unittest.TestCase):
                         2,
                     )
                 all_slots.update(queue_cells)
+
+    # 验证窄队列 lane 被合法障碍挡住时，会退回到更宽但仍可达的队列 lane。
+    def test_queue_cells_fall_back_to_wider_reachable_lane_when_narrow_lane_blocked(self):
+        service = (5, 1)
+        blocked = {
+            (col, row)
+            for col in range(service[0] - 2, service[0] + 3)
+            for row in range(service[1] + 1, 12)
+        }
+        grid = GridData(cell_size=1.0, cols=12, rows=12, blocked_cells=blocked)
+
+        queue_cells = _queue_cells_from_service(
+            service,
+            normal=(0, 1),
+            grid=grid,
+            forbidden=set(),
+            target_count=8,
+        )
+
+        self.assertGreaterEqual(len(queue_cells), 8)
+        self.assertTrue(any(abs(cell[0] - service[0]) > 2 for cell in queue_cells))
+        self.assertNotIn(service, queue_cells)
+        for cell in queue_cells:
+            self.assertTrue(is_walkable(cell, grid))
+        for previous, current in zip(queue_cells, queue_cells[1:]):
+            self.assertEqual(abs(previous[0] - current[0]) + abs(previous[1] - current[1]), 1)
 
     # 验证 avg_stuck_ticks 只统计真正应该移动的状态。
     def test_movement_metrics_avg_stuck_ticks_ignores_stationary_states(self):

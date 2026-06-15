@@ -162,7 +162,7 @@ def run_scenario(
     try:
         while not runner.done:
             elapsed = time.perf_counter() - start
-            if elapsed > scenario_timeout_sec:
+            if scenario_timeout_sec > 0 and elapsed > scenario_timeout_sec:
                 raise StressFailure(
                     "scenario wall-clock timeout",
                     _failure_diagnostics(runner, history, scenario, elapsed, reason="timeout"),
