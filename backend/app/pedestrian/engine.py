@@ -1561,10 +1561,6 @@ class PedestrianEngine:
                 agent.target_type = "window_queue"
                 agent.target_id = window_index
                 agent.target_cells = {target}
-                if agent.state is AgentState.QUEUEING and agent.cell != target:
-                    agent.previous_cell = agent.cell
-                    agent.cell = target
-                    agent.path_cells.append(target)
                 if agent.cell == target:
                     agent.state = AgentState.QUEUEING
             offset = len(queue)

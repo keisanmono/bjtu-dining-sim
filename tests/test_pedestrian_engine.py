@@ -386,6 +386,28 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertEqual(agent.cell, (3, 13))
         self.assertEqual(agent.path_cells, [(3, 13)])
 
+    # 验证队列补位只更新目标，不直接把后续队员瞬移到新的槽位。
+    def test_queue_retarget_does_not_teleport_agent_to_new_slot(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(203))
+        head = student(1)
+        tail = student(2)
+        engine.spawn_arrivals([head, tail], door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, [head.student_id, tail.student_id])
+        tail_agent = engine.agents[tail.student_id]
+        tail_agent.cell = queue_slots[1]
+        tail_agent.path_cells = [tail_agent.cell]
+        tail_agent.walking_distance_cells = 0
+        tail_agent.walking_time_seconds = 0
+
+        engine.set_window_physical_queue(0, [tail.student_id])
+
+        self.assertEqual(tail_agent.target_cells, {queue_slots[0]})
+        self.assertEqual(tail_agent.cell, queue_slots[1])
+        self.assertEqual(tail_agent.path_cells, [queue_slots[1]])
+        self.assertEqual(tail_agent.walking_distance_cells, 0)
+        self.assertEqual(tail_agent.walking_time_seconds, 0)
+
     # 验证吃完离场先进入 TO_EXIT 并用 CA 走向出口，到达后才转为 EXITED。
     def test_set_agent_exited_animates_to_exit_before_exit_state(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(202))

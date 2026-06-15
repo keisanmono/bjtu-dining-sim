@@ -1557,10 +1557,9 @@ class DiningSimulationRunner:
                 if student in queue:
                     queue.remove(student)
             student.window_index = bounded_index
-            if student not in self.queues[bounded_index]:
-                self.queues[bounded_index].append(student)
-            self.waiting_to_queue_student_ids.discard(student.student_id)
-            self._sync_window_physical_queue(bounded_index)
+            self.waiting_to_queue_student_ids.add(student.student_id)
+            if self.pedestrian_engine is not None:
+                self.pedestrian_engine.set_agent_target_window(student.student_id, bounded_index)
         else:
             self._move_student_to_window_queue(student, window_index)
         self._update_party_window_split_metric(student.party_id)
