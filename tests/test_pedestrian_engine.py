@@ -234,6 +234,39 @@ class PedestrianEngineTests(unittest.TestCase):
 
         self.assertLessEqual(len(engine.static_fields), 16)
 
+    # 验证移动热点查询索引会随队列和餐桌入口目标刷新，避免每次候选格判断重复扫描。
+    def test_movement_lookup_indexes_refresh_for_queue_and_table_targets(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(144))
+        people = [student(1), student(2), student(3)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+
+        engine.set_window_physical_queue(0, [1])
+        engine.set_agent_target_window(2, 0)
+        engine._refresh_movement_indexes()
+
+        self.assertEqual(engine._queue_slot_info(queue_slots[0]), (0, 0, 1))
+        self.assertEqual(engine._queue_slot_info(queue_slots[1]), (0, 1, 2))
+        self.assertTrue(engine._queue_slot_window_has_assignments(queue_slots[2]))
+
+        engine.set_window_physical_queue(0, [2])
+        engine._refresh_movement_indexes()
+
+        self.assertEqual(engine._queue_slot_info(queue_slots[0]), (0, 0, 2))
+        self.assertEqual(engine._queue_slot_info(queue_slots[1]), (0, 1, None))
+
+        engine.set_party_target_table([people[2]], table_index=0)
+        target = engine.agents[3].assigned_table_approach_cell
+        self.assertIsNotNone(target)
+        engine._refresh_movement_indexes()
+
+        self.assertEqual(engine._table_approach_owner(target), 3)
+
+        engine.set_agent_seated(3, table_index=0, preserve_cell=True)
+        engine._refresh_movement_indexes()
+
+        self.assertIsNone(engine._table_approach_owner(target))
+
     # 验证同队小组成员启用凝聚后不会持续拉开距离。
     def test_group_cohesion_prevents_unbounded_spread(self):
         engine = PedestrianEngine(engine_layout(), movement_config(floor_group_weight=3.0), random.Random(15))
