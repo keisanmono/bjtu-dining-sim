@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from .agents import AgentState, PartyMovementState, PedestrianAgent
 from .fields import DensityField, DynamicField, build_static_field, wall_distance_or_penalty
-from .grid import Cell, GridData, cell_to_point, grid_from_layout, is_walkable, neighbors
+from .grid import Cell, GridData, cell_to_point, grid_from_layout, neighbors
 from .metrics import density_hotspots as build_density_hotspots
 from .metrics import movement_metrics
 from .queueing import build_window_queue_cells
@@ -35,6 +35,7 @@ class PedestrianEngine:
         self.floor_randomness = float(getattr(config, "floor_randomness", 0.05))
         self.floor_stuck_wait_penalty = float(getattr(config, "floor_stuck_wait_penalty", 0.15))
         self.congestion_density_threshold = int(getattr(config, "congestion_density_threshold", 3))
+        self.congestion_density_threshold_floor = max(0, self.congestion_density_threshold)
         self.personal_space_radius_cells = int(getattr(config, "personal_space_radius_cells", 1))
         self.floor_borrow_after_stuck_ticks = int(getattr(config, "floor_borrow_after_stuck_ticks", 4))
         self.local_repair_after_stuck_ticks = int(
@@ -55,11 +56,17 @@ class PedestrianEngine:
             for col in range(self.grid.cols)
             for row in range(self.grid.rows)
         }
+        self.walkable_cells: set[Cell] = {
+            (col, row)
+            for col in range(self.grid.cols)
+            for row in range(self.grid.rows)
+            if (col, row) not in self.grid.blocked_cells
+        }
         self.wall_penalties: dict[Cell, float] = {
             (col, row): wall_distance_or_penalty((col, row), self.grid)
             for col in range(self.grid.cols)
             for row in range(self.grid.rows)
-            if is_walkable((col, row), self.grid)
+            if (col, row) in self.walkable_cells
         }
         self.dynamic_field = DynamicField(
             decay=float(getattr(config, "dynamic_field_decay", 0.85)),
@@ -161,7 +168,7 @@ class PedestrianEngine:
         candidates: list[Cell] = []
         while frontier:
             current, distance = frontier.popleft()
-            if is_walkable(current, self.grid):
+            if self._is_walkable_cell(current):
                 candidates.append(current)
             if distance >= max_radius:
                 continue
@@ -222,7 +229,7 @@ class PedestrianEngine:
                 neighbor
                 for cell in self.grid.table_cells[table_index]
                 for neighbor in self.neighbors8.get(cell, [])
-                if is_walkable(neighbor, self.grid)
+                if self._is_walkable_cell(neighbor)
             }
         assigned_slots = self._assign_table_approach_slots(student_ids, table_index, targets)
         for student_id in student_ids:
@@ -323,7 +330,7 @@ class PedestrianEngine:
         cell: Cell,
         occupied: set[Cell],
     ) -> bool:
-        if not is_walkable(cell, self.grid):
+        if not self._is_walkable_cell(cell):
             return False
         if cell in occupied:
             return False
@@ -825,10 +832,13 @@ class PedestrianEngine:
             for target in agent.target_cells
         )
 
+    def _is_walkable_cell(self, cell: Cell) -> bool:
+        return cell in self.walkable_cells and cell not in self.grid.blocked_cells
+
     def can_agent_enter_cell(self, agent: PedestrianAgent, cell: Cell) -> bool:
         if cell == agent.cell:
             return True
-        if not is_walkable(cell, self.grid):
+        if not self._is_walkable_cell(cell):
             return False
         if not self._agent_can_use_window_queue_side(agent, cell):
             return False
@@ -986,15 +996,15 @@ class PedestrianEngine:
         candidates = [
             cell
             for cell in candidates
-            if is_walkable(cell, self.grid)
+            if self._is_walkable_cell(cell)
             and (cell == agent.cell or cell not in occupied_cells)
             and self.can_agent_enter_cell(agent, cell)
         ]
         if not candidates or not agent.target_cells:
             return agent.cell, 0.0
-        resolved_density_radius = int(
+        resolved_density_radius = max(0, int(
             density_radius if density_radius is not None else self.personal_space_radius_cells
-        )
+        ))
         if density is None:
             density = DensityField.from_occupied_cells(occupied_cells, self.grid, radius=resolved_density_radius)
         static_field = self._static_field(agent.target_cells)
@@ -1196,7 +1206,7 @@ class PedestrianEngine:
             for col in range(center[0] - radius, center[0] + radius + 1)
             for row in range(center[1] - radius, center[1] + radius + 1)
             if max(abs(col - center[0]), abs(row - center[1])) <= radius
-            and is_walkable((col, row), self.grid)
+            and self._is_walkable_cell((col, row))
         }
         if not region:
             return {}
@@ -1328,7 +1338,7 @@ class PedestrianEngine:
         return True
 
     def _can_agent_reserve_repair_cell(self, agent: PedestrianAgent, cell: Cell) -> bool:
-        if not is_walkable(cell, self.grid):
+        if not self._is_walkable_cell(cell):
             return False
         if not self._agent_can_use_window_queue_side(agent, cell):
             return False
@@ -1547,12 +1557,21 @@ class PedestrianEngine:
         if not math.isfinite(static_distance):
             return float("inf")
         cost = self.floor_static_weight * static_distance
-        cost += self.floor_density_weight * density.penalty(
-            cell,
-            threshold=self.congestion_density_threshold,
-            excluded_cell=agent.cell,
-            radius=density_radius,
-        )
+        local_density = density.densities.get(cell, 0)
+        if density_radius < 0:
+            density_radius = 0
+        column_delta = agent.cell[0] - cell[0]
+        if column_delta < 0:
+            column_delta = -column_delta
+        row_delta = agent.cell[1] - cell[1]
+        if row_delta < 0:
+            row_delta = -row_delta
+        if (column_delta if column_delta >= row_delta else row_delta) <= density_radius:
+            local_density -= 1
+        if local_density > 0:
+            density_penalty = local_density - self.congestion_density_threshold_floor + 1
+            if density_penalty > 0:
+                cost += self.floor_density_weight * float(density_penalty)
         if cell != agent.cell:
             cost -= self.floor_dynamic_weight * self.dynamic_field.values.get(cell, 0.0)
         elif agent.target_cells and not self._is_near_target_cells(agent):
