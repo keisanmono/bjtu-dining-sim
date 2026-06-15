@@ -69,6 +69,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertTrue(quality.advanced_movement_coupling)
         self.assertGreater(quality.window_choice_temperature, 0.0)
         self.assertGreater(quality.window_switch_cooldown_min, 0)
+        self.assertGreaterEqual(quality.static_field_cache_limit, 1024)
 
     # 验证旧 payload 不传 preset 时仍尊重原 movement_model。
     def test_no_quality_preset_keeps_legacy_movement_model(self):
@@ -368,6 +369,52 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(runner.windows[0].student, head)
         self.assertIsNone(tail.service_start_time)
 
+    # 验证物理队首已贴近 head slot 时可服务，避免空闲窗口等待队首横移一格造成冻结。
+    def test_advanced_service_accepts_head_adjacent_to_head_slot(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+            )
+        )
+        head = runner._create_party_students(minute=0, person_count=1)[0]
+        runner.pedestrian_engine.spawn_arrivals([head], door_index=0)
+        runner.queues[0] = [head]
+        runner.pedestrian_engine.set_window_physical_queue(0, [head.student_id])
+        head_slot = runner.pedestrian_engine.grid.queue_cells_by_window[0][0]
+        runner.pedestrian_engine.agents[head.student_id].cell = (head_slot[0] + 1, head_slot[1])
+
+        self.assertTrue(runner._start_single_window_service(0, start_time_minute=0.0))
+        self.assertEqual(runner.windows[0].student, head)
+
+    # 验证单列物理队列的队首在前 3 个槽位内可服务，且不会让更靠前的 tail 越位。
+    def test_advanced_service_accepts_physical_head_in_front_queue_segment(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+            )
+        )
+        head, tail = runner._create_party_students(minute=0, person_count=2)
+        runner.pedestrian_engine.spawn_arrivals([head, tail], door_index=0)
+        runner.queues[0] = [head, tail]
+        runner.pedestrian_engine.set_window_physical_queue(0, [head.student_id, tail.student_id])
+        queue_slots = runner.pedestrian_engine.grid.queue_cells_by_window[0]
+        runner.pedestrian_engine.agents[head.student_id].cell = queue_slots[2]
+        runner.pedestrian_engine.agents[tail.student_id].cell = queue_slots[1]
+
+        self.assertTrue(runner._start_single_window_service(0, start_time_minute=0.0))
+        self.assertEqual(runner.windows[0].student, head)
+        self.assertIsNone(tail.service_start_time)
+
     # 验证 advanced 模式下，同一分钟到达者被拆成秒级边界入场事件，而不是用人为门口限流。
     def test_advanced_arrivals_are_scheduled_over_subminute_entry_times(self):
         runner = DiningSimulationRunner(
@@ -529,6 +576,47 @@ class DiningSimulationTests(unittest.TestCase):
         runner._retarget_stuck_window_agents()
 
         self.assertEqual(student.window_index, 1)
+        self.assertEqual(runner.window_switch_minutes[student.student_id], runner.current_minute)
+
+    # 验证尾部 walker 靠近空闲窗口时可直接切到近窗口，不必等待 stuck 阈值或成本重选阈值。
+    def test_idle_near_window_retarget_does_not_wait_for_stuck_ticks(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=100, y=320, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=60, y=60, wall_side="top"),
+                LayoutWindowData(id="W2", x=260, y=60, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=160, y=420, table_type="four_seat", capacity=4)],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=2,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                window_switch_cooldown_min=2,
+                window_switch_threshold_min=999.0,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=20260615,
+            )
+        )
+        student = runner._create_party_students(minute=0, person_count=1)[0]
+        runner._enqueue_arrivals([student])
+        runner._admit_due_entry_students(current_time_sec=60)
+        student.window_index = 0
+        runner.pedestrian_engine.set_agent_target_window(student.student_id, 0)
+        runner.waiting_to_queue_student_ids.add(student.student_id)
+        agent = runner.pedestrian_engine.agents[student.student_id]
+        agent.state = AgentState.TO_WINDOW
+        agent.cell = runner.pedestrian_engine.grid.service_cells[1]
+        agent.wait_ticks = 0
+
+        runner._retarget_stuck_window_agents()
+
+        self.assertEqual(student.window_index, 1)
+        self.assertEqual(agent.desired_window_index, 1)
         self.assertEqual(runner.window_switch_minutes[student.student_id], runner.current_minute)
 
     # 验证 path 模型不受高级移动耦合开关影响，仍保持原先立即进入窗口队列的行为。
@@ -735,6 +823,79 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertFalse(ready)
         self.assertNotEqual(agent.assigned_table_approach_cell, old_slot)
         self.assertEqual(runner.table_reserved_seats[0], 1)
+
+    # 验证多成员小组的餐桌恢复按成员判断，失败成员不会被其他正常成员永久掩盖。
+    def test_multi_member_table_recovery_is_not_masked_by_other_member_progress(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=DiningLayoutData(
+                    doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+                    windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
+                    tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+                ),
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={2: 1.0},
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+        party = runner.parties[students[0].party_id]
+        runner.pedestrian_engine.spawn_arrivals(students, door_index=0)
+        runner.pedestrian_engine.set_party_target_table(party, 0)
+        first = runner.pedestrian_engine.agents[students[0].student_id]
+        stuck = runner.pedestrian_engine.agents[students[1].student_id]
+        first.cell = first.assigned_table_approach_cell
+        first.stuck_ticks = 0
+        stuck.stuck_ticks = runner.pedestrian_engine.local_repair_after_stuck_ticks
+        stuck.table_repair_failures = 1
+        runner.pedestrian_engine._plan_local_repair_with_reservations = lambda **_kwargs: {}
+        runner.pedestrian_engine._reassign_table_approach_slot = lambda _agent: False
+
+        recovered = runner.pedestrian_engine.recover_party_table_targets(party)
+
+        self.assertFalse(recovered)
+        self.assertEqual(stuck.table_repair_failures, 2)
+
+    # 验证放弃旧桌时会释放原 reserved seats，并把 party reservation 改到新桌。
+    def test_unreachable_table_transfer_releases_old_reservation_before_reselection(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
+            windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
+            tables=[
+                LayoutTableData(id="T1", x=180, y=260, table_type="two_seat", capacity=2),
+                LayoutTableData(id="T2", x=280, y=260, table_type="two_seat", capacity=2),
+            ],
+        )
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                layout=layout,
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={2: 1.0},
+            )
+        )
+        students = runner._create_party_students(minute=0, person_count=2)
+        party = runner.parties[students[0].party_id]
+        runner.pedestrian_engine.spawn_arrivals(students, door_index=0)
+        transfer = runner._start_walking_to_seat(party, 0, 1, 0)
+        runner.walking_to_seat.append(transfer)
+        runner.table_reserved_seats[0] = party.size
+        party.reserved_table_index = 0
+        party.table_index = 0
+        runner.pedestrian_engine.grid.table_approach_cells[0].clear()
+
+        runner._recover_unreachable_table_transfer(transfer)
+
+        self.assertEqual(runner.table_reserved_seats[0], 0)
+        self.assertEqual(runner.table_reserved_seats[1], party.size)
+        self.assertEqual(party.reserved_table_index, 1)
+        self.assertEqual(transfer.table_index, 1)
 
     # 验证高级移动选桌会跳过缺少真实可达目标格的餐桌。
     def test_advanced_table_choice_skips_tables_without_movement_targets(self):
