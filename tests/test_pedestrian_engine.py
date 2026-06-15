@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.pedestrian.agents import AgentState, PedestrianAgent
+import app.pedestrian.engine as engine_module
 import app.pedestrian.fields as fields_module
 from app.pedestrian.fields import DensityField
 from app.pedestrian.engine import PedestrianEngine
@@ -161,6 +162,95 @@ class PedestrianEngineTests(unittest.TestCase):
 
         self.assertNotEqual(intended, (6, 5))
         self.assertIn(intended, [mover.cell, *neighbors(mover.cell, engine.grid)])
+
+    # 验证候选格评分热路径内联密度惩罚公式，避免每个候选格调用 DensityField.penalty。
+    def test_candidate_cost_inlines_density_penalty_hot_path(self):
+        config = movement_config(
+            floor_density_weight=2.5,
+            floor_static_weight=1.0,
+            floor_dynamic_weight=0.0,
+            floor_wall_weight=0.0,
+            floor_inertia_weight=0.0,
+            floor_group_weight=0.0,
+            floor_randomness=0.0,
+            congestion_density_threshold=2,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(1401))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.cell = (5, 5)
+        agent.target_cells = {(9, 5)}
+        candidate = (6, 5)
+        density = DensityField(densities={candidate: 4})
+        static_field = {candidate: 4.0}
+
+        original_penalty = DensityField.penalty
+
+        def forbidden_penalty(*_args, **_kwargs):
+            raise AssertionError("candidate scoring should inline density penalty")
+
+        DensityField.penalty = forbidden_penalty
+        try:
+            cost = engine._candidate_cost(
+                candidate,
+                agent,
+                density,
+                density_radius=1,
+                static_field=static_field,
+            )
+        finally:
+            DensityField.penalty = original_penalty
+
+        self.assertEqual(cost, 9.0)
+
+    # 验证移动候选热路径使用引擎 walkable lookup，并能感知初始化后的 blocked cell 变更。
+    def test_intended_move_uses_walkable_lookup_for_candidate_filtering(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1402))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_TABLE
+        agent.cell = (5, 5)
+        agent.target_cells = {(8, 5)}
+        blocked_neighbor = (6, 5)
+        engine.grid.blocked_cells.add(blocked_neighbor)
+
+        original_is_walkable = getattr(engine_module, "is_walkable", None)
+
+        def forbidden_is_walkable(*_args, **_kwargs):
+            raise AssertionError("movement hot path should use engine walkable lookup")
+
+        if original_is_walkable is not None:
+            engine_module.is_walkable = forbidden_is_walkable
+        try:
+            intended, _cost = engine._intended_move(agent, occupied_cells=set())
+        finally:
+            if original_is_walkable is not None:
+                engine_module.is_walkable = original_is_walkable
+
+        self.assertNotEqual(intended, blocked_neighbor)
+
+    # 验证初始化时被阻塞的格子运行时释放后，移动准入逻辑不会被旧快照卡住。
+    def test_runtime_unblocked_cell_becomes_enterable(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1403))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.WAITING_GROUP
+
+        formerly_blocked = min(engine.grid.table_cells[0])
+        self.assertIn(formerly_blocked, engine.grid.blocked_cells)
+
+        engine.grid.blocked_cells.remove(formerly_blocked)
+
+        self.assertTrue(engine.can_agent_enter_cell(agent, formerly_blocked))
+        agent.cell = (formerly_blocked[0] - 1, formerly_blocked[1])
+        agent.target_cells = {formerly_blocked}
+
+        intended, _cost = engine._intended_move(agent, occupied_cells=set())
+
+        self.assertEqual(intended, formerly_blocked)
 
     # 验证稀疏占用的密度场按占用格邻域构建，而不是扫描整张网格。
     def test_density_field_sparse_occupancy_uses_local_accumulation(self):
