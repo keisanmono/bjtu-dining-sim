@@ -77,6 +77,24 @@ class PedestrianEngine:
             for window_index, queue_slots in self.grid.queue_cells_by_window.items()
             for slot_index, cell in enumerate(queue_slots)
         }
+        self.reserved_service_area_by_window: dict[int, set[Cell]] = {
+            window_index: self._build_reserved_service_area(window_index)
+            for window_index in self.grid.service_cells
+        }
+        self.reserved_service_cells: set[Cell] = {
+            cell
+            for reserved_cells in self.reserved_service_area_by_window.values()
+            for cell in reserved_cells
+        }
+        self.service_window_by_cell: dict[Cell, int] = {
+            service: window_index
+            for window_index, service in self.grid.service_cells.items()
+        }
+        self.queue_slot_assignments_by_window: dict[int, dict[int, int]] = {}
+        self.queue_slot_owner_lookup: dict[Cell, int] = {}
+        self.queue_windows_with_assignments: set[int] = set()
+        self.table_approach_owner_lookup: dict[Cell, int] = {}
+        self._refresh_movement_indexes()
         self.static_fields: OrderedDict[tuple[Cell, ...], dict[Cell, float]] = OrderedDict()
         self.entry_spawn_cells: dict[int, list[Cell]] = {}
         self.max_density = 0
@@ -224,6 +242,7 @@ class PedestrianEngine:
             party_state = self.party_states.setdefault(party_id, PartyMovementState(party_id=party_id))
             party_state.reserved_table_index = table_index
             party_state.cohesion_enabled = True
+        self._refresh_table_approach_owner_index()
         self._refresh_party_centers()
 
     def _assign_table_approach_slots(
@@ -274,6 +293,7 @@ class PedestrianEngine:
         agent.target_type = "group"
         agent.target_id = agent.party_id
         agent.target_cells = {self._waiting_group_target_cell(agent)}
+        self._refresh_table_approach_owner_index()
 
     def _waiting_group_target_cell(self, agent: PedestrianAgent) -> Cell:
         occupied = {
@@ -373,6 +393,7 @@ class PedestrianEngine:
         agent.target_id = table_index
         agent.assigned_table_approach_cell = None
         agent.target_cells = set()
+        self._refresh_table_approach_owner_index()
 
     def set_agent_exited(self, student_id: int) -> None:
         agent = self.agents.get(student_id)
@@ -384,11 +405,14 @@ class PedestrianEngine:
             agent.path_cells.append(agent.cell)
         if not agent.target_cells or agent.cell in agent.target_cells:
             agent.state = AgentState.EXITED
+            self._refresh_table_approach_owner_index()
             return
         agent.state = AgentState.TO_EXIT
+        self._refresh_table_approach_owner_index()
 
     def tick(self, current_time_sec: int) -> list[dict[str, Any]]:
         self._update_queue_targets()
+        self._refresh_table_approach_owner_index()
         self._retarget_waiting_group_agents()
         self._refresh_party_centers()
         self._repair_used_this_tick = False
@@ -790,6 +814,7 @@ class PedestrianEngine:
         agent.target_cells = {target}
         agent.table_slot_reassignments += 1
         agent.table_repair_failures = 0
+        self._refresh_table_approach_owner_index()
         return True
 
     def _is_near_target_cells(self, agent: PedestrianAgent, max_distance: int = 1) -> bool:
@@ -830,9 +855,12 @@ class PedestrianEngine:
         return True
 
     def _is_reserved_service_area(self, cell: Cell) -> bool:
-        return any(cell in self._reserved_service_area(window_index) for window_index in self.grid.service_cells)
+        return cell in self.reserved_service_cells
 
     def _reserved_service_area(self, window_index: int) -> set[Cell]:
+        return self.reserved_service_area_by_window.get(window_index, set())
+
+    def _build_reserved_service_area(self, window_index: int) -> set[Cell]:
         service = self.grid.service_cells.get(window_index)
         if service is None:
             return set()
@@ -845,24 +873,21 @@ class PedestrianEngine:
     def _agent_can_use_service_area(self, agent: PedestrianAgent, cell: Cell) -> bool:
         if agent.state is AgentState.SERVICE and agent.target_id is not None and self.grid.service_cells.get(agent.target_id) == cell:
             return True
-        for window_index, service in self.grid.service_cells.items():
-            if cell != service:
-                continue
+        window_index = self.service_window_by_cell.get(cell)
+        if window_index is not None:
             return self._physical_queue_head_id(window_index) == agent.student_id
         queue_owner = self._queue_slot_owner(cell)
         return queue_owner is None or queue_owner == agent.student_id
 
     def _queue_slot_owner(self, cell: Cell) -> int | None:
-        info = self._queue_slot_info(cell)
-        return info[2] if info is not None else None
+        return self.queue_slot_owner_lookup.get(cell)
 
     def _queue_slot_info(self, cell: Cell) -> tuple[int, int, int | None] | None:
         info = self.queue_slot_lookup.get(cell)
         if info is None:
             return None
         window_index, slot_index = info
-        assigned = self._queue_slot_assignments(window_index)
-        return window_index, slot_index, assigned.get(slot_index)
+        return window_index, slot_index, self.queue_slot_owner_lookup.get(cell)
 
     def _agent_can_use_tail_slot(self, agent: PedestrianAgent, window_index: int, slot_index: int) -> bool:
         return (
@@ -887,9 +912,15 @@ class PedestrianEngine:
         if info is None:
             return False
         window_index, _slot_index = info
-        return bool(self.window_queues.get(window_index) or self.window_walkers.get(window_index))
+        return window_index in self.queue_windows_with_assignments
 
     def _queue_slot_assignments(self, window_index: int) -> dict[int, int]:
+        cached = self.queue_slot_assignments_by_window.get(window_index)
+        if cached is not None:
+            return dict(cached)
+        return self._build_queue_slot_assignments(window_index)
+
+    def _build_queue_slot_assignments(self, window_index: int) -> dict[int, int]:
         assigned: dict[int, int] = {}
         for position, student_id in enumerate(self.window_queues.get(window_index, [])):
             assigned[position] = student_id
@@ -898,15 +929,50 @@ class PedestrianEngine:
             assigned[offset + position] = student_id
         return assigned
 
+    def _refresh_movement_indexes(self) -> None:
+        self._refresh_queue_assignment_indexes()
+        self._refresh_table_approach_owner_index()
+
+    def _refresh_queue_assignment_indexes(self) -> None:
+        assignments_by_window: dict[int, dict[int, int]] = {}
+        owner_lookup: dict[Cell, int] = {}
+        windows_with_assignments: set[int] = set()
+        for window_index in sorted(set(self.window_queues) | set(self.window_walkers)):
+            assigned = self._build_queue_slot_assignments(window_index)
+            if not assigned:
+                continue
+            assignments_by_window[window_index] = assigned
+            windows_with_assignments.add(window_index)
+            queue_cells = self.grid.queue_cells_by_window.get(window_index, [])
+            for slot_index, student_id in assigned.items():
+                if 0 <= slot_index < len(queue_cells):
+                    owner_lookup[queue_cells[slot_index]] = student_id
+        self.queue_slot_assignments_by_window = assignments_by_window
+        self.queue_slot_owner_lookup = owner_lookup
+        self.queue_windows_with_assignments = windows_with_assignments
+
+    def _refresh_table_approach_owner_index(self) -> None:
+        owner_lookup: dict[Cell, int] = {}
+        for agent in self.agents.values():
+            cell = agent.assigned_table_approach_cell
+            if cell is None or agent.state is not AgentState.TO_TABLE:
+                continue
+            owner_lookup[cell] = agent.student_id
+        self.table_approach_owner_lookup = owner_lookup
+
     def _physical_queue_head_id(self, window_index: int) -> int | None:
         queue = self.window_queues.get(window_index, [])
         return queue[0] if queue else None
 
     def _table_approach_owner(self, cell: Cell) -> int | None:
-        for agent in self.agents.values():
-            if agent.assigned_table_approach_cell == cell and agent.state is AgentState.TO_TABLE:
-                return agent.student_id
-        return None
+        owner = self.table_approach_owner_lookup.get(cell)
+        if owner is None:
+            return None
+        agent = self.agents.get(owner)
+        if agent is None or agent.assigned_table_approach_cell != cell or agent.state is not AgentState.TO_TABLE:
+            self.table_approach_owner_lookup.pop(cell, None)
+            return None
+        return owner
 
     def _intended_move(
         self,
@@ -1106,6 +1172,7 @@ class PedestrianEngine:
         horizon: int = 4,
         radius: int = 5,
     ) -> dict[int, list[Cell]]:
+        self._refresh_movement_indexes()
         horizon = max(1, int(horizon))
         radius = max(1, int(radius))
         agents = [
@@ -1577,6 +1644,7 @@ class PedestrianEngine:
                 agent.target_cells = {target}
                 if agent.state is not AgentState.QUEUEING:
                     agent.state = AgentState.TO_WINDOW
+        self._refresh_queue_assignment_indexes()
 
     def _update_density_metric(self) -> None:
         occupied = {
