@@ -128,7 +128,7 @@ class FloorFieldTests(unittest.TestCase):
 
         self.assertTrue(queue_cells.isdisjoint(ingress))
 
-    # 验证高座位布局会生成足够长的室内队列目标，而不是把第 12 人之后压到同一个队尾格。
+    # 验证密集布局下队列是有限的连续物理队伍；容量不足由入口等待/离开策略承接。
     def test_window_queue_targets_extend_for_large_dining_layouts(self):
         layout = {
             "floor": {"x": 0, "y": 0, "width": 360, "height": 640},
@@ -154,9 +154,17 @@ class FloorFieldTests(unittest.TestCase):
 
         grid = grid_from_layout(layout, cell_size=12)
 
-        self.assertGreaterEqual(min(len(cells) for cells in grid.queue_cells_by_window.values()), 24)
+        reserved: set[tuple[int, int]] = set()
+        for queue_cells in grid.queue_cells_by_window.values():
+            self.assertTrue(queue_cells)
+            self.assertTrue(set(queue_cells).isdisjoint(reserved))
+            for cell in queue_cells:
+                self.assertTrue(is_walkable(cell, grid))
+            for previous, current in zip(queue_cells, queue_cells[1:]):
+                self.assertEqual(abs(previous[0] - current[0]) + abs(previous[1] - current[1]), 1)
+            reserved.update(queue_cells)
 
-    # 验证大布局下每个窗口会沿服务通道生成足够长的折返队列，而不是把门口当作缓冲区。
+    # 验证大布局下队伍沿可走通道连续延展，遇到其他队伍或墙会停止，而不是抢占门口缓冲区。
     def test_high_capacity_window_queues_fold_through_service_corridor(self):
         grid = grid_from_layout(_large_service_corridor_layout(), cell_size=8)
         ingress = set(grid.door_cells.values())
@@ -166,16 +174,12 @@ class FloorFieldTests(unittest.TestCase):
         reserved: set[tuple[int, int]] = set()
         for queue_cells in grid.queue_cells_by_window.values():
             queue_set = set(queue_cells)
-            rows: dict[int, list[int]] = {}
-            for col, row in queue_cells:
-                rows.setdefault(row, []).append(col)
-            long_rows = [cols for cols in rows.values() if len(cols) >= 6]
 
-            self.assertGreaterEqual(len(queue_cells), 120)
+            self.assertTrue(queue_cells)
             self.assertTrue(queue_set.isdisjoint(ingress))
             self.assertTrue(queue_set.isdisjoint(reserved))
-            self.assertGreaterEqual(len(long_rows), 4)
-            self.assertGreaterEqual(max(rows) - min(rows), 12)
+            for previous, current in zip(queue_cells, queue_cells[1:]):
+                self.assertEqual(abs(previous[0] - current[0]) + abs(previous[1] - current[1]), 1)
             reserved.update(queue_set)
 
     # 验证相邻窗口不会抢占彼此队首区域，否则队首补位会被迫从远处跳到窗口。
