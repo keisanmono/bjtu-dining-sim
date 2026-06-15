@@ -72,6 +72,7 @@ class PedestrianEngine:
         )
         self.agents: dict[int, PedestrianAgent] = {}
         self.party_states: dict[int, PartyMovementState] = {}
+        self.has_multi_member_parties = False
         # window_queues is the physical FIFO queue occupying ordered queue slots.
         self.window_queues: dict[int, list[int]] = defaultdict(list)
         # window_walkers have chosen a window and are walking toward the queue tail;
@@ -82,6 +83,17 @@ class PedestrianEngine:
             for window_index, queue_slots in self.grid.queue_cells_by_window.items()
             for slot_index, cell in enumerate(queue_slots)
         }
+        self.queue_side_constraints: dict[int, tuple[Cell, tuple[int, int]]] = {}
+        for window_index, service in self.grid.service_cells.items():
+            queue_slots = self.grid.queue_cells_by_window.get(window_index, [])
+            if not queue_slots:
+                continue
+            head_slot = queue_slots[0]
+            normal = (
+                max(-1, min(1, head_slot[0] - service[0])),
+                max(-1, min(1, head_slot[1] - service[1])),
+            )
+            self.queue_side_constraints[window_index] = (service, normal)
         self.reserved_service_area_by_window: dict[int, set[Cell]] = {
             window_index: self._build_reserved_service_area(window_index)
             for window_index in self.grid.service_cells
@@ -136,7 +148,9 @@ class PedestrianEngine:
             )
             if agent.student_id not in party_state.member_agent_ids:
                 party_state.member_agent_ids.append(agent.student_id)
-        self._refresh_party_centers()
+                if len(party_state.member_agent_ids) > 1:
+                    self.has_multi_member_parties = True
+        self._refresh_party_centers_if_needed()
 
     def _next_entry_spawn_cell(self, door_index: int, occupied_cells: set[Cell]) -> Cell:
         candidates = self._entry_spawn_candidates(door_index)
@@ -248,7 +262,7 @@ class PedestrianEngine:
             party_state.reserved_table_index = table_index
             party_state.cohesion_enabled = True
         self._refresh_table_approach_owner_index()
-        self._refresh_party_centers()
+        self._refresh_party_centers_if_needed()
 
     def _assign_table_approach_slots(
         self,
@@ -419,7 +433,7 @@ class PedestrianEngine:
         self._update_queue_targets()
         self._refresh_table_approach_owner_index()
         self._retarget_waiting_group_agents()
-        self._refresh_party_centers()
+        self._refresh_party_centers_if_needed()
         self._repair_used_this_tick = False
         budget = self._movement_budget_cells_per_tick()
         step_duration = self.tick_seconds / budget
@@ -449,7 +463,7 @@ class PedestrianEngine:
                 self.dynamic_field.deposit(agent.cell)
         self.dynamic_field.step(self.grid)
         self._update_density_metric()
-        self._refresh_party_centers()
+        self._refresh_party_centers_if_needed()
         return events
 
     def _movement_budget_cells_per_tick(self) -> int:
@@ -553,7 +567,7 @@ class PedestrianEngine:
             if agent.target_cells and agent.cell in agent.target_cells and agent.state is AgentState.TO_EXIT:
                 agent.state = AgentState.EXITED
 
-        self._refresh_party_centers()
+        self._refresh_party_centers_if_needed()
         return events, moved_agent_ids, active_ids
 
     def _occupied_cells_for_agent(
@@ -989,31 +1003,49 @@ class PedestrianEngine:
         density: DensityField | None = None,
         density_radius: int | None = None,
     ) -> tuple[Cell, float]:
-        neighbor_map = self.neighbors8 if self.floor_allow_diagonal else self.neighbors4
-        candidates = [agent.cell, *neighbor_map.get(agent.cell, [])]
-        candidates = [
-            cell
-            for cell in candidates
-            if self._is_walkable_cell(cell)
-            and (cell == agent.cell or cell not in occupied_cells)
-            and self.can_agent_enter_cell(agent, cell)
-        ]
-        if not candidates or not agent.target_cells:
+        if not agent.target_cells:
             return agent.cell, 0.0
+        neighbor_map = self.neighbors8 if self.floor_allow_diagonal else self.neighbors4
         resolved_density_radius = max(0, int(
             density_radius if density_radius is not None else self.personal_space_radius_cells
         ))
         if density is None:
             density = DensityField.from_occupied_cells(occupied_cells, self.grid, radius=resolved_density_radius)
         static_field = self._static_field(agent.target_cells)
-        scored = [
-            (cell, self._candidate_cost(cell, agent, density, resolved_density_radius, static_field))
-            for cell in candidates
-        ]
-        finite = [(cell, cost) for cell, cost in scored if math.isfinite(cost)]
-        if not finite:
+
+        current_cell = agent.cell
+        can_enter = self.can_agent_enter_cell
+        candidate_cost = self._candidate_cost
+        best_cell: Cell | None = None
+        best_cost = float("inf")
+        has_candidate = False
+
+        if self._is_walkable_cell(current_cell) and can_enter(agent, current_cell):
+            has_candidate = True
+            cost = candidate_cost(current_cell, agent, density, resolved_density_radius, static_field)
+            if math.isfinite(cost):
+                best_cell = current_cell
+                best_cost = cost
+
+        for cell in neighbor_map.get(current_cell, []):
+            if cell in occupied_cells or not can_enter(agent, cell):
+                continue
+            has_candidate = True
+            cost = candidate_cost(cell, agent, density, resolved_density_radius, static_field)
+            if not math.isfinite(cost):
+                continue
+            if best_cell is None or cost < best_cost or (
+                cost == best_cost
+                and (cell[1] < best_cell[1] or (cell[1] == best_cell[1] and cell[0] < best_cell[0]))
+            ):
+                best_cell = cell
+                best_cost = cost
+
+        if not has_candidate:
+            return current_cell, 0.0
+        if best_cell is None:
             return agent.cell, float("inf")
-        return min(finite, key=lambda item: (item[1], item[0][1], item[0][0]))
+        return best_cell, best_cost
 
     def _apply_local_borrowing_moves(
         self,
@@ -1366,15 +1398,10 @@ class PedestrianEngine:
             return True
         if agent.desired_window_index is None:
             return True
-        service = self.grid.service_cells.get(agent.desired_window_index)
-        queue_slots = self.grid.queue_cells_by_window.get(agent.desired_window_index, [])
-        if service is None or not queue_slots:
+        constraint = self.queue_side_constraints.get(agent.desired_window_index)
+        if constraint is None:
             return True
-        head_slot = queue_slots[0]
-        normal = (
-            max(-1, min(1, head_slot[0] - service[0])),
-            max(-1, min(1, head_slot[1] - service[1])),
-        )
+        service, normal = constraint
         forward = (cell[0] - service[0]) * normal[0] + (cell[1] - service[1]) * normal[1]
         return forward >= 0
 
@@ -1576,8 +1603,21 @@ class PedestrianEngine:
             stuck_penalty = max(0, agent.stuck_ticks - 2) * self.floor_stuck_wait_penalty
             cost += min(4.0, stuck_penalty)
         cost += self.floor_wall_weight * self._wall_penalty(cell)
-        cost += self.floor_inertia_weight * self._turn_penalty(agent, cell)
-        cost += self.floor_group_weight * self._group_distance_penalty(agent, cell)
+        if cell != agent.cell and agent.previous_cell is not None:
+            incoming = (agent.cell[0] - agent.previous_cell[0], agent.cell[1] - agent.previous_cell[1])
+            outgoing = (cell[0] - agent.cell[0], cell[1] - agent.cell[1])
+            if incoming == (-outgoing[0], -outgoing[1]):
+                cost += self.floor_inertia_weight * 2.0
+            elif incoming != outgoing:
+                cost += self.floor_inertia_weight
+        party = self.party_states.get(agent.party_id)
+        if party is not None and party.cohesion_enabled and len(party.member_agent_ids) >= 2:
+            center = party.group_center
+            if center is not None:
+                distance = abs(cell[0] - center[0]) + abs(cell[1] - center[1])
+                group_penalty = distance - 2.0
+                if group_penalty > 0:
+                    cost += self.floor_group_weight * group_penalty
         if self.floor_randomness > 0:
             cost += self.rng.random() * self.floor_randomness
         return cost
@@ -1602,27 +1642,6 @@ class PedestrianEngine:
             self.static_fields.popitem(last=False)
         return self.static_fields[key]
 
-    def _turn_penalty(self, agent: PedestrianAgent, candidate: Cell) -> float:
-        if candidate == agent.cell or agent.previous_cell is None:
-            return 0.0
-        incoming = (agent.cell[0] - agent.previous_cell[0], agent.cell[1] - agent.previous_cell[1])
-        outgoing = (candidate[0] - agent.cell[0], candidate[1] - agent.cell[1])
-        if incoming == outgoing:
-            return 0.0
-        if incoming == (-outgoing[0], -outgoing[1]):
-            return 2.0
-        return 1.0
-
-    def _group_distance_penalty(self, agent: PedestrianAgent, candidate: Cell) -> float:
-        party = self.party_states.get(agent.party_id)
-        if party is None or not party.cohesion_enabled or len(party.member_agent_ids) < 2:
-            return 0.0
-        center = party.group_center
-        if center is None:
-            return 0.0
-        distance = abs(candidate[0] - center[0]) + abs(candidate[1] - center[1])
-        return max(0.0, distance - 2.0)
-
     def _refresh_party_centers(self) -> None:
         for party in self.party_states.values():
             members = [
@@ -1637,6 +1656,10 @@ class PedestrianEngine:
                 sum(agent.cell[0] for agent in members) / len(members),
                 sum(agent.cell[1] for agent in members) / len(members),
             )
+
+    def _refresh_party_centers_if_needed(self) -> None:
+        if self.has_multi_member_parties:
+            self._refresh_party_centers()
 
     def _update_queue_targets(self) -> None:
         for window_index in sorted(set(self.window_queues) | set(self.window_walkers)):

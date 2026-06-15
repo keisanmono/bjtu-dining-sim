@@ -371,6 +371,21 @@ class PedestrianEngineTests(unittest.TestCase):
         second = engine.agents[2].cell
         self.assertLessEqual(abs(first[0] - second[0]) + abs(first[1] - second[1]), 4)
 
+    # 验证全部为单人 party 时，tick 不刷新无效的小组中心。
+    def test_single_member_parties_skip_center_refresh_during_tick(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1501))
+        people = [student(1, party_id=1), student(2, party_id=2), student(3, party_id=3)]
+        engine.spawn_arrivals(people, door_index=0)
+        for person in people:
+            engine.set_agent_target_window(person.student_id, 0)
+
+        def forbidden_refresh() -> None:
+            raise AssertionError("single-member parties should not refresh group centers during tick")
+
+        engine._refresh_party_centers = forbidden_refresh
+
+        engine.tick(0)
+
     # 验证固定 seed 下每个 agent 的路径完全可复现。
     def test_fixed_seed_movement_is_reproducible(self):
         def paths_for_seed(seed: int) -> dict[int, list[tuple[int, int]]]:
