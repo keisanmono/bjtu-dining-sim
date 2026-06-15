@@ -73,6 +73,7 @@ MOVEMENT_QUALITY_PRESETS: dict[str, dict[str, Any]] = {
             "window_switch_cooldown_min": 2,
             "window_switch_threshold_min": 1.5,
             "window_switch_penalty_min": 0.5,
+            "static_field_cache_limit": 1024,
         },
     },
 }
@@ -85,6 +86,7 @@ MOVEMENT_PRESET_FIELDS = {
     "window_switch_cooldown_min",
     "window_switch_threshold_min",
     "window_switch_penalty_min",
+    "static_field_cache_limit",
 }
 
 
@@ -1166,6 +1168,8 @@ class DiningSimulationRunner:
                 continue
             if agent.state is not AgentState.TO_WINDOW:
                 continue
+            if self._maybe_switch_to_near_idle_window(student, agent):
+                continue
             if self._maybe_switch_window_by_cost(student, agent):
                 continue
             if agent.wait_ticks < wait_threshold:
@@ -1179,6 +1183,32 @@ class DiningSimulationRunner:
             self._move_student_to_window_queue(student, nearest_window)
             self.window_switch_minutes[student_id] = self.current_minute
             self._update_party_window_split_metric(student.party_id)
+
+    def _maybe_switch_to_near_idle_window(self, student: Student, agent: Any) -> bool:
+        cooldown = int(self.config.window_switch_cooldown_min)
+        last_switch = self.window_switch_minutes.get(student.student_id)
+        if cooldown > 0 and last_switch is not None and self.current_minute - last_switch < cooldown:
+            return False
+        current_window = student.window_index
+        if current_window is None:
+            return False
+        nearest_window, _nearest_service_distance = self._nearest_window_service_distance(agent.cell)
+        if nearest_window is None or nearest_window == current_window:
+            return False
+        if self.windows[nearest_window] is not None or self.queues[nearest_window]:
+            return False
+        current_distance = self._distance_to_window_queue(agent.cell, current_window)
+        nearest_distance = self._distance_to_window_queue(agent.cell, nearest_window)
+        if current_distance - nearest_distance < 6:
+            return False
+        current_pending = self._pending_window_queue_count(current_window, excluded_student_id=student.student_id)
+        nearest_pending = self._pending_window_queue_count(nearest_window, excluded_student_id=student.student_id)
+        if nearest_pending > current_pending + 2:
+            return False
+        self._move_student_to_window_queue(student, nearest_window)
+        self.window_switch_minutes[student.student_id] = self.current_minute
+        self._update_party_window_split_metric(student.party_id)
+        return True
 
     def _maybe_switch_window_by_cost(self, student: Student, agent: Any) -> bool:
         cooldown = int(self.config.window_switch_cooldown_min)
@@ -1434,7 +1464,17 @@ class DiningSimulationRunner:
         service_cell = self.pedestrian_engine.grid.service_cells.get(window_index)
         if agent is None or service_cell is None:
             return False
-        return abs(agent.cell[0] - service_cell[0]) + abs(agent.cell[1] - service_cell[1]) <= 1
+        service_distance = abs(agent.cell[0] - service_cell[0]) + abs(agent.cell[1] - service_cell[1])
+        if service_distance <= 1:
+            return True
+        queue_cells = self.pedestrian_engine.grid.queue_cells_by_window.get(window_index, [])
+        if not queue_cells:
+            return False
+        head_slot = queue_cells[0]
+        head_slot_distance = abs(agent.cell[0] - head_slot[0]) + abs(agent.cell[1] - head_slot[1])
+        if service_distance <= 2 and head_slot_distance <= 1:
+            return True
+        return agent.cell in set(queue_cells[:3])
 
     # 按可用容量、距离、拼桌惩罚、空座浪费和拥挤度为小组选择餐桌。
     def _choose_table_for_party(self, party: DiningParty) -> int | None:

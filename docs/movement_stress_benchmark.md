@@ -1,53 +1,88 @@
 # Movement Stress Benchmark
 
-Generated from `data/benchmarks/movement_stress_benchmark.csv`.
+This document describes the quality-mode stress benchmark for the advanced floor-field movement engine.
 
-## Baseline Roles
+## Quality Queue Model
 
-- `快速 Fast`: high-speed path baseline for batch experiments and parameter search.
-- `平衡 Balanced`: static floor-field baseline with geometry-aware walking paths.
-- `质量 Quality`: advanced CA/Floor Field model coupled to queue admission and seating.
+`quality` uses `movement_model="advanced_floor_field"` with `advanced_movement_coupling=True`.
+Window queues are slot-based physical FIFO queues:
 
-## Fairness Check
+- `window_walkers` are students that already chose a window and are walking to their assigned queue slot. They are not eligible for service yet.
+- `physical_queue_lengths` measures `window_queues`, the students that have entered physical FIFO queue slots.
+- Only the physical FIFO head can be served, and only after it reaches the service cell or the front queue segment.
+- Non-head students cannot reserve or enter another window's service/head reserved area.
 
-- Scenario/seed groups checked: 4.
-- Groups with mismatched arrival streams: 0.
+Local repair is a short-horizon prioritized reservation-table repair. It is intended to resolve local blocking around stuck agents; it is not a globally optimal MAPF solver.
 
-## Model Means
+`incomplete_party_ids` and `warnings` are failure signals for quality stress runs. In normal layouts they should be empty. They are expected only in deliberately invalid or unreachable table layouts.
 
-| preset | avg_wait | peak_queue | avg_walking_time | movement_conflict_count | max_density | runtime_sec | realism_score |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 快速 Fast | 17.988 | 554.75 | 0.0 | 0.0 | 0.0 | 4.9982 | 25.803 |
-| 平衡 Balanced | 18.098 | 555.0 | 0.0 | 0.0 | 0.0 | 41.8725 | 38.115 |
-| 质量 Quality | 14.07 | 5.0 | 599.34 | 1970.0 | 8.0 | 12.4868 | 81.34 |
+## Running
 
-## Confidence Statistics
+```bash
+python scripts/run_quality_stress.py
+```
 
-| preset | n | avg_wait mean/std/p95 | runtime mean/std/p95 | realism mean/std/p95 |
-| --- | ---: | ---: | ---: | ---: |
-| 快速 Fast | 4 | 17.988/10.682/24.289 | 4.998/6.355/12.712 | 25.803/8.395/30.0 |
-| 平衡 Balanced | 4 | 18.098/10.668/24.394 | 41.873/51.681/104.528 | 38.115/7.77/42.0 |
-| 质量 Quality | 1 | 14.07/0.0/14.07 | 12.487/0.0/12.487 | 81.34/0.0/81.34 |
+The default matrix covers arrival rates `8`, `12`, and `16`, duration `20` minutes, six windows, roughly 160 seats, and seeds `20`, `42`, `20260613`, `20260614`, and `20260615`.
 
-## Stress Scale
+For a shorter smoke matrix:
 
-- Stress rows: 9.
-- Target arrivals: [300, 800, 1500, 3000].
-- Max actual arrivals: 3018.
-- Max runtime: 116.8954 seconds.
-- Default quality target cap: 300.
-- Quality targets included by default: [300].
+```bash
+python scripts/run_quality_stress.py --arrival-rate 8 --arrival-rate 12 --arrival-rate 16 --seed 20 --seed 42
+```
 
-`quality` remains available for larger targets by explicitly passing `--preset quality`, but it is excluded by default above the cap because advanced CA/Floor Field is intended for high-fidelity analysis rather than bulk stress sweeps.
+Outputs:
 
-## Interpretation
+- `data/benchmarks/quality_stress_summary.json`
+- `data/benchmarks/quality_stress_results.csv`
 
-This benchmark measures whether advanced movement adds spatial constraints, not whether it always reduces waits.
-A more realistic movement model can increase total wait because students must physically reach the window queue and table area.
-The CSV keeps `arrival_series_json` and `arrival_stream_hash` so model comparisons can verify identical demand streams.
+The script records per-scenario totals, physical queue lengths, walking-to-window count, entry waiting count, waiting pressure, movement conflicts, stuck metrics, max density, incomplete parties, warnings, static-field cache size, and per-minute `sum(physical_queue_lengths)`.
 
-## Rows
+## Deadlock Detection
 
-- Total rows: 9.
-- Advanced rows with spatial signal: 1 / 1.
-- Advanced max density: 8.
+The benchmark fails with diagnostics when the post-arrival queue appears frozen. A possible deadlock requires consecutive snapshots where:
+
+- the arrival horizon has passed;
+- `total_served` does not increase;
+- `sum(physical_queue_lengths)` does not decrease;
+- at least one window is idle;
+- `walking_to_window_count` and `entry_waiting_count` do not show reasonable progress.
+
+Failure diagnostics include:
+
+- last per-minute snapshots;
+- per-window queue length, FIFO head id, head cell, head slot, service cell, distance, and stuck ticks;
+- service/head reserved-area occupants;
+- top stuck agents;
+- `incomplete_party_ids`, `warnings`, and static-field cache size.
+
+The wall-clock timeout and max-step limit are outer test protections only. If either triggers, the benchmark fails. A timeout is never treated as a successful simulation end. Production `run_simulation` still ends only when the runner reaches natural `done`.
+
+## Passing Criteria
+
+A normal quality stress scenario passes only when:
+
+- `runner.done` is reached naturally;
+- `total_served == total_arrived`;
+- `total_seated == total_arrived`;
+- final `physical_queue_lengths` sum to zero;
+- `walking_to_window_count == 0`;
+- `entry_waiting_count == 0`;
+- `incomplete_party_ids` and `warnings` are empty;
+- no possible-deadlock detector fires.
+
+## Latest Smoke Matrix
+
+Command:
+
+```bash
+python scripts/run_quality_stress.py --arrival-rate 8 --arrival-rate 12 --arrival-rate 16 --seed 20 --seed 42 --duration-min 20 --scenario-timeout-sec 300 --max-steps 420
+```
+
+| seed | arrival_rate | total_arrived | total_served | total_seated | peak physical queue | max pressure | avg_stuck_ticks | movement_conflict_count | incomplete_party_ids | natural done |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
+| 20 | 8 | 157 | 157 | 157 | 9 | 28 | 0.0 | 147 | 0 | yes |
+| 42 | 8 | 150 | 150 | 150 | 13 | 32 | 0.0 | 115 | 0 | yes |
+| 20 | 12 | 242 | 242 | 242 | 31 | 97 | 0.0 | 3143 | 0 | yes |
+| 42 | 12 | 244 | 244 | 244 | 24 | 107 | 0.0 | 2489 | 0 | yes |
+| 20 | 16 | 323 | 323 | 323 | 19 | 156 | 0.0 | 24170 | 0 | yes |
+| 42 | 16 | 355 | 355 | 355 | 24 | 171 | 0.0 | 68623 | 0 | yes |
