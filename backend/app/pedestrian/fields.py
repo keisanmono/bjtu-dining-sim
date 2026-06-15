@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from .grid import Cell, GridData, is_walkable, nearest_walkable_cell, neighbors
 
 
+ORTHOGONAL_OFFSETS: tuple[Cell, ...] = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
 def build_static_field(grid: GridData, target_cells: set[Cell] | list[Cell] | tuple[Cell, ...]) -> dict[Cell, float]:
     targets = {
         nearest_walkable_cell(cell, grid)
@@ -37,19 +40,28 @@ class DynamicField:
     def step(self, grid: GridData) -> None:
         decay = max(0.0, min(1.0, float(self.decay)))
         diffusion = max(0.0, min(1.0, float(self.diffusion)))
+        cols = grid.cols
+        rows = grid.rows
+        blocked = grid.blocked_cells
         next_values: dict[Cell, float] = {}
         for cell, value in list(self.values.items()):
-            if value <= 0 or not is_walkable(cell, grid):
+            col, row = cell
+            if value <= 0 or col < 0 or col >= cols or row < 0 or row >= rows or cell in blocked:
                 continue
             decayed = value * decay
             retained = decayed * (1.0 - diffusion)
             if retained > 1e-9:
                 next_values[cell] = next_values.get(cell, 0.0) + retained
-            open_neighbors = [
-                neighbor
-                for neighbor in neighbors(cell, grid, allow_diagonal=False)
-                if is_walkable(neighbor, grid)
-            ]
+            open_neighbors: list[Cell] = []
+            for col_delta, row_delta in ORTHOGONAL_OFFSETS:
+                neighbor = (col + col_delta, row + row_delta)
+                neighbor_col, neighbor_row = neighbor
+                if (
+                    0 <= neighbor_col < cols
+                    and 0 <= neighbor_row < rows
+                    and neighbor not in blocked
+                ):
+                    open_neighbors.append(neighbor)
             if not open_neighbors:
                 continue
             share = decayed * diffusion / len(open_neighbors)

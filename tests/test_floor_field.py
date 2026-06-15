@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+import app.pedestrian.fields as fields_module
 from app.floor_field import build_static_floor_field, next_cell_by_floor_field
 from app.pedestrian.fields import DynamicField, build_static_field
 from app.pedestrian.grid import (
@@ -237,6 +238,39 @@ class FloorFieldTests(unittest.TestCase):
         self.assertLess(field.values[source], 8.0)
         self.assertTrue(any(cell != source and value > 0 for cell, value in field.values.items()))
         self.assertLess(sum(field.values.values()), 8.0)
+
+    # 验证动态场 step 使用内联网格检查，避免在热点路径反复调用通用 neighbors/is_walkable。
+    def test_dynamic_field_step_avoids_generic_grid_helpers(self):
+        grid = grid_from_layout({"doors": [], "windows": [], "tables": []}, cell_size=20)
+        blocked_neighbor = (5, 4)
+        grid.blocked_cells.add(blocked_neighbor)
+        field = DynamicField(decay=0.5, diffusion=0.25)
+        source = (4, 4)
+        calls = {"neighbors": 0, "is_walkable": 0}
+
+        original_neighbors = fields_module.neighbors
+        original_is_walkable = fields_module.is_walkable
+
+        def counted_neighbors(*args, **kwargs):
+            calls["neighbors"] += 1
+            return original_neighbors(*args, **kwargs)
+
+        def counted_is_walkable(*args, **kwargs):
+            calls["is_walkable"] += 1
+            return original_is_walkable(*args, **kwargs)
+
+        fields_module.neighbors = counted_neighbors
+        fields_module.is_walkable = counted_is_walkable
+        try:
+            field.deposit(source, amount=8.0)
+            field.step(grid)
+        finally:
+            fields_module.neighbors = original_neighbors
+            fields_module.is_walkable = original_is_walkable
+
+        self.assertEqual(calls, {"neighbors": 0, "is_walkable": 0})
+        self.assertGreater(field.values[source], 0)
+        self.assertNotIn(blocked_neighbor, field.values)
 
     # 验证静态场下一步选择不会进入 blocked cell。
     def test_next_cell_by_floor_field_does_not_step_into_blocked_cell(self):
