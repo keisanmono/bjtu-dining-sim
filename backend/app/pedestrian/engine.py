@@ -56,17 +56,15 @@ class PedestrianEngine:
             for col in range(self.grid.cols)
             for row in range(self.grid.rows)
         }
-        self.walkable_cells: set[Cell] = {
+        self.in_bounds_cells: set[Cell] = {
             (col, row)
             for col in range(self.grid.cols)
             for row in range(self.grid.rows)
-            if (col, row) not in self.grid.blocked_cells
         }
         self.wall_penalties: dict[Cell, float] = {
-            (col, row): wall_distance_or_penalty((col, row), self.grid)
-            for col in range(self.grid.cols)
-            for row in range(self.grid.rows)
-            if (col, row) in self.walkable_cells
+            cell: wall_distance_or_penalty(cell, self.grid)
+            for cell in self.in_bounds_cells
+            if cell not in self.grid.blocked_cells
         }
         self.dynamic_field = DynamicField(
             decay=float(getattr(config, "dynamic_field_decay", 0.85)),
@@ -833,7 +831,7 @@ class PedestrianEngine:
         )
 
     def _is_walkable_cell(self, cell: Cell) -> bool:
-        return cell in self.walkable_cells and cell not in self.grid.blocked_cells
+        return cell in self.in_bounds_cells and cell not in self.grid.blocked_cells
 
     def can_agent_enter_cell(self, agent: PedestrianAgent, cell: Cell) -> bool:
         if cell == agent.cell:
@@ -1577,12 +1575,22 @@ class PedestrianEngine:
         elif agent.target_cells and not self._is_near_target_cells(agent):
             stuck_penalty = max(0, agent.stuck_ticks - 2) * self.floor_stuck_wait_penalty
             cost += min(4.0, stuck_penalty)
-        cost += self.floor_wall_weight * self.wall_penalties.get(cell, float("inf"))
+        cost += self.floor_wall_weight * self._wall_penalty(cell)
         cost += self.floor_inertia_weight * self._turn_penalty(agent, cell)
         cost += self.floor_group_weight * self._group_distance_penalty(agent, cell)
         if self.floor_randomness > 0:
             cost += self.rng.random() * self.floor_randomness
         return cost
+
+    def _wall_penalty(self, cell: Cell) -> float:
+        penalty = self.wall_penalties.get(cell)
+        if penalty is not None:
+            return penalty
+        if not self._is_walkable_cell(cell):
+            return float("inf")
+        penalty = wall_distance_or_penalty(cell, self.grid)
+        self.wall_penalties[cell] = penalty
+        return penalty
 
     def _static_field(self, target_cells: set[Cell]) -> dict[Cell, float]:
         key = tuple(sorted(target_cells))

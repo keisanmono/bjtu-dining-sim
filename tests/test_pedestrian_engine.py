@@ -231,6 +231,27 @@ class PedestrianEngineTests(unittest.TestCase):
 
         self.assertNotEqual(intended, blocked_neighbor)
 
+    # 验证初始化时被阻塞的格子运行时释放后，移动准入逻辑不会被旧快照卡住。
+    def test_runtime_unblocked_cell_becomes_enterable(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1403))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.WAITING_GROUP
+
+        formerly_blocked = min(engine.grid.table_cells[0])
+        self.assertIn(formerly_blocked, engine.grid.blocked_cells)
+
+        engine.grid.blocked_cells.remove(formerly_blocked)
+
+        self.assertTrue(engine.can_agent_enter_cell(agent, formerly_blocked))
+        agent.cell = (formerly_blocked[0] - 1, formerly_blocked[1])
+        agent.target_cells = {formerly_blocked}
+
+        intended, _cost = engine._intended_move(agent, occupied_cells=set())
+
+        self.assertEqual(intended, formerly_blocked)
+
     # 验证稀疏占用的密度场按占用格邻域构建，而不是扫描整张网格。
     def test_density_field_sparse_occupancy_uses_local_accumulation(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(141))
