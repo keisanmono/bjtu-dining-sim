@@ -90,6 +90,7 @@ class SimulationStore:
                             "movement_conflict_count": result.metrics.movement_conflict_count,
                             "avg_stuck_ticks": result.metrics.avg_stuck_ticks,
                             "max_density": result.metrics.max_density,
+                            "avg_walking_distance_ratio": result.metrics.avg_walking_distance_ratio,
                         }
                     ),
                 ),

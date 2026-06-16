@@ -11,6 +11,16 @@ import {
 } from './livePathfinding.js'
 
 export const PALETTE = ['#4d7ea8', '#cf8b3e', '#5e9c5e', '#9b6a8e', '#4f8b8d', '#a25b5b']
+export const PEDESTRIAN_STATE_COLORS = Object.freeze({
+  ENTERING: '#64748b',
+  TO_WINDOW: '#2563eb',
+  QUEUEING: '#d97706',
+  SERVICE: '#dc2626',
+  WAITING_GROUP: '#7c3aed',
+  TO_TABLE: '#059669',
+  TO_EXIT: '#475569',
+  UNKNOWN: '#6b7280'
+})
 
 export const QUEUE_VISIBLE_LIMIT = 10
 export const QUEUE_STEP = 9
@@ -127,6 +137,11 @@ export function partyColor(group) {
   return PALETTE[Math.abs(index) % PALETTE.length]
 }
 
+export function pedestrianStateColor(state) {
+  const normalized = String(state || '').toUpperCase()
+  return PEDESTRIAN_STATE_COLORS[normalized] || PEDESTRIAN_STATE_COLORS.UNKNOWN
+}
+
 // 返回门窗所在墙面指向食堂内部的方向。
 export function wallNormal(item) {
   const side = item?.wall_side
@@ -201,7 +216,7 @@ export function buildPedestrianAgentMarkers({ snapshot = {} } = {}) {
         cell: rawAgent?.cell || null,
         x: round1(x),
         y: round1(y),
-        color: partyColor({ party_id: rawAgent?.party_id ?? studentId })
+        color: pedestrianStateColor(rawAgent?.state)
       }
     })
     .filter(Boolean)

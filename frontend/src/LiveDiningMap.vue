@@ -84,7 +84,7 @@
         <rect class="layout-window-marker" v-bind="windowMarkerFor(window)" rx="2" />
       </g>
 
-      <g v-if="queueRows.length" class="queue-group">
+      <g v-if="showAggregateQueueRows" class="queue-group">
         <g
           v-for="row in queueRows"
           :key="`queue-row-${row.windowIndex}`"
@@ -128,7 +128,7 @@
             v-for="(chair, chairIndex) in chairLayoutFor(table)"
             :key="chair.key"
             class="dining-chair table-seat"
-            :class="{ 'is-occupied': isChairOccupied(table, chairIndex, tableIndex) }"
+            :class="chairStateClass(table, chairIndex, tableIndex)"
             :x="chair.x"
             :y="chair.y"
             :width="chair.width"
@@ -234,6 +234,26 @@
         </g>
       </g>
     </svg>
+    <div v-if="hasPedestrianAgents" class="pedestrian-state-legend" aria-label="行人状态颜色">
+      <span
+        v-for="item in pedestrianStateLegend"
+        :key="item.state"
+        class="pedestrian-state-item"
+      >
+        <span class="pedestrian-state-swatch" :style="{ backgroundColor: item.color }"></span>
+        <span>{{ item.label }}</span>
+      </span>
+    </div>
+    <div class="seat-state-legend" aria-label="座位状态颜色">
+      <span
+        v-for="item in seatStateLegend"
+        :key="item.state"
+        class="seat-state-item"
+      >
+        <span class="seat-state-swatch" :style="{ backgroundColor: item.color }"></span>
+        <span>{{ item.label }}</span>
+      </span>
+    </div>
 
     <div class="window-detail-bar">
       <div v-if="selectedWindowDetail" class="window-detail-panel">
@@ -292,6 +312,7 @@ import {
   interpolateLivePartyMarkers,
   normalizeGroup,
   partyColor,
+  PEDESTRIAN_STATE_COLORS,
   transitionDurationForSnapshotGap
 } from './liveMapModel.js'
 
@@ -303,6 +324,17 @@ const emit = defineEmits(['transition-settled'])
 
 const DETAIL_CAPSULE_BASE_PX = 18
 const DETAIL_CAPSULE_INC_PX = 6
+const pedestrianStateLegend = [
+  { state: 'TO_WINDOW', label: '去窗口', color: PEDESTRIAN_STATE_COLORS.TO_WINDOW },
+  { state: 'QUEUEING', label: '排队', color: PEDESTRIAN_STATE_COLORS.QUEUEING },
+  { state: 'SERVICE', label: '取餐', color: PEDESTRIAN_STATE_COLORS.SERVICE },
+  { state: 'TO_TABLE', label: '找座', color: PEDESTRIAN_STATE_COLORS.TO_TABLE },
+  { state: 'WAITING_GROUP', label: '等同伴/座', color: PEDESTRIAN_STATE_COLORS.WAITING_GROUP }
+]
+const seatStateLegend = [
+  { state: 'DINING', label: '用餐', color: '#5e9c5e' },
+  { state: 'SEAT_WAITING', label: '上座等待', color: '#9b6ad6' }
+]
 
 // 计算食堂地面边界，用于绘制地面和网格。
 const floorBounds = computed(() => floorBoundsForLayout(props.layout))
@@ -349,6 +381,7 @@ const queueRows = computed(() => buildQueueRows({
   queueLengths: snapshot.value.queue_lengths || [],
   windows: windows.value
 }))
+const showAggregateQueueRows = computed(() => !hasPedestrianAgents.value && queueRows.value.length > 0)
 
 const selectedWindowIndex = ref(null)
 const animatedPartyMarkers = ref([])
@@ -779,13 +812,19 @@ function tableTransformFor(table) {
 function tableOccupancyFor(table, index = 0) {
   return tableOccupancyById.value.get(table.id)
     || tableOccupancyById.value.get(index)
-    || { capacity: table.capacity, occupied: 0 }
+    || { capacity: table.capacity, occupied: 0, waiting: 0 }
 }
 
-// 根据 table_occupancy 判断指定椅子是否已被占用。
-function isChairOccupied(table, chairIndex, tableIndex = 0) {
-  const occupied = Number(tableOccupancyFor(table, tableIndex).occupied) || 0
-  return chairIndex < occupied
+// 根据 table_occupancy 判断指定椅子展示为空座、用餐或上座等待。
+function chairStateClass(table, chairIndex, tableIndex = 0) {
+  const occupancy = tableOccupancyFor(table, tableIndex)
+  const dining = Math.max(0, Number(occupancy.occupied) || 0)
+  const waiting = Math.max(0, Number(occupancy.waiting) || 0)
+  return {
+    'is-occupied': chairIndex < dining + waiting,
+    'is-dining': chairIndex < dining,
+    'is-seat-waiting': chairIndex >= dining && chairIndex < dining + waiting
+  }
 }
 
 // 根据忙碌、排队和选中状态生成窗口 CSS 类。

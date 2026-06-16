@@ -73,6 +73,7 @@ class SimulationStoreTests(unittest.TestCase):
                 "movement_conflict_count",
                 "avg_stuck_ticks",
                 "max_density",
+                "avg_walking_distance_ratio",
             ):
                 self.assertIn(field, metrics)
                 self.assertEqual(metrics[field], getattr(result.metrics, field))

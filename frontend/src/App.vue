@@ -798,6 +798,7 @@ const runCards = computed(() => {
     { label: '物理空座', value: physicalEmptySeats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
     { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` },
     { label: '平均步行时间', value: formatSeconds(movement.avg_walking_time || 0), hint: `可用 ${availableSeats} / 预留 ${reservedSeats}` },
+    { label: '路径绕行比', value: formatNumber(movement.avg_walking_distance_ratio || 0), hint: '按目标段统计：实际步行距离 / 直线距离' },
     { label: '移动冲突次数', value: movement.movement_conflict_count ?? 0, hint: '同 tick 目标格冲突' },
     { label: '平均停滞 tick', value: formatNumber(movement.avg_stuck_ticks || 0), hint: '无法移动或等待的 tick' },
     { label: '最大局部密度', value: movement.max_density ?? 0, hint: '邻域内最高人数' }
@@ -817,6 +818,7 @@ const analysisCards = computed(() => {
     { label: '等座小队数', value: m?.blocked_party_count ?? 0, hint: `实际拼桌 ${m?.shared_table_count || 0} 次` },
     { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' },
     { label: '平均步行时间', value: formatSeconds(m?.avg_walking_time || 0), hint: `入座完成耗时 ${formatMinutes(m?.avg_post_service_to_seat_time || 0)}` },
+    { label: '路径绕行比', value: formatNumber(m?.avg_walking_distance_ratio || 0), hint: '按目标段统计：实际步行距离 / 直线距离' },
     { label: '移动冲突次数', value: m?.movement_conflict_count ?? 0, hint: '并行 CA 冲突解决次数' },
     { label: '平均停滞 tick', value: formatNumber(m?.avg_stuck_ticks || 0), hint: '移动等待强度' },
     { label: '最大局部密度', value: m?.max_density ?? 0, hint: '拥堵热力峰值' }

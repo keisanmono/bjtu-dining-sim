@@ -13,6 +13,7 @@ import {
   buildBackendWalkingMarkers,
   buildDensityHotspotMarkers,
   buildPedestrianAgentMarkers,
+  PEDESTRIAN_STATE_COLORS,
   transitionDurationForSnapshotGap
 } from '../src/liveMapModel.js'
 
@@ -125,8 +126,8 @@ test('buildLivePartyTargets keeps split party services anchored to their actual 
   assert.ok(targets.every((target) => target.y > baseLayout.windows[0].y))
 })
 
-// 验证高级行人快照优先使用后端 agent cell 坐标。
-test('buildPedestrianAgentMarkers uses backend pedestrian agent coordinates', () => {
+// 验证高级行人快照优先使用后端 agent cell 坐标，并按状态而不是队伍着色。
+test('buildPedestrianAgentMarkers uses backend coordinates and state colors', () => {
   const markers = buildPedestrianAgentMarkers({
     snapshot: {
       pedestrian_agents: [
@@ -140,7 +141,22 @@ test('buildPedestrianAgentMarkers uses backend pedestrian agent coordinates', ()
   assert.deepEqual(markers.map((marker) => marker.role), ['pedestrian', 'pedestrian'])
   assert.equal(markers[0].x, 54)
   assert.equal(markers[1].y, 90)
-  assert.equal(markers[0].color, markers[1].color)
+  assert.equal(markers[0].color, PEDESTRIAN_STATE_COLORS.TO_WINDOW)
+  assert.equal(markers[1].color, PEDESTRIAN_STATE_COLORS.QUEUEING)
+  assert.notEqual(markers[0].color, markers[1].color)
+})
+
+// 验证未知行人状态使用中性色兜底。
+test('buildPedestrianAgentMarkers uses fallback color for unknown states', () => {
+  const markers = buildPedestrianAgentMarkers({
+    snapshot: {
+      pedestrian_agents: [
+        { agent_id: 5, student_id: 5, party_id: 5, state: 'PAUSED', cell: [2, 3], x: 30, y: 42 }
+      ]
+    }
+  })
+
+  assert.equal(markers[0].color, PEDESTRIAN_STATE_COLORS.UNKNOWN)
 })
 
 // 验证已入座/已离开的高级行人不会继续作为地图中间的小点显示。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from .grid import Cell
 
@@ -38,6 +39,10 @@ class PedestrianAgent:
     stuck_ticks: int = 0
     walking_distance_cells: int = 0
     walking_time_seconds: float = 0.0
+    movement_leg_key: tuple[Any, ...] | None = None
+    movement_leg_start_cell: Cell | None = None
+    movement_leg_distance_cells: float = 0.0
+    movement_leg_distance_ratios: list[float] = field(default_factory=list)
     conflict_count: int = 0
     wait_ticks: int = 0
     path_cells: list[Cell] = field(default_factory=list)

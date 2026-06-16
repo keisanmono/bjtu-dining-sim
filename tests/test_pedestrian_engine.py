@@ -58,6 +58,34 @@ def student(student_id: int, party_id: int | None = None) -> Student:
 
 
 class PedestrianEngineTests(unittest.TestCase):
+    # 验证队列车道距离预先建表，等待区选点不需要对每个候选格反复扫描整条队列。
+    def test_queue_lane_distance_lookup_matches_bruteforce_distance(self):
+        config = SimulationConfigData(
+            num_windows=4,
+            num_seats=36,
+            layout=_default_layout(SimulationConfigData(num_windows=4, num_seats=36)),
+            movement_model="advanced_floor_field",
+            floor_randomness=0.0,
+        )
+        engine = PedestrianEngine(config.layout, config, random.Random(228))
+        queue_cells = [
+            cell
+            for queue_slots in engine.grid.queue_cells_by_window.values()
+            for cell in queue_slots
+        ]
+        sample_cells = [
+            (0, 0),
+            next(iter(engine.grid.service_cells.values())),
+            queue_cells[0],
+            (engine.grid.cols // 2, engine.grid.rows // 2),
+            (engine.grid.cols - 1, engine.grid.rows - 1),
+        ]
+
+        for cell in sample_cells:
+            expected = min(max(abs(cell[0] - queue[0]), abs(cell[1] - queue[1])) for queue in queue_cells)
+            self.assertEqual(engine.queue_lane_distance_lookup[cell], expected)
+            self.assertEqual(engine._nearest_queue_lane_distance(cell), expected)
+
     # 验证 agent 会从入口向窗口服务/队列目标移动。
     def test_agent_moves_from_entrance_toward_window(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(11))
@@ -114,7 +142,7 @@ class PedestrianEngineTests(unittest.TestCase):
         engine.agents[1].cell = (7, 8)
         engine.agents[2].cell = (9, 8)
         for agent in engine.agents.values():
-            agent.state = AgentState.TO_WINDOW
+            agent.state = AgentState.TO_TABLE
             agent.target_cells = {target}
 
         engine.tick(0)
@@ -122,6 +150,188 @@ class PedestrianEngineTests(unittest.TestCase):
         cells = [agent.cell for agent in engine.agents.values()]
         self.assertEqual(len(cells), len(set(cells)))
         self.assertIn(target, cells)
+
+    # 验证去其他窗口的行人可以穿过未占用的队列通道，避免第一个窗口队列把后续窗口隔断。
+    def test_to_window_agent_can_cross_unowned_queue_lane_for_another_window(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=100, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=70, y=24, wall_side="top"),
+                LayoutWindowData(id="W2", x=130, y=24, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        config = movement_config(layout=layout, num_windows=2)
+        engine = PedestrianEngine(layout, config, random.Random(1201))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        engine.set_agent_target_window(people[0].student_id, 0)
+        engine.set_agent_target_window(people[1].student_id, 1)
+        other_window_open_lane_cell = engine.grid.queue_cells_by_window[0][3]
+        agent = engine.agents[people[1].student_id]
+
+        self.assertIsNone(engine._queue_slot_owner(other_window_open_lane_cell))
+        self.assertTrue(engine.can_agent_enter_cell(agent, other_window_open_lane_cell))
+
+    # 验证其他窗口的活跃队列槽位仍可横穿，但不会沿着别人的队列线当走廊走。
+    def test_to_window_agent_crosses_then_leaves_active_other_queue_lane(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=100, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=70, y=24, wall_side="top"),
+                LayoutWindowData(id="W2", x=130, y=24, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        config = movement_config(layout=layout, num_windows=2)
+        engine = PedestrianEngine(layout, config, random.Random(12011))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        engine.set_window_physical_queue(0, [people[0].student_id])
+        active_queue_head = engine.grid.queue_cells_by_window[0][0]
+        empty_queue_lane_cell = engine.grid.queue_cells_by_window[0][4]
+        head = engine.agents[people[0].student_id]
+        head.cell = active_queue_head
+        head.state = AgentState.QUEUEING
+        head.target_cells = {active_queue_head}
+        engine.set_agent_target_window(people[1].student_id, 1)
+        walker = engine.agents[people[1].student_id]
+        walker.cell = empty_queue_lane_cell
+        occupied_by = {agent.cell: agent for agent in engine.agents.values()}
+        occupied_all = set(occupied_by)
+        occupied = engine._occupied_cells_for_agent(walker, occupied_by, occupied_all)
+        density = DensityField.from_occupied_cells(occupied_all, engine.grid, radius=1)
+
+        intended, _cost = engine._intended_move(walker, occupied, density, density_radius=1)
+
+        self.assertTrue(engine.can_agent_enter_cell(walker, empty_queue_lane_cell))
+        self.assertNotIn(intended, {
+            engine.grid.queue_cells_by_window[0][3],
+            engine.grid.queue_cells_by_window[0][5],
+        })
+        self.assertEqual(intended, (empty_queue_lane_cell[0] + 1, empty_queue_lane_cell[1]))
+
+    # 验证去其他窗口的行人也能穿过已有人排队的位置，队伍不再形成硬障碍。
+    def test_to_window_agent_can_pass_through_occupied_queue_lane_for_another_window(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=100, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=70, y=24, wall_side="top"),
+                LayoutWindowData(id="W2", x=130, y=24, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        config = movement_config(layout=layout, num_windows=2)
+        engine = PedestrianEngine(layout, config, random.Random(1202))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        engine.set_window_physical_queue(0, [people[0].student_id])
+        engine.set_agent_target_window(people[1].student_id, 1)
+        occupied_queue_cell = next(iter(engine.agents[people[0].student_id].target_cells))
+        engine.agents[people[0].student_id].cell = occupied_queue_cell
+        engine._update_queue_targets()
+        agent = engine.agents[people[1].student_id]
+        occupied_by = {other.cell: other for other in engine.agents.values()}
+        occupied = engine._occupied_cells_for_agent(agent, occupied_by, set(occupied_by))
+
+        self.assertEqual(engine._queue_slot_owner(occupied_queue_cell), people[0].student_id)
+        self.assertNotIn(occupied_queue_cell, occupied)
+        self.assertTrue(engine.can_agent_enter_cell(agent, occupied_queue_cell))
+
+    # 验证微步预计算的队列占用索引可直接用于占用剔除，不再为每个行人扫描全部占用格。
+    def test_occupied_cells_uses_precomputed_queueing_indexes(self):
+        class NoItemsDict(dict):
+            def items(self):
+                raise AssertionError("queue pass-through should use precomputed queueing indexes")
+
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=100, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=70, y=24, wall_side="top"),
+                LayoutWindowData(id="W2", x=130, y=24, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        config = movement_config(layout=layout, num_windows=2)
+        engine = PedestrianEngine(layout, config, random.Random(12021))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        engine.set_window_physical_queue(0, [people[0].student_id])
+        engine.set_agent_target_window(people[1].student_id, 1)
+        occupied_queue_cell = next(iter(engine.agents[people[0].student_id].target_cells))
+        engine.agents[people[0].student_id].cell = occupied_queue_cell
+        engine._update_queue_targets()
+        agent = engine.agents[people[1].student_id]
+        occupied_by = NoItemsDict({occupied_queue_cell: engine.agents[people[0].student_id], agent.cell: agent})
+
+        occupied = engine._occupied_cells_for_agent(
+            agent,
+            occupied_by,
+            set(occupied_by),
+            queueing_cells_all={occupied_queue_cell},
+            queueing_cells_by_window={0: {occupied_queue_cell}},
+        )
+
+        self.assertNotIn(occupied_queue_cell, occupied)
+
+    # 验证排队者只参与 FIFO 服务，不再作为行人移动障碍。
+    def test_queueing_agents_do_not_block_pedestrian_movement(self):
+        layout = DiningLayoutData(
+            doors=[LayoutDoorData(id="D1", x=24, y=100, wall_side="left")],
+            windows=[
+                LayoutWindowData(id="W1", x=70, y=24, wall_side="top"),
+                LayoutWindowData(id="W2", x=130, y=24, wall_side="top"),
+            ],
+            tables=[LayoutTableData(id="T1", x=220, y=260, table_type="four_seat", capacity=4)],
+        )
+        config = movement_config(layout=layout, num_windows=2)
+        engine = PedestrianEngine(layout, config, random.Random(1203))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        engine.set_window_physical_queue(0, [people[0].student_id])
+        engine.set_agent_target_window(people[1].student_id, 0)
+        occupied_queue_cell = next(iter(engine.agents[people[0].student_id].target_cells))
+        engine.agents[people[0].student_id].cell = occupied_queue_cell
+        engine._update_queue_targets()
+        agent = engine.agents[people[1].student_id]
+        occupied_by = {other.cell: other for other in engine.agents.values()}
+        occupied = engine._occupied_cells_for_agent(agent, occupied_by, set(occupied_by))
+
+        self.assertEqual(engine._queue_slot_owner(occupied_queue_cell), people[0].student_id)
+        self.assertNotIn(occupied_queue_cell, occupied)
+        self.assertFalse(engine._occupies_walkable_cell(engine.agents[people[0].student_id]))
+        self.assertTrue(engine.can_agent_enter_cell(agent, occupied_queue_cell))
+
+    # 验证逻辑 FIFO 成员还没走到自己队列槽位前，视觉上仍显示为前往窗口。
+    def test_physical_queue_sync_marks_off_slot_fifo_members_as_to_window(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1204))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        first = engine.agents[1]
+        second = engine.agents[2]
+        first.cell = queue_slots[0]
+        second.cell = (queue_slots[1][0] + 4, queue_slots[1][1])
+
+        engine.set_window_physical_queue(0, [1, 2])
+
+        self.assertEqual(first.state, AgentState.QUEUEING)
+        self.assertEqual(second.state, AgentState.TO_WINDOW)
+        self.assertEqual(second.target_cells, {queue_slots[1]})
+
+    # 验证已站到本窗口队列车道上的学生会显示为排队，而不是仍显示为行走。
+    def test_physical_queue_sync_marks_own_lane_agents_as_queueing(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1205))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        second = engine.agents[2]
+        second.cell = queue_slots[2]
+
+        engine.set_window_physical_queue(0, [1, 2])
+
+        self.assertEqual(second.target_cells, {queue_slots[1]})
+        self.assertEqual(second.state, AgentState.QUEUEING)
 
     # 验证多个 agent 选择同一格时会记录冲突计数。
     def test_multi_agent_conflict_records_conflict_count(self):
@@ -137,6 +347,28 @@ class PedestrianEngineTests(unittest.TestCase):
         engine.tick(0)
 
         self.assertGreaterEqual(sum(agent.conflict_count for agent in engine.agents.values()), 2)
+
+    # 验证等待/排队这类静止状态与行走者抢格时，不计入移动冲突指标。
+    def test_stationary_state_conflict_does_not_increment_movement_conflicts(self):
+        for stationary_state in (AgentState.WAITING_GROUP, AgentState.QUEUEING):
+            with self.subTest(stationary_state=stationary_state):
+                engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1301))
+                people = [student(1), student(2)]
+                engine.spawn_arrivals(people, door_index=0)
+                target = (8, 8)
+                walker = engine.agents[1]
+                stationary = engine.agents[2]
+                walker.cell = (7, 8)
+                walker.state = AgentState.TO_WINDOW
+                walker.target_cells = {target}
+                stationary.cell = (9, 8)
+                stationary.state = stationary_state
+                stationary.target_cells = {target}
+
+                engine.tick(0)
+
+                self.assertEqual(0, sum(agent.conflict_count for agent in engine.agents.values()))
+                self.assertEqual(0, engine.metrics_snapshot()["movement_conflict_count"])
 
     # 验证局部密度惩罚会让 agent 避开高密度候选格。
     def test_density_penalty_changes_intended_move(self):
@@ -203,6 +435,41 @@ class PedestrianEngineTests(unittest.TestCase):
             DensityField.penalty = original_penalty
 
         self.assertEqual(cost, 9.0)
+
+    # 验证前方拥堵预判不在候选格热路径里调用完整准入判断。
+    def test_forward_congestion_penalty_uses_lightweight_walkability_check(self):
+        config = movement_config(
+            floor_density_weight=6.0,
+            floor_static_weight=1.0,
+            floor_wall_weight=0.0,
+            floor_dynamic_weight=0.0,
+            floor_inertia_weight=0.0,
+            floor_group_weight=0.0,
+            floor_randomness=0.0,
+            congestion_density_threshold=10,
+            personal_space_radius_cells=1,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(1404))
+        engine.spawn_arrivals([student(1)], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_WINDOW
+        agent.desired_window_index = 0
+        agent.cell = (8, 5)
+        agent.target_cells = {(13, 5)}
+        density = DensityField(densities={(10, 5): 5, (11, 5): 5})
+
+        original_can_enter = engine.can_agent_enter_cell
+
+        def forbidden_can_enter(*_args, **_kwargs):
+            raise AssertionError("forward congestion prediction should not call full enterability checks")
+
+        engine.can_agent_enter_cell = forbidden_can_enter
+        try:
+            penalty = engine._forward_congestion_penalty(agent, (8, 5), density, density_radius=1)
+        finally:
+            engine.can_agent_enter_cell = original_can_enter
+
+        self.assertGreater(penalty, 0.0)
 
     # 验证移动候选热路径使用引擎 walkable lookup，并能感知初始化后的 blocked cell 变更。
     def test_intended_move_uses_walkable_lookup_for_candidate_filtering(self):
@@ -444,14 +711,15 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertEqual(engine.agents[1].target_cells, {queue_slots[0]})
         self.assertEqual(engine.agents[2].target_cells, {queue_slots[1]})
         self.assertEqual(engine.agents[3].target_cells, {queue_slots[2]})
-        self.assertFalse(engine.can_agent_enter_cell(engine.agents[2], queue_slots[0]))
-        self.assertFalse(engine.can_agent_enter_cell(engine.agents[3], queue_slots[0]))
+        self.assertTrue(engine.can_agent_enter_cell(engine.agents[2], queue_slots[0]))
+        self.assertTrue(engine.can_agent_enter_cell(engine.agents[3], queue_slots[0]))
 
-    # 验证取餐后离开的人可以借过未分配队列槽离开车道，但不能进入已有 owner 的队首槽。
-    def test_to_table_agent_can_escape_via_unowned_queue_slot_only(self):
+    # 验证取餐后找座的人可以借过排队槽离开车道，但不能进入窗口服务格。
+    def test_to_table_agent_can_escape_via_queue_slot_but_not_service_cell(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1601))
         people = [student(1), student(2)]
         engine.spawn_arrivals(people, door_index=0)
+        service_cell = engine.grid.service_cells[0]
         queue_slots = engine.grid.queue_cells_by_window[0]
         engine.set_window_physical_queue(0, [1])
         agent = engine.agents[2]
@@ -459,8 +727,10 @@ class PedestrianEngineTests(unittest.TestCase):
         agent.cell = queue_slots[5]
         agent.target_cells = {(agent.cell[0], agent.cell[1] + 8)}
 
-        self.assertFalse(engine.can_agent_enter_cell(agent, queue_slots[0]))
-        self.assertFalse(engine._can_agent_reserve_repair_cell(agent, queue_slots[0]))
+        self.assertFalse(engine.can_agent_enter_cell(agent, service_cell))
+        self.assertFalse(engine._can_agent_reserve_repair_cell(agent, service_cell))
+        self.assertTrue(engine.can_agent_enter_cell(agent, queue_slots[0]))
+        self.assertTrue(engine._can_agent_reserve_repair_cell(agent, queue_slots[0]))
         self.assertTrue(engine.can_agent_enter_cell(agent, queue_slots[1]))
         self.assertTrue(engine._can_agent_reserve_repair_cell(agent, queue_slots[1]))
 
@@ -546,8 +816,8 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertEqual(tail_agent.walking_distance_cells, 0)
         self.assertEqual(tail_agent.walking_time_seconds, 0)
 
-    # 验证吃完离场先进入 TO_EXIT 并用 CA 走向出口，到达后才转为 EXITED。
-    def test_set_agent_exited_animates_to_exit_before_exit_state(self):
+    # 验证吃完离场会直接从行人层消失，不再模拟去出口的动画。
+    def test_set_agent_exited_marks_exited_without_exit_animation(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(202))
         person = student(1)
         engine.spawn_arrivals([person], door_index=0)
@@ -558,18 +828,18 @@ class PedestrianEngineTests(unittest.TestCase):
 
         engine.set_agent_exited(person.student_id)
 
-        self.assertEqual(agent.state, AgentState.TO_EXIT)
-        self.assertEqual(agent.target_cells, engine.grid.exit_cells)
+        self.assertEqual(agent.state, AgentState.EXITED)
+        self.assertEqual(agent.target_cells, set())
 
         events = []
         for tick in range(10):
             events.extend(engine.tick(tick * 5))
-            if agent.state is AgentState.EXITED:
-                break
 
         self.assertEqual(agent.state, AgentState.EXITED)
-        self.assertTrue(any(event["type"] == "pedestrian_move" for event in events))
-        self.assertGreater(agent.walking_distance_cells, 0)
+        self.assertFalse(
+            any(event["type"] == "pedestrian_move" and event["student_id"] == person.student_id for event in events)
+        )
+        self.assertEqual(agent.walking_distance_cells, 0)
 
     # 验证后端默认布局会按规模留出可达通道，不生成缺少 approach cell 的餐桌。
     def test_default_layout_tables_have_approach_targets_for_advanced_grid(self):
@@ -672,6 +942,140 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertNotEqual(intended, mover.cell)
         self.assertIn(intended, [(12, 6), (14, 6), (13, 7)])
 
+    # 验证卡住后的绕行不会反复选择近期已经证明无效的同距离格。
+    def test_stuck_agent_avoids_recent_non_progress_revisit(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1900))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_TABLE
+        agent.cell = (5, 5)
+        agent.previous_cell = (4, 5)
+        agent.target_cells = {(8, 5)}
+        agent.stuck_ticks = 20
+        agent.path_cells = [(5, 5), (5, 4), (5, 5), (5, 4), (5, 5)]
+
+        intended, _cost = engine._intended_move(agent, occupied_cells={(6, 5)})
+
+        self.assertEqual(intended, (5, 6))
+
+    # 验证局部 repair 评分同样避开近期无效重复格。
+    def test_repair_path_score_penalizes_recent_non_progress_revisit(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(19001))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_TABLE
+        agent.cell = (5, 5)
+        agent.target_cells = {(8, 5)}
+        agent.path_cells = [(5, 5), (5, 4), (5, 5), (5, 4), (5, 5)]
+
+        recent_score = engine._repair_path_score(agent, [(5, 4)])
+        open_score = engine._repair_path_score(agent, [(5, 6)])
+
+        self.assertLess(open_score, recent_score)
+
+    # 验证等价候选格不会固定向某个方向偏置，而是按目标相对方向选择绕行入口。
+    def test_to_window_equal_cost_tie_break_tracks_target_axis(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1901))
+        people = [student(index) for index in range(1, 11)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, list(range(1, 10)))
+        for slot_index, student_id in enumerate(range(1, 10)):
+            agent = engine.agents[student_id]
+            agent.cell = queue_slots[slot_index]
+            agent.state = AgentState.QUEUEING
+            agent.target_cells = {queue_slots[slot_index]}
+            agent.desired_window_index = 0
+            agent.assigned_queue_slot_index = slot_index
+
+        engine.set_agent_target_window(10, 0)
+        walker = engine.agents[10]
+        walker.cell = (8, 5)
+        walker.path_cells = [walker.cell]
+        occupied = {
+            agent.cell
+            for agent in engine.agents.values()
+            if agent.student_id != walker.student_id
+        }
+        density = DensityField.from_occupied_cells(occupied, engine.grid, radius=1)
+
+        intended, _cost = engine._intended_move(walker, occupied, density, density_radius=1)
+
+        self.assertEqual(walker.target_cells, {queue_slots[9]})
+        self.assertEqual(intended, (8, 6))
+
+        walker.target_cells = {(10, 0)}
+        intended, _cost = engine._intended_move(walker, occupied, density, density_radius=1)
+
+        self.assertEqual(intended, (8, 4))
+
+    # 验证窗口行人会看前方几步的拥挤度，选择人少的侧向绕行，而不是继续挤进拥挤走廊。
+    def test_to_window_agent_uses_congestion_aware_detour_before_getting_stuck(self):
+        config = movement_config(
+            floor_density_weight=6.0,
+            floor_static_weight=1.0,
+            floor_wall_weight=0.0,
+            floor_dynamic_weight=0.0,
+            floor_inertia_weight=0.0,
+            floor_group_weight=0.0,
+            floor_randomness=0.0,
+            congestion_density_threshold=10,
+            personal_space_radius_cells=1,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(1902))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_WINDOW
+        agent.desired_window_index = 0
+        agent.cell = (8, 5)
+        agent.target_cells = {(13, 5)}
+        agent.stuck_ticks = 0
+        density = DensityField(densities={(9, 5): 2, (10, 5): 5, (11, 5): 5, (12, 5): 5})
+
+        intended, _cost = engine._intended_move(agent, occupied_cells=set(), density=density, density_radius=1)
+
+        self.assertIn(intended, {(8, 4), (8, 6)})
+
+    # 验证动态路径场能看到远处拥挤，愿意先多走几步到空地绕行，而不是只看眼前两步继续走近路。
+    def test_to_window_dynamic_cost_field_prefers_open_longer_route(self):
+        config = movement_config(
+            floor_density_weight=6.0,
+            floor_static_weight=1.0,
+            floor_wall_weight=0.0,
+            floor_dynamic_weight=0.0,
+            floor_inertia_weight=0.0,
+            floor_group_weight=0.0,
+            floor_randomness=0.0,
+            congestion_density_threshold=10,
+            personal_space_radius_cells=1,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(1903))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_WINDOW
+        agent.desired_window_index = 0
+        agent.cell = (8, 5)
+        agent.target_cells = {(18, 5)}
+        density = DensityField(densities={
+            (8, 4): 5,
+            (9, 4): 5,
+            (10, 4): 5,
+            (12, 5): 5,
+            (13, 5): 5,
+            (14, 5): 5,
+            (15, 5): 5,
+            (16, 5): 5,
+            (17, 5): 5,
+        })
+
+        intended, _cost = engine._intended_move(agent, occupied_cells=set(), density=density, density_radius=1)
+
+        self.assertEqual(intended, (8, 6))
+
     # 验证走向餐桌的人被通道中站立者挡住时，会通过局部让行借过，而不是无限等待或传送入座。
     def test_to_table_agent_borrows_past_local_blocker(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(21))
@@ -693,6 +1097,79 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertEqual(passer.cell, (10, 8))
         self.assertTrue(any(cell in {(9, 9), (11, 9), (10, 10)} for cell in blocker.path_cells))
         self.assertNotEqual(passer.cell, blocker.cell)
+
+    # 验证已经站到自己餐桌入口的人不会被借位逻辑推走，避免到达目标后反复离开再回来。
+    def test_local_borrow_does_not_move_table_agent_already_at_own_target(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(2101))
+        people = [student(1, party_id=1), student(2, party_id=2)]
+        engine.spawn_arrivals(people, door_index=0)
+        passer = engine.agents[1]
+        blocker = engine.agents[2]
+        target = (10, 9)
+        passer.state = AgentState.TO_TABLE
+        passer.cell = (10, 10)
+        passer.target_cells = {(10, 8)}
+        passer.stuck_ticks = 8
+        blocker.state = AgentState.TO_TABLE
+        blocker.cell = target
+        blocker.assigned_table_approach_cell = target
+        blocker.target_cells = {target}
+        occupied_by = {passer.cell: passer, blocker.cell: blocker}
+        density = DensityField.from_occupied_cells(set(occupied_by), engine.grid, radius=1)
+
+        borrow = engine._local_borrow_move(
+            passer,
+            planned_targets={passer.student_id: passer.cell, blocker.student_id: blocker.cell},
+            occupied_by=occupied_by,
+            reserved_targets=set(),
+            density=density,
+            density_radius=1,
+        )
+
+        self.assertIsNone(borrow)
+
+    # 验证借位让路不会把阻塞者推回近期已经反复走过的无效格。
+    def test_borrow_yield_avoids_recent_non_progress_cell(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(21011))
+        people = [student(1, party_id=1), student(2, party_id=2)]
+        engine.spawn_arrivals(people, door_index=0)
+        passer = engine.agents[1]
+        blocker = engine.agents[2]
+        passer.state = AgentState.TO_TABLE
+        passer.cell = (26, 39)
+        passer.target_cells = {(30, 39)}
+        blocker.state = AgentState.TO_TABLE
+        blocker.cell = (27, 39)
+        blocker.target_cells = {(55, 39)}
+        blocker.path_cells = [(27, 39), (27, 38), (27, 39), (27, 38), (27, 39)]
+        occupied_by = {passer.cell: passer, blocker.cell: blocker}
+        density = DensityField.from_occupied_cells(set(occupied_by), engine.grid, radius=1)
+
+        yield_cell = engine._borrow_yield_cell(
+            passer,
+            blocker,
+            occupied_by=occupied_by,
+            reserved_targets={(27, 40)},
+            density=density,
+            density_radius=1,
+        )
+
+        self.assertEqual(yield_cell, (28, 39))
+
+    # 验证已锁定目标格的人在局部 repair 规划中也不能被安排离开自己的目标格。
+    def test_repair_reservation_keeps_table_agent_on_own_target(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(2102))
+        person = student(1, party_id=1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        target = (10, 9)
+        agent.state = AgentState.TO_TABLE
+        agent.cell = target
+        agent.assigned_table_approach_cell = target
+        agent.target_cells = {target}
+
+        self.assertFalse(engine._can_agent_reserve_repair_cell(agent, (9, 9)))
+        self.assertTrue(engine._can_agent_reserve_repair_cell(agent, target))
 
     # 验证 reservation-table 局部修复计划不产生同格冲突或边交换。
     def test_local_repair_plan_avoids_vertex_and_edge_swap_conflicts(self):
@@ -831,7 +1308,7 @@ class PedestrianEngineTests(unittest.TestCase):
             radius=4,
         )
 
-        forbidden = {service_cell, head_slot}
+        forbidden = {service_cell}
         for agent_id, path in plan.items():
             if agent_id != 1:
                 self.assertTrue(forbidden.isdisjoint(path))
@@ -924,6 +1401,289 @@ class PedestrianEngineTests(unittest.TestCase):
 
         self.assertGreater(forward, 6)
         self.assertGreater(abs(target[0] - service[0]) + abs(target[1] - service[1]), 3)
+
+    # 验证等待同伴者也避开整条排队车道旁边，避免站在队伍边上堵住通道。
+    def test_waiting_group_safe_cell_rejects_queue_lane_side_area(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(225))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        side_cell = (queue_slots[8][0] + 1, queue_slots[8][1])
+
+        self.assertTrue(engine._is_walkable_cell(side_cell))
+        self.assertFalse(engine._is_safe_waiting_group_cell(agent, side_cell, occupied=set()))
+
+    # 验证等待同伴者当前位置虽然合法但周围拥挤时，会迁移到更低密度的等待点。
+    def test_waiting_group_prefers_lower_density_waiting_target(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(226))
+        people = [student(student_id) for student_id in range(1, 8)]
+        engine.spawn_arrivals(people, door_index=0)
+        agent = engine.agents[1]
+        current = (5, 8)
+        agent.cell = current
+        agent.path_cells = [current]
+        blocker_cells = [(4, 8), (6, 8), (5, 7), (5, 9), (4, 7), (6, 9)]
+        for blocker_id, cell in enumerate(blocker_cells, start=1000):
+            engine.agents[blocker_id] = PedestrianAgent(
+                agent_id=blocker_id,
+                student_id=blocker_id,
+                party_id=blocker_id,
+                state=AgentState.WAITING_GROUP,
+                cell=cell,
+                target_type="group",
+                target_id=blocker_id,
+                target_cells={cell},
+                path_cells=[cell],
+            )
+
+        engine.set_agent_waiting_group(1)
+
+        target = next(iter(agent.target_cells))
+        occupied = {
+            other.cell
+            for other in engine.agents.values()
+            if other.student_id != agent.student_id
+            and other.state not in {AgentState.SEATED, AgentState.EXITED}
+        }
+        density = DensityField.from_occupied_cells(occupied, engine.grid, radius=2)
+        self.assertNotEqual(target, current)
+        self.assertLess(density.density(target), density.density(current))
+
+    # 验证同一窗口的后位学生可以穿过前序队列槽位，FIFO 仍由目标槽维护。
+    def test_same_window_agent_can_cross_assigned_queue_slot(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(221))
+        people = [student(student_id) for student_id in range(1, 4)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, [1, 2, 3])
+        owner = engine.agents[2]
+        owner.cell = (queue_slots[1][0] + 4, queue_slots[1][1] + 4)
+        mover = engine.agents[3]
+        mover.cell = (queue_slots[1][0] + 1, queue_slots[1][1])
+        mover.target_cells = {queue_slots[2]}
+        mover.assigned_queue_slot_index = 2
+        mover.desired_window_index = 0
+        mover.state = AgentState.TO_WINDOW
+
+        owner.cell = queue_slots[1]
+        self.assertTrue(engine.can_agent_enter_cell(mover, queue_slots[1]))
+        owner.cell = (queue_slots[1][0] + 4, queue_slots[1][1] + 4)
+        self.assertTrue(engine.can_agent_enter_cell(mover, queue_slots[1]))
+
+    # 验证同一队列前移时，后位学生可以跟进前位学生将让出的队列格。
+    def test_same_window_queue_agents_can_follow_forward_in_lane(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(222))
+        people = [student(student_id) for student_id in range(1, 3)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, [1, 2])
+        head = engine.agents[1]
+        tail = engine.agents[2]
+        head.cell = queue_slots[1]
+        head.target_cells = {queue_slots[0]}
+        head.assigned_queue_slot_index = 0
+        head.desired_window_index = 0
+        head.state = AgentState.TO_WINDOW
+        tail.cell = queue_slots[2]
+        tail.target_cells = {queue_slots[1]}
+        tail.assigned_queue_slot_index = 1
+        tail.desired_window_index = 0
+        tail.state = AgentState.TO_WINDOW
+        occupied_by = {agent.cell: agent for agent in engine.agents.values()}
+
+        occupied = engine._occupied_cells_for_agent(tail, occupied_by, set(occupied_by))
+
+        self.assertNotIn(head.cell, occupied)
+
+    # 验证尚未到达队尾目标的去窗口行人可以借过队列槽位，但目标仍在分配的队尾。
+    def test_window_walker_can_cross_front_queue_slot_before_tail_assignment(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(224))
+        people = [student(student_id) for student_id in range(1, 4)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, [1, 2])
+        engine.set_agent_target_window(3, 0)
+        owner = engine.agents[2]
+        owner.cell = (queue_slots[1][0] + 4, queue_slots[1][1] + 4)
+        walker = engine.agents[3]
+        walker.cell = (queue_slots[1][0] + 1, queue_slots[1][1])
+        walker.state = AgentState.TO_WINDOW
+
+        self.assertTrue(engine.can_agent_enter_cell(walker, queue_slots[1]))
+        self.assertTrue(engine.can_agent_enter_cell(walker, queue_slots[2]))
+        self.assertEqual(walker.target_cells, {queue_slots[2]})
+
+    # 验证去窗口行人在队列车道尾部附近时优先进入自己的分配槽，而不是横向滞留。
+    def test_to_window_agent_prefers_entering_assigned_tail_queue_slot_under_density(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(223))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        agent = engine.agents[1]
+        agent.state = AgentState.TO_WINDOW
+        agent.desired_window_index = 0
+        agent.assigned_queue_slot_index = 8
+        agent.target_cells = {queue_slots[8]}
+        agent.cell = (queue_slots[8][0] + 1, queue_slots[8][1])
+        agent.path_cells = [agent.cell]
+        blockers = [
+            (queue_slots[8][0], queue_slots[8][1] - 1),
+            (queue_slots[8][0], queue_slots[8][1] + 1),
+            (queue_slots[8][0] - 1, queue_slots[8][1]),
+            (queue_slots[8][0] + 1, queue_slots[8][1] + 1),
+        ]
+        for blocker_id, cell in enumerate(blockers, start=1000):
+            engine.agents[blocker_id] = PedestrianAgent(
+                agent_id=blocker_id,
+                student_id=blocker_id,
+                party_id=blocker_id,
+                state=AgentState.TO_WINDOW,
+                cell=cell,
+                target_cells={cell},
+                path_cells=[cell],
+            )
+        occupied = {
+            other.cell
+            for other in engine.agents.values()
+            if other.student_id != agent.student_id
+        }
+        density = DensityField.from_occupied_cells(occupied, engine.grid, radius=1)
+
+        intended, _cost = engine._intended_move(agent, occupied, density, density_radius=1)
+
+        self.assertEqual(intended, queue_slots[8])
+
+    # 验证队列成员已经在本队车道内时，会优先沿车道向前补空槽，避免队伍断裂。
+    def test_queueing_agent_compacts_forward_even_when_forward_slot_is_dense(self):
+        config = movement_config(
+            floor_density_weight=8.0,
+            congestion_density_threshold=0,
+            floor_static_weight=1.0,
+            floor_randomness=0.0,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(227))
+        people = [student(student_id) for student_id in range(1, 4)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        engine.set_window_physical_queue(0, [1, 2, 3])
+        agent = engine.agents[3]
+        agent.cell = queue_slots[5]
+        agent.path_cells = [agent.cell]
+        agent.state = AgentState.QUEUEING
+        agent.desired_window_index = 0
+        agent.assigned_queue_slot_index = 2
+        agent.target_cells = {queue_slots[2]}
+        density = DensityField(densities={queue_slots[4]: 8})
+
+        intended, _cost = engine._intended_move(agent, occupied_cells=set(), density=density, density_radius=1)
+
+        self.assertEqual(intended, queue_slots[4])
+
+    # 验证等待目标本身仍安全时，不会仅因邻域密度偏高就每个 tick 重新全图选点。
+    def test_waiting_group_keeps_safe_dense_target_until_stuck(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(229))
+        people = [student(student_id) for student_id in range(1, 4)]
+        engine.spawn_arrivals(people, door_index=0)
+        agent = engine.agents[1]
+        target = (5, 8)
+        self.assertTrue(engine._is_safe_waiting_group_cell(agent, target, occupied=set()))
+        agent.state = AgentState.WAITING_GROUP
+        agent.cell = target
+        agent.target_cells = {target}
+        engine.agents[2].state = AgentState.TO_WINDOW
+        engine.agents[2].cell = (4, 8)
+        engine.agents[3].state = AgentState.TO_WINDOW
+        engine.agents[3].cell = (6, 8)
+        original = engine._waiting_group_target_cell
+
+        def fail_if_retargeted(_agent):
+            raise AssertionError("safe waiting target should not be recomputed")
+
+        engine._waiting_group_target_cell = fail_if_retargeted
+        try:
+            engine._retarget_waiting_group_agents()
+        finally:
+            engine._waiting_group_target_cell = original
+
+        self.assertEqual(agent.target_cells, {target})
+
+    # 验证同一 tick 内等待组重定位共享密度场，避免按等待者人数重复建场。
+    def test_waiting_group_retarget_builds_density_once_for_stable_targets(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(230))
+        people = [student(student_id) for student_id in range(1, 4)]
+        engine.spawn_arrivals(people, door_index=0)
+        targets: list[tuple[int, int]] = []
+        probe = engine.agents[1]
+        for cell in sorted(engine.in_bounds_cells, key=lambda item: (item[1], item[0])):
+            if not engine._is_safe_waiting_group_cell(probe, cell, occupied=set()):
+                continue
+            if any(max(abs(cell[0] - existing[0]), abs(cell[1] - existing[1])) <= 3 for existing in targets):
+                continue
+            targets.append(cell)
+            if len(targets) == len(people):
+                break
+        self.assertEqual(len(targets), len(people))
+        for person, target in zip(people, targets):
+            agent = engine.agents[person.student_id]
+            self.assertTrue(engine._is_safe_waiting_group_cell(agent, target, occupied=set()))
+            agent.state = AgentState.WAITING_GROUP
+            agent.cell = target
+            agent.target_cells = {target}
+        original = engine_module.DensityField.from_occupied_cells
+        calls = 0
+
+        def counted_from_occupied_cells(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        engine_module.DensityField.from_occupied_cells = counted_from_occupied_cells
+        try:
+            engine._retarget_waiting_group_agents()
+        finally:
+            engine_module.DensityField.from_occupied_cells = original
+
+        self.assertEqual(calls, 1)
+
+    # 验证等待者重选目标后会清零停滞计数，避免下一 tick 立刻重复全图重算。
+    def test_waiting_group_retarget_resets_stuck_ticks(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(231))
+        people = [student(student_id) for student_id in range(1, 4)]
+        engine.spawn_arrivals(people, door_index=0)
+        agent = engine.agents[1]
+        target = (5, 8)
+        replacement = (8, 8)
+        if not engine._is_safe_waiting_group_cell(agent, target, occupied=set()):
+            target = next(
+                cell
+                for cell in sorted(engine.in_bounds_cells, key=lambda item: (item[1], item[0]))
+                if engine._is_safe_waiting_group_cell(agent, cell, occupied=set())
+            )
+            replacement = next(
+                cell
+                for cell in sorted(engine.in_bounds_cells, key=lambda item: (item[1], item[0]))
+                if cell != target
+                and engine._is_safe_waiting_group_cell(agent, cell, occupied=set())
+                and max(abs(cell[0] - target[0]), abs(cell[1] - target[1])) > 3
+            )
+        agent.state = AgentState.WAITING_GROUP
+        agent.cell = target
+        agent.target_cells = {target}
+        agent.stuck_ticks = engine.local_repair_after_stuck_ticks
+        engine.agents[2].state = AgentState.TO_WINDOW
+        engine.agents[2].cell = (target[0] - 1, target[1])
+        engine.agents[3].state = AgentState.TO_WINDOW
+        engine.agents[3].cell = (target[0] + 1, target[1])
+        original = engine._waiting_group_target_cell
+        engine._waiting_group_target_cell = lambda _agent: replacement
+        try:
+            engine._retarget_waiting_group_agents()
+        finally:
+            engine._waiting_group_target_cell = original
+
+        self.assertEqual(agent.target_cells, {replacement})
+        self.assertEqual(agent.stuck_ticks, 0)
 
     # 验证等待同伴者已停在后来变成不安全的窗口前沿时，会在 tick 前重新选择停靠点。
     def test_waiting_group_retargets_existing_unsafe_queue_front_target(self):
@@ -1043,6 +1803,124 @@ class PedestrianEngineTests(unittest.TestCase):
         metrics = movement_metrics(engine.agents, tick_seconds=5, max_density=0)
 
         self.assertEqual(metrics.avg_stuck_ticks, 2.0)
+
+    # 验证路径绕行比按实际步行格数 / 起终点直线格距统计。
+    def test_movement_metrics_reports_walking_distance_ratio(self):
+        agent = PedestrianAgent(
+            agent_id=1,
+            student_id=1,
+            party_id=1,
+            state=AgentState.TO_TABLE,
+            cell=(3, 4),
+            path_cells=[(0, 0), (3, 0), (3, 4)],
+            walking_distance_cells=7,
+            walking_time_seconds=10.0,
+        )
+
+        metrics = movement_metrics({1: agent}, tick_seconds=5, max_density=0)
+
+        self.assertEqual(metrics.avg_walking_distance_ratio, 1.4)
+
+    # 验证多目标行程优先按目标段统计绕行比，而不是用整个生命周期首尾直线距离。
+    def test_movement_metrics_prefers_segment_distance_ratios(self):
+        agent = PedestrianAgent(
+            agent_id=1,
+            student_id=1,
+            party_id=1,
+            state=AgentState.TO_TABLE,
+            cell=(0, 10),
+            path_cells=[(0, 0), (10, 0), (10, 10), (0, 10)],
+            walking_distance_cells=30,
+            walking_time_seconds=10.0,
+            movement_leg_distance_ratios=[1.0, 1.0],
+            movement_leg_start_cell=(10, 10),
+            movement_leg_distance_cells=10.0,
+        )
+
+        metrics = movement_metrics({1: agent}, tick_seconds=5, max_density=0)
+
+        self.assertEqual(metrics.avg_walking_distance_ratio, 1.0)
+
+    # 验证前方堵住时，停滞惩罚不会诱导 agent 退回上一格形成往返振荡。
+    def test_intended_move_waits_instead_of_backtracking_when_forward_is_blocked(self):
+        config = movement_config(
+            floor_density_weight=0.0,
+            floor_dynamic_weight=0.0,
+            floor_wall_weight=0.0,
+            floor_inertia_weight=0.25,
+            floor_randomness=0.0,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(1402))
+        people = [student(1), student(2), student(3), student(4), student(5)]
+        engine.spawn_arrivals(people, door_index=0)
+        mover = engine.agents[1]
+        mover.cell = (5, 5)
+        mover.previous_cell = (5, 6)
+        mover.state = AgentState.TO_TABLE
+        mover.target_cells = {(5, 3)}
+        mover.stuck_ticks = 40
+        blockers = {
+            2: (5, 4),
+            3: (4, 5),
+            4: (6, 5),
+        }
+        for student_id, cell in blockers.items():
+            blocker = engine.agents[student_id]
+            blocker.cell = cell
+            blocker.state = AgentState.SERVICE
+            blocker.target_cells = {cell}
+        occupied = {agent.cell for agent in engine.agents.values() if agent.student_id != mover.student_id}
+        density = DensityField.from_occupied_cells(occupied | {mover.cell}, engine.grid, radius=1)
+
+        intended, _cost = engine._intended_move(
+            mover,
+            occupied_cells=occupied,
+            density=density,
+            density_radius=1,
+        )
+
+        self.assertEqual(intended, mover.cell)
+
+    # 验证拥堵感知路由也不会把上一格当作非进展绕行的第一步。
+    def test_congestion_aware_route_does_not_backtrack_when_forward_is_blocked(self):
+        config = movement_config(
+            floor_density_weight=6.0,
+            floor_dynamic_weight=0.0,
+            floor_wall_weight=0.0,
+            floor_inertia_weight=0.25,
+            floor_randomness=0.0,
+        )
+        engine = PedestrianEngine(engine_layout(), config, random.Random(1403))
+        people = [student(1), student(2), student(3), student(4)]
+        engine.spawn_arrivals(people, door_index=0)
+        mover = engine.agents[1]
+        mover.cell = (5, 5)
+        mover.previous_cell = (5, 6)
+        mover.state = AgentState.TO_WINDOW
+        mover.desired_window_index = 0
+        mover.target_cells = {(5, 3)}
+        mover.stuck_ticks = 40
+        blockers = {
+            2: (5, 4),
+            3: (4, 5),
+            4: (6, 5),
+        }
+        for student_id, cell in blockers.items():
+            blocker = engine.agents[student_id]
+            blocker.cell = cell
+            blocker.state = AgentState.SERVICE
+            blocker.target_cells = {cell}
+        occupied = {agent.cell for agent in engine.agents.values() if agent.student_id != mover.student_id}
+        density = DensityField.from_occupied_cells(occupied | {mover.cell}, engine.grid, radius=1)
+
+        intended, _cost = engine._intended_move(
+            mover,
+            occupied_cells=occupied,
+            density=density,
+            density_radius=1,
+        )
+
+        self.assertEqual(intended, mover.cell)
 
     # 验证借过不会挤开正在服务、已入座或已离开的非通道对象。
     def test_to_table_borrow_does_not_displace_service_agent(self):

@@ -707,6 +707,16 @@ input {
   stroke: #2f6b44;
 }
 
+.layout-table .table-seat.is-dining {
+  fill: #5e9c5e;
+  stroke: #2f6b44;
+}
+
+.layout-table .table-seat.is-seat-waiting {
+  fill: #9b6ad6;
+  stroke: #6d3bb2;
+}
+
 .layout-table .table-top.has-occupancy {
   stroke: #2f6b44;
   stroke-width: 1.4;
@@ -767,6 +777,35 @@ input {
 .pedestrian-agent-dot {
   stroke: rgba(255, 255, 255, 0.95);
   stroke-width: 0.8;
+}
+
+.pedestrian-state-legend,
+.seat-state-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: #526174;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.pedestrian-state-item,
+.seat-state-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.pedestrian-state-swatch,
+.seat-state-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(51, 65, 85, 0.18);
+  flex: 0 0 auto;
 }
 
 .pedestrian-agent-dot.state-service {

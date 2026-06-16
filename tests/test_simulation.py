@@ -194,8 +194,11 @@ class DiningSimulationTests(unittest.TestCase):
         )
 
         self.assertGreater(comparison["optimized"]["seated"], comparison["baseline"]["seated"])
+        self.assertLessEqual(comparison["optimized"]["entry_waiting_count"], comparison["baseline"]["entry_waiting_count"])
+        self.assertLess(comparison["optimized"]["total_waiting_pressure"], comparison["baseline"]["total_waiting_pressure"])
         self.assertLess(comparison["optimized"]["movement_conflict_count"], comparison["baseline"]["movement_conflict_count"])
         self.assertLess(comparison["optimized"]["queue_total"], comparison["baseline"]["queue_total"])
+        self.assertLessEqual(comparison["optimized"]["max_density"], comparison["baseline"]["max_density"])
 
     def _cafeteria_layout_for_flow_ablation(self, optimized: bool) -> DiningLayoutData:
         capacities = []
@@ -255,7 +258,7 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertIsNone(runner.windows[0])
         self.assertIsNone(students[0].service_start_time)
 
-    # 验证高级模式下，入场者先走向窗口槽位，到达后才进入物理 FIFO 队列。
+    # 验证高级模式下，入场者立即进入 FIFO 队列，但不会传送到队列槽位。
     def test_advanced_queue_admission_sets_target_without_teleporting(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
@@ -280,16 +283,22 @@ class DiningSimulationTests(unittest.TestCase):
         runner._enqueue_arrivals([student])
         runner._admit_due_entry_students(current_time_sec=60)
 
-        self.assertEqual(list(runner.queues[0]), [])
+        self.assertEqual(list(runner.queues[0]), [student])
         self.assertEqual(runner.waiting_to_queue_student_ids, {student.student_id})
         agent = runner.pedestrian_engine.agents[student.student_id]
         queue_cells = set(runner.pedestrian_engine.grid.queue_cells_by_window[0])
         self.assertTrue(agent.target_cells.issubset(queue_cells))
         self.assertNotIn(agent.cell, queue_cells)
+        self.assertEqual(agent.state, AgentState.TO_WINDOW)
         self.assertEqual(agent.walking_distance_cells, 0)
 
+        not_ready = runner._admit_students_who_reached_window_queue(minute=1)
+
+        self.assertEqual(not_ready, 0)
+        self.assertEqual(runner.waiting_to_queue_student_ids, {student.student_id})
+
         agent.cell = next(iter(agent.target_cells))
-        admitted = runner._admit_students_who_reached_window_queue(minute=1)
+        admitted = runner._admit_students_who_reached_window_queue(minute=2)
 
         self.assertEqual(admitted, 1)
         self.assertEqual(list(runner.queues[0]), [student])
@@ -336,8 +345,8 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertIsNotNone(runner.windows[0])
         self.assertEqual(student.service_start_time, 0)
 
-    # 验证靠近服务区的后位学生不能越过物理队首开始服务。
-    def test_advanced_service_uses_physical_head_not_nearby_tail(self):
+    # 验证靠近服务区的后位学生不能越过逻辑队首开始服务。
+    def test_advanced_service_waits_for_logical_head_even_when_tail_is_near(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=18, y=580, wall_side="left")],
             windows=[LayoutWindowData(id="W1", x=320, y=60, wall_side="top")],
@@ -361,16 +370,17 @@ class DiningSimulationTests(unittest.TestCase):
         runner.queues[0] = [head, tail]
         runner.pedestrian_engine.set_window_physical_queue(0, [head.student_id, tail.student_id])
         service_cell = runner.pedestrian_engine.grid.service_cells[0]
-        runner.pedestrian_engine.agents[head.student_id].cell = (service_cell[0], service_cell[1] + 8)
+        runner.pedestrian_engine.agents[head.student_id].cell = (service_cell[0], service_cell[1] + 12)
         runner.pedestrian_engine.agents[tail.student_id].cell = service_cell
 
         self.assertFalse(runner._start_single_window_service(0, start_time_minute=0.0))
+        self.assertIsNone(runner.windows[0])
+        self.assertEqual([student.student_id for student in runner.queues[0]], [head.student_id, tail.student_id])
         self.assertIsNone(tail.service_start_time)
 
         runner.pedestrian_engine.agents[head.student_id].cell = service_cell
         self.assertTrue(runner._start_single_window_service(0, start_time_minute=1.0))
         self.assertEqual(runner.windows[0].student, head)
-        self.assertIsNone(tail.service_start_time)
 
     # 验证物理队首已贴近 head slot 时可服务，避免空闲窗口等待队首横移一格造成冻结。
     def test_advanced_service_accepts_head_adjacent_to_head_slot(self):
@@ -394,8 +404,8 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertTrue(runner._start_single_window_service(0, start_time_minute=0.0))
         self.assertEqual(runner.windows[0].student, head)
 
-    # 验证单列物理队列的队首在前 3 个槽位内可服务，且不会让更靠前的 tail 越位。
-    def test_advanced_service_accepts_physical_head_in_front_queue_segment(self):
+    # 验证队首没有贴近窗口服务区时不会提前进入取餐状态，避免队列前方仍有空槽或排队者。
+    def test_advanced_service_waits_until_physical_head_reaches_service_area(self):
         runner = DiningSimulationRunner(
             SimulationConfigData(
                 num_windows=1,
@@ -411,11 +421,12 @@ class DiningSimulationTests(unittest.TestCase):
         runner.queues[0] = [head, tail]
         runner.pedestrian_engine.set_window_physical_queue(0, [head.student_id, tail.student_id])
         queue_slots = runner.pedestrian_engine.grid.queue_cells_by_window[0]
-        runner.pedestrian_engine.agents[head.student_id].cell = queue_slots[2]
-        runner.pedestrian_engine.agents[tail.student_id].cell = queue_slots[1]
+        runner.pedestrian_engine.agents[head.student_id].cell = queue_slots[6]
+        runner.pedestrian_engine.agents[tail.student_id].cell = queue_slots[7]
 
-        self.assertTrue(runner._start_single_window_service(0, start_time_minute=0.0))
-        self.assertEqual(runner.windows[0].student, head)
+        self.assertFalse(runner._start_single_window_service(0, start_time_minute=0.0))
+        self.assertIsNone(runner.windows[0])
+        self.assertIsNone(head.service_start_time)
         self.assertIsNone(tail.service_start_time)
 
     # 验证 advanced 模式下，同一分钟到达者被拆成秒级边界入场事件，而不是用人为门口限流。
@@ -478,8 +489,8 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(student.window_index, 0)
         self.assertEqual(list(runner.queues[0]), [student])
 
-    # 验证高级移动耦合下，尚未走到窗口的 pending 学生也会计入窗口负载。
-    def test_advanced_coupling_window_choice_counts_pending_walkers(self):
+    # 验证高级移动耦合下，尚未走到窗口槽位的学生会立即进入逻辑队列并计入窗口负载。
+    def test_advanced_coupling_window_choice_counts_logical_queue_members(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=100, y=320, wall_side="left")],
             windows=[
@@ -505,9 +516,9 @@ class DiningSimulationTests(unittest.TestCase):
         runner._enqueue_arrivals(students)
         runner._admit_due_entry_students(current_time_sec=60)
 
-        self.assertEqual([len(queue) for queue in runner.queues], [0, 0])
-        self.assertEqual(runner._pending_window_queue_count(0), 3)
-        self.assertEqual(runner._pending_window_queue_count(1), 3)
+        self.assertEqual([len(queue) for queue in runner.queues], [3, 3])
+        self.assertEqual(runner._pending_window_queue_count(0), 0)
+        self.assertEqual(runner._pending_window_queue_count(1), 0)
         self.assertEqual(
             [sum(1 for student in students if student.window_index == idx) for idx in range(2)],
             [3, 3],
@@ -532,8 +543,8 @@ class DiningSimulationTests(unittest.TestCase):
 
         snapshot = runner._snapshot()
 
-        self.assertEqual(snapshot["queue_lengths"], [0])
-        self.assertEqual(snapshot["physical_queue_lengths"], [0])
+        self.assertEqual(snapshot["queue_lengths"], [2])
+        self.assertEqual(snapshot["physical_queue_lengths"], [2])
         self.assertEqual(snapshot["walking_to_window_count"], 2)
         self.assertEqual(snapshot["total_waiting_pressure"], 2)
 
@@ -561,7 +572,7 @@ class DiningSimulationTests(unittest.TestCase):
 
         self.assertEqual(admitted, 1)
         self.assertEqual(len(runner.waiting_to_queue_student_ids), 1)
-        self.assertEqual(len(runner.queues[0]), 0)
+        self.assertEqual(len(runner.queues[0]), 1)
         self.assertEqual(len(runner.pending_entry_students), 2)
 
         runner._admit_due_entry_students(current_time_sec=120)
@@ -570,8 +581,8 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(runner.total_left, 2)
         self.assertEqual(sum(student.leave_time is not None for student in students), 2)
 
-    # 验证窗口物理队列满但还有空座时，新到达者会先占座等待，等队列槽释放后再进入队伍。
-    def test_advanced_full_physical_queue_uses_open_seats_before_entry_wait(self):
+    # 验证未打饭的新到达者不会占用/预留餐桌；窗口队列满时留在边界等待。
+    def test_advanced_full_physical_queue_keeps_unserved_arrivals_pending_without_reserving_seats(self):
         runner = DiningSimulationRunner(
             SimulationConfigData(
                 num_windows=1,
@@ -590,12 +601,12 @@ class DiningSimulationTests(unittest.TestCase):
         runner._enqueue_arrivals(students)
         admitted = runner._admit_due_entry_students(current_time_sec=60)
 
-        self.assertEqual(admitted, 3)
-        self.assertEqual(len(runner.queues[0]), 0)
+        self.assertEqual(admitted, 1)
+        self.assertEqual(len(runner.queues[0]), 1)
         self.assertEqual(len(runner.waiting_to_queue_student_ids), 1)
-        self.assertEqual(len(runner.entry_seat_wait_table_by_student), 2)
-        self.assertEqual(sum(runner.table_reserved_seats), 2)
-        self.assertEqual(len(runner.pending_entry_students), 0)
+        self.assertEqual(runner.entry_seat_wait_table_by_student, {})
+        self.assertEqual(sum(runner.table_reserved_seats), 0)
+        self.assertEqual(len(runner.pending_entry_students), 2)
 
         first_walker_id = next(iter(runner.waiting_to_queue_student_ids))
         first_agent = runner.pedestrian_engine.agents[first_walker_id]
@@ -603,13 +614,109 @@ class DiningSimulationTests(unittest.TestCase):
         runner._admit_students_who_reached_window_queue(minute=1)
         runner.queues[0].clear()
         runner._sync_window_physical_queue(0)
-        moved = runner._move_entry_seat_waiters_to_window_queues(current_time_sec=90)
+        admitted_again = runner._admit_due_entry_students(current_time_sec=90)
 
-        self.assertEqual(moved, 1)
-        self.assertEqual(len(runner.queues[0]), 0)
+        self.assertEqual(admitted_again, 1)
+        self.assertEqual(len(runner.queues[0]), 1)
         self.assertEqual(len(runner.waiting_to_queue_student_ids), 1)
-        self.assertEqual(len(runner.entry_seat_wait_table_by_student), 1)
-        self.assertEqual(sum(runner.table_reserved_seats), 1)
+        self.assertEqual(runner.entry_seat_wait_table_by_student, {})
+        self.assertEqual(sum(runner.table_reserved_seats), 0)
+        self.assertEqual(len(runner.pending_entry_students), 1)
+
+    # 验证入口和窗口都不可用时，未打饭学生仍留在边界，不占用餐桌座位。
+    def test_advanced_unserved_arrivals_do_not_use_dining_seats_when_entry_is_blocked(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                entry_queue_patience_min=20,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=20260622,
+            )
+        )
+        runner.pedestrian_engine.grid.queue_cells_by_window[0] = []
+        runner.pedestrian_engine.available_entry_cells = lambda _door_index, limit=1: []
+        students = runner._create_party_students(minute=0, person_count=2)
+
+        runner._enqueue_arrivals(students)
+        admitted = runner._admit_due_entry_students(current_time_sec=60)
+
+        self.assertEqual(admitted, 0)
+        self.assertEqual(len(runner.pending_entry_students), 2)
+        self.assertEqual(runner.entry_seat_wait_table_by_student, {})
+        self.assertEqual(sum(runner.table_reserved_seats), 0)
+        self.assertEqual(runner.pedestrian_engine.agents, {})
+
+    # 验证逻辑队首卡在远处时，空闲窗口不会让后位学生越过队首取餐。
+    def test_advanced_idle_window_does_not_serve_nearby_tail_when_logical_head_is_far(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                service_time_mean=1.0,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=20260624,
+            )
+        )
+        far, near = runner._create_party_students(minute=0, person_count=2)
+        runner.pedestrian_engine.spawn_arrivals([far, near], door_index=0)
+        queue_cells = runner.pedestrian_engine.grid.queue_cells_by_window[0]
+        service_cell = runner.pedestrian_engine.grid.service_cells[0]
+        runner.queues[0].append(far)
+        runner.queues[0].append(near)
+        far_agent = runner.pedestrian_engine.agents[far.student_id]
+        near_agent = runner.pedestrian_engine.agents[near.student_id]
+        far_agent.cell = (queue_cells[0][0] + 8, queue_cells[0][1] + 8)
+        near_agent.cell = queue_cells[0]
+        runner._sync_window_physical_queue(0)
+        self.assertGreater(abs(far_agent.cell[0] - service_cell[0]) + abs(far_agent.cell[1] - service_cell[1]), 2)
+
+        started = runner._start_single_window_service(0, start_time_minute=1.0)
+
+        self.assertFalse(started)
+        self.assertIsNone(runner.windows[0])
+        self.assertEqual([student.student_id for student in runner.queues[0]], [far.student_id, near.student_id])
+        self.assertIsNone(near.service_start_time)
+
+    # 验证队列前段已有后位学生进入纵向队列时，也不会绕过还没到达的队首。
+    def test_advanced_idle_window_does_not_serve_visible_tail_when_head_gap_exists(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                service_time_mean=1.0,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={1: 1.0},
+                seed=20260625,
+            )
+        )
+        far, visible = runner._create_party_students(minute=0, person_count=2)
+        runner.pedestrian_engine.spawn_arrivals([far, visible], door_index=0)
+        queue_cells = runner.pedestrian_engine.grid.queue_cells_by_window[0]
+        service_cell = runner.pedestrian_engine.grid.service_cells[0]
+        runner.queues[0].append(far)
+        runner.queues[0].append(visible)
+        far_agent = runner.pedestrian_engine.agents[far.student_id]
+        visible_agent = runner.pedestrian_engine.agents[visible.student_id]
+        far_agent.cell = (queue_cells[0][0] + 8, queue_cells[0][1] + 8)
+        visible_agent.cell = queue_cells[6]
+        runner._sync_window_physical_queue(0)
+        self.assertGreater(abs(far_agent.cell[0] - service_cell[0]) + abs(far_agent.cell[1] - service_cell[1]), 2)
+
+        started = runner._start_single_window_service(0, start_time_minute=1.0)
+
+        self.assertFalse(started)
+        self.assertIsNone(runner.windows[0])
+        self.assertEqual([student.student_id for student in runner.queues[0]], [far.student_id, visible.student_id])
+        self.assertIsNone(visible.service_start_time)
 
     # 验证入口格持续满时，门口等待者也会按耐心离开，而不是无限重试。
     def test_advanced_full_entry_cells_leave_after_patience(self):
@@ -1041,7 +1148,9 @@ class DiningSimulationTests(unittest.TestCase):
         )
 
         self.assertIn("movement_conflict_count", result.final_state["movement_metrics"])
+        self.assertIn("avg_walking_distance_ratio", result.final_state["movement_metrics"])
         self.assertGreater(result.metrics.avg_walking_time, 0)
+        self.assertGreaterEqual(result.metrics.avg_walking_distance_ratio, 1.0)
         self.assertGreaterEqual(result.metrics.movement_conflict_count, 0)
         self.assertGreaterEqual(result.metrics.avg_stuck_ticks, 0)
         self.assertGreater(result.metrics.max_density, 0)
@@ -1066,7 +1175,7 @@ class DiningSimulationTests(unittest.TestCase):
         target = (8, 8)
         for cell, agent in zip([(7, 8), (9, 8), (8, 7)], runner.pedestrian_engine.agents.values()):
             agent.cell = cell
-            agent.state = AgentState.TO_WINDOW
+            agent.state = AgentState.TO_TABLE
             agent.target_cells = {target}
 
         runner.pedestrian_engine.tick(0)
@@ -1106,8 +1215,8 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(conflict_counts, sorted(conflict_counts))
         self.assertEqual(max_densities, sorted(max_densities))
 
-    # 验证吃完后 DES 指标立即释放座位，但 advanced 行人先进入 TO_EXIT 可视离场。
-    def test_dining_completion_releases_seat_and_starts_to_exit_animation(self):
+    # 验证吃完后 DES 指标立即释放座位，advanced 行人直接从地图消失。
+    def test_dining_completion_releases_seat_and_removes_agent_immediately(self):
         layout = DiningLayoutData(
             doors=[LayoutDoorData(id="D1", x=24, y=160, wall_side="left")],
             windows=[LayoutWindowData(id="W1", x=156, y=24, wall_side="top")],
@@ -1137,15 +1246,19 @@ class DiningSimulationTests(unittest.TestCase):
         self.assertEqual(left_count, 1)
         self.assertEqual(runner.total_left, 1)
         self.assertEqual(runner.table_occupied_seats[0], 0)
-        self.assertEqual(agent.state, AgentState.TO_EXIT)
-        self.assertNotEqual(agent.state, AgentState.EXITED)
+        self.assertEqual(agent.state, AgentState.EXITED)
+        self.assertEqual(agent.target_cells, set())
 
         pedestrian_result = runner.pedestrian_engine.run_for_minute(180, 240)
+        pedestrian_events = pedestrian_result["timeline"]["events"] if pedestrian_result["timeline"] is not None else []
 
-        self.assertIsNotNone(pedestrian_result["timeline"])
-        self.assertTrue(
-            any(event["type"] == "pedestrian_move" for event in pedestrian_result["timeline"]["events"])
+        self.assertFalse(
+            any(
+                event["type"] == "pedestrian_move" and event["student_id"] == student.student_id
+                for event in pedestrian_events
+            )
         )
+        self.assertNotIn(student.student_id, {agent_data["student_id"] for agent_data in runner._snapshot()["pedestrian_agents"]})
 
     # 验证仿真结束判断会等待 TO_EXIT 行人走完离场动画。
     def test_done_waits_for_active_to_exit_pedestrians(self):
@@ -1200,6 +1313,66 @@ class DiningSimulationTests(unittest.TestCase):
             for table in record.snapshot["table_occupancy"]:
                 self.assertLessEqual(table["occupied"] + table["reserved"], table["capacity"])
         self.assertGreater(result.metrics.throughput, 0)
+
+    # 验证餐桌快照区分正在用餐和已取餐同伴上座等待，便于前端用不同椅子颜色展示。
+    def test_table_occupancy_snapshot_distinguishes_dining_and_seat_waiting(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={2: 1.0},
+                seed=20260626,
+            )
+        )
+        dining_student, waiting_student = runner._create_party_students(minute=0, person_count=2)
+        runner.seated = [DiningSeat(student=dining_student, remaining=10, table_index=0)]
+        runner.table_occupied_seats[0] = 1
+        runner.companion_seat_wait_table_by_student[waiting_student.student_id] = 0
+        runner.table_reserved_seats[0] = 1
+
+        occupancy = runner._snapshot()["table_occupancy"][0]
+
+        self.assertEqual(occupancy["occupied"], 1)
+        self.assertEqual(occupancy["reserved"], 1)
+        self.assertEqual(occupancy["waiting"], 1)
+
+    # 验证结伴学生先取餐完成时优先上座占位等待同伴，而不是停在通道里等待。
+    def test_served_companion_waits_on_reserved_seat_until_party_ready(self):
+        runner = DiningSimulationRunner(
+            SimulationConfigData(
+                num_windows=1,
+                num_seats=4,
+                movement_model="advanced_floor_field",
+                advanced_movement_coupling=True,
+                floor_randomness=0.0,
+                party_size_distribution={2: 1.0},
+                seed=20260627,
+            )
+        )
+        first, second = runner._create_party_students(minute=0, person_count=2)
+        runner.pedestrian_engine.spawn_arrivals([first, second], door_index=0)
+        first.service_end_time = 1
+
+        runner._move_ready_parties_to_seat_wait([first], minute=1)
+
+        table_index = runner.companion_seat_wait_table_by_student[first.student_id]
+        self.assertEqual(runner.table_reserved_seats[table_index], 2)
+        self.assertEqual(runner.pedestrian_engine.agents[first.student_id].state, AgentState.SEATED)
+        occupancy = runner._snapshot()["table_occupancy"][table_index]
+        self.assertEqual(occupancy["waiting"], 1)
+        self.assertEqual(runner.waiting_for_seat, [])
+
+        second.service_end_time = 2
+        runner._move_ready_parties_to_seat_wait([second], minute=2)
+        runner._seat_waiting_students(minute=2)
+
+        self.assertEqual(runner.companion_seat_wait_table_by_student, {})
+        self.assertEqual(len(runner.walking_to_seat), 1)
+        self.assertEqual(runner.walking_to_seat[0].table_index, table_index)
+        self.assertEqual(runner.table_reserved_seats[table_index], 2)
 
     # 验证相同 seed 下完整仿真结果可复现。
     def test_run_is_reproducible_with_same_seed(self):
