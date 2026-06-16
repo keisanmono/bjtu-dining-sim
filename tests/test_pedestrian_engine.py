@@ -333,6 +333,34 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertEqual(second.target_cells, {queue_slots[1]})
         self.assertEqual(second.state, AgentState.QUEUEING)
 
+    # 验证队列成员如果被服务区/队首挤到目标槽位后方，也应显示为排队，而不是前往窗口。
+    def test_physical_queue_sync_marks_lane_agents_two_cells_behind_as_queueing(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1206))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        second = engine.agents[2]
+        second.cell = (queue_slots[1][0], queue_slots[1][1] + 2)
+
+        engine.set_window_physical_queue(0, [1, 2])
+
+        self.assertEqual(second.target_cells, {queue_slots[1]})
+        self.assertEqual(second.state, AgentState.QUEUEING)
+
+    # 验证只放宽队列纵向间距，不把偏离本队列车道的人误标为排队。
+    def test_physical_queue_sync_keeps_lateral_agents_as_to_window(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(1207))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        second = engine.agents[2]
+        second.cell = (queue_slots[1][0] + 1, queue_slots[1][1] + 2)
+
+        engine.set_window_physical_queue(0, [1, 2])
+
+        self.assertEqual(second.target_cells, {queue_slots[1]})
+        self.assertEqual(second.state, AgentState.TO_WINDOW)
+
     # 验证多个 agent 选择同一格时会记录冲突计数。
     def test_multi_agent_conflict_records_conflict_count(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(13))

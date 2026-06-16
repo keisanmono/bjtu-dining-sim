@@ -1010,7 +1010,32 @@ class PedestrianEngine:
         return [student_id for _window, _slot, _position, student_id in sorted(ready)]
 
     def _agent_reached_queue_target(self, agent: PedestrianAgent) -> bool:
-        return bool(agent.target_cells) and self._is_near_target_cells(agent)
+        if not agent.target_cells:
+            return False
+        if self._is_near_target_cells(agent):
+            return True
+        return self._agent_reached_queue_lane_band(agent)
+
+    def _agent_reached_queue_lane_band(self, agent: PedestrianAgent, max_behind: int = 2) -> bool:
+        window_index = agent.desired_window_index
+        slot_index = agent.assigned_queue_slot_index
+        if window_index is None or slot_index is None:
+            return False
+        queue_slots = self.grid.queue_cells_by_window.get(window_index, [])
+        if not queue_slots:
+            return False
+        bounded_slot_index = max(0, min(slot_index, len(queue_slots) - 1))
+        target = queue_slots[bounded_slot_index]
+        if target not in agent.target_cells:
+            return False
+        service, normal = self.queue_side_constraints.get(window_index, (None, (0, 0)))
+        if service is None or normal == (0, 0):
+            return False
+        side = (normal[1], normal[0])
+        delta = (agent.cell[0] - target[0], agent.cell[1] - target[1])
+        behind = delta[0] * normal[0] + delta[1] * normal[1]
+        lateral = abs(delta[0] * side[0] + delta[1] * side[1])
+        return 0 <= behind <= max_behind and lateral == 0
 
     def party_ready_to_seat(self, party: Any) -> bool:
         student_ids = self._student_ids_for_party(party)
