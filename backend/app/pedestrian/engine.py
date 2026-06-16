@@ -477,10 +477,12 @@ class PedestrianEngine:
             )
         )
 
-    def _is_near_window_service_or_head(self, cell: Cell) -> bool:
+    def _window_service_buffer_penalty(self, cell: Cell) -> int:
+        penalty = 0
         for window_index, service in self.grid.service_cells.items():
-            if abs(cell[0] - service[0]) + abs(cell[1] - service[1]) <= 3:
-                return True
+            service_distance = abs(cell[0] - service[0]) + abs(cell[1] - service[1])
+            if service_distance <= 3:
+                penalty = max(penalty, 4 - service_distance)
             queue_slots = self.grid.queue_cells_by_window.get(window_index, [])
             if queue_slots:
                 head_slot = queue_slots[0]
@@ -492,12 +494,28 @@ class PedestrianEngine:
                 forward = (cell[0] - service[0]) * normal[0] + (cell[1] - service[1]) * normal[1]
                 lateral = (cell[0] - service[0]) * side[0] + (cell[1] - service[1]) * side[1]
                 if 0 <= forward <= 6 and abs(lateral) <= 6:
-                    return True
+                    penalty = max(penalty, (7 - forward) + (7 - abs(lateral)))
                 if forward < 0 and abs(lateral) <= 4:
-                    return True
-                if abs(cell[0] - head_slot[0]) + abs(cell[1] - head_slot[1]) <= 2:
-                    return True
-        return False
+                    penalty = max(penalty, min(6, -forward) + (5 - abs(lateral)))
+                head_distance = abs(cell[0] - head_slot[0]) + abs(cell[1] - head_slot[1])
+                if head_distance <= 2:
+                    penalty = max(penalty, 3 - head_distance)
+        return penalty
+
+    def _is_near_window_service_or_head(self, cell: Cell) -> bool:
+        return self._window_service_buffer_penalty(cell) > 0
+
+    def _waiting_group_can_enter_window_service_buffer(self, agent: PedestrianAgent, cell: Cell) -> bool:
+        if agent.state is not AgentState.WAITING_GROUP:
+            return True
+        next_penalty = self._window_service_buffer_penalty(cell)
+        if next_penalty <= 0:
+            return True
+        current_penalty = self._window_service_buffer_penalty(agent.cell)
+        return current_penalty > 0 and next_penalty < current_penalty
+
+    def _waiting_group_is_clearing_window_service_buffer(self, agent: PedestrianAgent) -> bool:
+        return agent.state is AgentState.WAITING_GROUP and self._window_service_buffer_penalty(agent.cell) > 0
 
     def _retarget_waiting_group_agents(self) -> None:
         waiting_agents = [agent for agent in self.agents.values() if agent.state is AgentState.WAITING_GROUP]
@@ -1117,6 +1135,8 @@ class PedestrianEngine:
             return True
         if not self._is_walkable_cell(cell):
             return False
+        if not self._waiting_group_can_enter_window_service_buffer(agent, cell):
+            return False
         if not self._agent_can_use_window_queue_side(agent, cell):
             return False
         if self._is_reserved_service_area(cell) and not self._agent_can_use_service_area(agent, cell):
@@ -1153,6 +1173,8 @@ class PedestrianEngine:
 
     def _can_estimate_forward_step(self, agent: PedestrianAgent, cell: Cell) -> bool:
         if not self._is_walkable_cell(cell):
+            return False
+        if not self._waiting_group_can_enter_window_service_buffer(agent, cell):
             return False
         if not self._agent_can_use_window_queue_side(agent, cell):
             return False
@@ -2052,6 +2074,8 @@ class PedestrianEngine:
             return False
         if not self._is_walkable_cell(cell):
             return False
+        if not self._waiting_group_can_enter_window_service_buffer(agent, cell):
+            return False
         if not self._agent_can_use_window_queue_side(agent, cell):
             return False
         if self._is_reserved_service_area(cell) and not self._agent_can_use_service_area(agent, cell):
@@ -2299,6 +2323,8 @@ class PedestrianEngine:
                 return -2
         if agent.state is AgentState.TO_TABLE and agent.stuck_ticks >= self.floor_borrow_after_stuck_ticks:
             return -1
+        if self._waiting_group_is_clearing_window_service_buffer(agent):
+            return 3
         return 0
 
     def _record_movement_conflict(
@@ -2596,6 +2622,8 @@ class PedestrianEngine:
         self.max_density = max(self.max_density, max(density.densities.values(), default=0))
 
     def _occupies_walkable_cell(self, agent: PedestrianAgent) -> bool:
+        if self._waiting_group_is_clearing_window_service_buffer(agent):
+            return False
         return agent.state not in {AgentState.EXITED, AgentState.SEATED, AgentState.QUEUEING}
 
     def _is_movable(self, agent: PedestrianAgent) -> bool:

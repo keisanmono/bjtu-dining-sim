@@ -1414,6 +1414,75 @@ class PedestrianEngineTests(unittest.TestCase):
         self.assertTrue(engine._is_walkable_cell(side_cell))
         self.assertFalse(engine._is_safe_waiting_group_cell(agent, side_cell, occupied=set()))
 
+    # 验证等待同伴/等座学生不会从外部进入窗口服务带，避免停在窗口前阻塞排队者。
+    def test_waiting_group_cannot_enter_window_service_buffer_from_outside(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(2261))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        service = engine.grid.service_cells[0]
+        buffer_cell = (service[0] - 6, service[1])
+        outside_cell = (service[0] - 8, service[1])
+        agent.state = AgentState.WAITING_GROUP
+        agent.cell = outside_cell
+
+        self.assertTrue(engine._is_walkable_cell(outside_cell))
+        self.assertTrue(engine._is_walkable_cell(buffer_cell))
+        self.assertFalse(engine._is_near_window_service_or_head(outside_cell))
+        self.assertTrue(engine._is_near_window_service_or_head(buffer_cell))
+        self.assertFalse(engine.can_agent_enter_cell(agent, buffer_cell))
+
+    # 验证已经在服务带里的等待者仍能向外撤离，防止禁入规则把历史状态卡死。
+    def test_waiting_group_can_step_out_of_window_service_buffer(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(2262))
+        person = student(1)
+        engine.spawn_arrivals([person], door_index=0)
+        agent = engine.agents[1]
+        service = engine.grid.service_cells[0]
+        escape_cell = (service[0] - 1, service[1])
+        agent.state = AgentState.WAITING_GROUP
+        agent.cell = service
+
+        self.assertTrue(engine._is_near_window_service_or_head(service))
+        self.assertTrue(engine._is_near_window_service_or_head(escape_cell))
+        self.assertTrue(engine.can_agent_enter_cell(agent, escape_cell))
+
+    # 验证刚取完餐、仍在服务带内撤离的等待者不会挡住下一名队头。
+    def test_waiting_group_in_service_buffer_does_not_block_window_queue(self):
+        engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(2263))
+        people = [student(1), student(2)]
+        engine.spawn_arrivals(people, door_index=0)
+        queue_slots = engine.grid.queue_cells_by_window[0]
+        head_slot = queue_slots[0]
+        next_slot = queue_slots[1]
+        engine.set_window_physical_queue(0, [1])
+        queue_agent = engine.agents[1]
+        queue_agent.cell = next_slot
+        blocker = engine.agents[2]
+        blocker.state = AgentState.WAITING_GROUP
+        blocker.cell = head_slot
+        blocker.target_cells = {(head_slot[0] - 6, head_slot[1])}
+
+        occupied_by = {
+            other.cell: other
+            for other in engine.agents.values()
+            if engine._occupies_walkable_cell(other)
+        }
+        occupied = engine._occupied_cells_for_agent(queue_agent, occupied_by, set(occupied_by))
+
+        self.assertTrue(engine._is_near_window_service_or_head(blocker.cell))
+        self.assertNotIn(blocker.cell, occupied)
+        self.assertLess(
+            engine._movement_conflict_priority(queue_agent),
+            engine._movement_conflict_priority(blocker),
+        )
+
+        engine._movement_micro_step(current_time_sec=0, duration_sec=1)
+
+        self.assertEqual(queue_agent.cell, head_slot)
+        self.assertEqual(queue_agent.state, AgentState.QUEUEING)
+        self.assertNotEqual(blocker.cell, head_slot)
+
     # 验证等待同伴者当前位置虽然合法但周围拥挤时，会迁移到更低密度的等待点。
     def test_waiting_group_prefers_lower_density_waiting_target(self):
         engine = PedestrianEngine(engine_layout(), movement_config(), random.Random(226))
