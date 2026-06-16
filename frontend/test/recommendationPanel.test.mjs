@@ -265,31 +265,37 @@ test('config form exposes campus demand controls with live and random buttons', 
   assert.equal(source.includes('loadCampusOccupancy'), true)
 })
 
-// 验证校园到达配置只保留一张合并表，不再显示总览卡片或单独来源明细区块。
-test('campus config uses one combined source table without duplicate summary or detail section', () => {
+// 验证校园到达配置拆分教学楼实时人数和宿舍人口反推，避免混在一张长表里。
+test('campus config separates teaching occupancy and residential population sections', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
-  assert.equal(source.includes('来源明细'), false)
-  assert.equal(source.includes('人流拆分预览'), false)
+  assert.equal(source.includes('class="campus-source-tabs"'), true)
+  assert.equal(source.includes('label="教学楼实时人数"'), true)
+  assert.equal(source.includes('label="宿舍人口反推"'), true)
+  assert.equal(source.includes(':data="campusRows"'), true)
+  assert.equal(source.includes('height="420"'), true)
+  assert.equal(source.includes('campusResidentialAreaSummaryRows'), true)
+  assert.equal(source.includes('class="campus-detail-collapse"'), true)
+  assert.equal(source.includes('title="详细权重输入"'), true)
+  assert.equal(source.includes(':data="campusCombinedRows"'), false)
+  assert.equal(source.includes('const campusCombinedRows'), false)
   assert.equal(source.includes('campusPopulationSummaryItems'), false)
   assert.equal(source.includes('campusSourceDetailRows'), false)
   assert.equal(source.includes('campusPopulationPoolPayload'), true)
   assert.equal(source.includes('population_pool: campusPopulationPoolPayload.value'), true)
-  assert.equal(styleSource.includes('.campus-population-summary'), false)
-  assert.equal(styleSource.includes('.campus-population-note'), false)
-  assert.equal(styleSource.includes('.campus-source-detail-title'), false)
+  assert.equal(styleSource.includes('.campus-source-tabs'), true)
+  assert.equal(styleSource.includes('.campus-residential-summary'), true)
+  assert.equal(styleSource.includes('.campus-detail-collapse'), true)
 })
 
-// 验证校园到达配置把每个教学楼 source 和每个宿舍 source 合并到同一张表。
-test('campus config appends residential sources into the editable campus table', () => {
+// 验证校园到达配置保留教学楼和宿舍的原有可编辑字段，只是分区展示。
+test('campus config keeps teaching floors and residential weights editable in separate tables', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 
-  assert.equal(source.includes('<el-table :data="campusCombinedRows" class="campus-table" size="small">'), true)
+  assert.equal(source.includes(':data="campusRows"'), true)
   assert.equal(source.includes('campusResidentialTableRows'), true)
-  assert.equal(source.includes('campusCombinedRows'), true)
-  assert.equal(source.includes('campusTableSourceName'), true)
-  assert.equal(source.includes('campusTableSourceType'), true)
+  assert.equal(source.includes('campusResidentialAreaSummaryRows'), true)
   assert.equal(source.includes('campusTableWalkMinutes'), true)
   assert.equal(source.includes('campusTableChoiceProbability'), true)
   assert.equal(source.includes('residentialAllocatedPopulation'), true)
@@ -298,8 +304,8 @@ test('campus config appends residential sources into the editable campus table',
   assert.equal(source.includes('residentialReleaseWindowLabel'), true)
   assert.equal(source.includes("source_type: '宿舍'"), true)
   assert.equal(source.includes('campusLocations.value.residential_walk_times'), true)
-  assert.equal(source.includes('v-if="isResidentialCampusRow(row)"'), true)
-  assert.equal(source.includes('v-else'), true)
+  assert.equal(source.includes(':model-value="residentialCapacityWeight(row.source_id)"'), true)
+  assert.equal(source.includes('@update:model-value="updateResidentialCapacityWeight(row.source_id, $event)"'), true)
 })
 
 // 验证当前食堂到达人数会乘以食堂选择概率，而不是显示 source 原始人数。
@@ -311,6 +317,46 @@ test('campus table arrival population is weighted by cafeteria choice probabilit
   assert.equal(source.includes('row.population * campusTableChoiceProbability(row)'), true)
   assert.equal(source.includes('return `${formatNumber(campusTableArrivalPopulation(row))} 人`'), true)
   assert.equal(source.includes('if (isResidentialCampusRow(row)) return row.population_label'), false)
+})
+
+// 验证校园到达选择概率可以按百分比配置，并作为 choice_probability 提交后端。
+test('campus cafeteria choice probability is editable and serialized', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('label="选择概率"'), true)
+  assert.equal(source.includes('campusTableChoicePercent(row)'), true)
+  assert.equal(source.includes('updateCampusRowChoicePercent(row, $event)'), true)
+  assert.equal(source.includes('updateResidentialChoicePercent(row.source_id, $event)'), true)
+  assert.equal(source.includes('choice_probability: campusTableChoiceProbability(row)'), true)
+  assert.equal(source.includes('choice_probability: residentialChoiceProbability(source.id)'), true)
+  assert.equal(source.includes('choice_percent: choicePercentFromProbability(building.choice_probability)'), true)
+  assert.equal(source.includes('residentialChoicePercents[source.residential_id] = choicePercentFromProbability(source.choice_probability)'), true)
+})
+
+// 验证校园到达记录页展示采集时间，并支持单条导入和多条平均导入。
+test('campus arrival records can be saved and imported from the records page', () => {
+  const appSource = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const apiSource = readFileSync(new URL('../src/api.js', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(appSource.includes('<el-tab-pane label="记录页" name="records"'), true)
+  assert.equal(appSource.includes("activeView === 'records'"), true)
+  assert.equal(appSource.includes('校园到达记录'), true)
+  assert.equal(appSource.includes('prop="created_at" label="记录时间"'), true)
+  assert.equal(appSource.includes('formatCampusRecordTime'), true)
+  assert.equal(appSource.includes('saveCampusArrivalRecord'), true)
+  assert.equal(appSource.includes('loadCampusArrivalRecords'), true)
+  assert.equal(appSource.includes('importCampusArrivalRecord(row)'), true)
+  assert.equal(appSource.includes('importSelectedCampusArrivalAverage'), true)
+  assert.equal(appSource.includes('api.saveCampusArrivalRecord'), true)
+  assert.equal(appSource.includes('api.campusArrivalRecordAverage'), true)
+  assert.equal(appSource.includes('await saveCampusArrivalRecord({ silent: true, sourceMode })'), true)
+  assert.equal(appSource.includes('applyCampusDemandConfig(average.campus_demand)'), true)
+  assert.equal(apiSource.includes("campusArrivalRecords: () => client.get('/campus/arrival-records')"), true)
+  assert.equal(apiSource.includes("saveCampusArrivalRecord: (payload) => client.post('/campus/arrival-records', payload)"), true)
+  assert.equal(apiSource.includes("campusArrivalRecordAverage: (payload) => client.post('/campus/arrival-records/average', payload)"), true)
+  assert.equal(styleSource.includes('.records-layout'), true)
+  assert.equal(styleSource.includes('.records-toolbar'), true)
 })
 
 // 验证校园人口池、宿舍释放窗口、宿舍参与率和宿舍权重都能手动编辑。
@@ -336,27 +382,41 @@ test('campus residential population parameters are manually editable', () => {
   assert.equal(styleSource.includes('.campus-population-controls'), true)
 })
 
-// 验证校园楼层人数表按内容自然展开，而不是固定高度滚动。
-test('campus floor population table expands vertically instead of scrolling', () => {
-  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
-
-  assert.equal(source.includes('<el-table :data="campusCombinedRows" class="campus-table" size="small">'), true)
-  assert.equal(source.includes('class="campus-table" size="small" height='), false)
-  assert.equal(source.includes('class="campus-table" size="small" max-height='), false)
-})
-
-// 验证校园配置和推荐候选编辑区使用对齐的网格外壳。
-test('campus and recommendation controls use aligned grid shells', () => {
+// 验证校园楼层人数表使用固定高度，防止撑高参数配置页。
+test('campus teaching population table uses a fixed height inside a bounded campus panel', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
+  assert.equal(source.includes(':data="campusRows"'), true)
+  assert.equal(source.includes('class="campus-table"'), true)
+  assert.equal(source.includes('height="420"'), true)
+  assert.equal(source.includes('class="campus-table" size="small" max-height='), false)
+  assert.equal(styleSource.includes('max-height: calc(100vh - 190px);'), true)
+  assert.equal(styleSource.includes('.campus-panel > .el-card__body'), true)
+  assert.equal(styleSource.includes('overflow: auto;'), true)
+})
+
+// 验证参数配置页使用左侧 sticky sidebar 和右侧校园面板，且移除旧跨行定位。
+test('config page uses sticky sidebar and removes old spanning grid placement', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const styleSource = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('class="config-sidebar"'), true)
+  assert.equal(source.includes('class="panel config-basic-panel"'), true)
+  assert.equal(source.includes('class="panel recommendation-panel"'), true)
+  assert.equal(source.includes('class="panel campus-panel"'), true)
   assert.equal(source.includes('class="campus-mode-strip"'), true)
   assert.equal(source.includes('class="campus-toolbar"'), true)
   assert.equal(source.includes('class="campus-actions"'), true)
   assert.equal(source.includes('class="candidate-range-grid"'), true)
   assert.equal(source.includes('class="candidate-editor-row candidate-editor-row-single"'), true)
+  assert.equal(styleSource.includes('.config-sidebar'), true)
+  assert.equal(styleSource.includes('position: sticky;'), true)
+  assert.equal(styleSource.includes('top: 18px;'), true)
   assert.equal(styleSource.includes('.campus-panel'), true)
-  assert.equal(styleSource.includes('grid-row: 1 / span 2'), true)
+  assert.equal(styleSource.includes('grid-column: 2;'), false)
+  assert.equal(styleSource.includes('grid-row: 1 / span 2'), false)
+  assert.equal(styleSource.includes('grid-row: 2;'), false)
   assert.equal(styleSource.includes('.campus-toolbar'), true)
   assert.equal(styleSource.includes('.candidate-range-grid'), true)
   assert.equal(styleSource.includes('.candidate-editor-row-single'), true)
@@ -471,6 +531,18 @@ test('analysis cards explain secondary metrics without jargon', () => {
   assert.equal(source.includes('`队列 ${formatMinutes'), false)
   assert.equal(source.includes('`等座峰值 ${'), false)
   assert.equal(source.includes('`吞吐 ${'), false)
+})
+
+// 验证快速/平衡模式隐藏高级移动细分指标，只在质量模式展示。
+test('fast and balanced modes hide advanced movement detail cards', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('const showMovementDetailCards = computed'), true)
+  assert.equal(source.includes("config.movement_quality_preset === 'quality'"), true)
+  assert.equal(source.includes('const movementDetailCards = ['), true)
+  assert.equal(source.includes('const analysisMovementDetailCards = ['), true)
+  assert.equal(source.includes('...(showMovementDetailCards.value ? movementDetailCards : [])'), true)
+  assert.equal(source.includes('...(showMovementDetailCards.value ? analysisMovementDetailCards : [])'), true)
 })
 
 // 验证座位利用率标签明确表示运行平均值。

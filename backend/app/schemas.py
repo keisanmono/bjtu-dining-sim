@@ -81,12 +81,14 @@ class CampusBuildingDemand(BaseModel):
     building_id: str
     dismissal_minute: int = Field(default=0, ge=0)
     release_ratio: float = Field(default=1.0, ge=0, le=1)
+    choice_probability: float | None = Field(default=None, ge=0, le=1)
     floors: list[CampusFloorDemand] = Field(default_factory=list)
 
 
 class CampusResidentialDemand(BaseModel):
     residential_id: str
     release_ratio: float = Field(default=1.0, ge=0, le=1)
+    choice_probability: float | None = Field(default=None, ge=0, le=1)
     population_override: int | None = Field(default=None, ge=0)
     source_type: str = "residential"
 
@@ -200,6 +202,7 @@ class SimulationConfig(BaseModel):
                         building_id=building["building_id"],
                         dismissal_minute=building["dismissal_minute"],
                         release_ratio=building["release_ratio"],
+                        choice_probability=building["choice_probability"],
                         floors=[
                             CampusFloorDemandData(floor=floor["floor"], count=floor["count"])
                             for floor in building["floors"]
@@ -211,6 +214,7 @@ class SimulationConfig(BaseModel):
                     CampusResidentialDemandData(
                         residential_id=source["residential_id"],
                         release_ratio=source["release_ratio"],
+                        choice_probability=source["choice_probability"],
                         population_override=source["population_override"],
                         source_type=source["source_type"],
                     )
@@ -272,6 +276,14 @@ class CampusOccupancyRequest(BaseModel):
     source_mode: str = "random"
     buildings: list[str] = Field(default_factory=list)
     seed: int = 20
+
+
+class CampusArrivalRecordCreate(BaseModel):
+    campus_demand: CampusDemandConfig
+
+
+class CampusArrivalRecordAverageRequest(BaseModel):
+    record_ids: list[str] = Field(min_length=1)
 
 
 # 推荐接口请求结构：基准配置加候选窗口/座位/错峰/峰数范围。

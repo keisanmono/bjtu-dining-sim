@@ -481,6 +481,8 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
                 errors.append(f"未知教学楼：{building.building_id}。")
             if building.release_ratio < 0 or building.release_ratio > 1:
                 errors.append("下课释放比例应在 0 到 1 之间。")
+            if building.choice_probability is not None and (building.choice_probability < 0 or building.choice_probability > 1):
+                errors.append("教学楼选择概率应在 0 到 1 之间。")
             if building.dismissal_minute < 0:
                 errors.append("下课时间不能为负数。")
             if not building.floors:
@@ -493,6 +495,11 @@ def validate_config(config: SimulationConfigData) -> tuple[list[str], list[str]]
                 total_people += max(0, floor.count)
         if total_people == 0:
             warnings.append("校园到达模式当前楼层人数为 0，仿真可能没有到达学生。")
+        for source in campus.residential_sources:
+            if source.release_ratio < 0 or source.release_ratio > 1:
+                errors.append("宿舍释放比例应在 0 到 1 之间。")
+            if source.choice_probability is not None and (source.choice_probability < 0 or source.choice_probability > 1):
+                errors.append("宿舍选择概率应在 0 到 1 之间。")
     party_distribution = _normalized_party_distribution(config.party_size_distribution)
     if not party_distribution:
         errors.append("结伴人数分布至少需要一个正权重。")

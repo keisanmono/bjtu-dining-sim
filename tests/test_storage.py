@@ -78,6 +78,80 @@ class SimulationStoreTests(unittest.TestCase):
                 self.assertIn(field, metrics)
                 self.assertEqual(metrics[field], getattr(result.metrics, field))
 
+    # 验证校园到达采样记录会保存采集时间、教学楼人数和反推宿舍人数，并支持多条求平均。
+    def test_save_and_average_campus_arrival_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "sim.sqlite"
+            store = SimulationStore(db_path)
+            first = _campus_record_payload(10, 20, 100)
+            second = _campus_record_payload(30, 40, 300)
+
+            first_record = store.save_campus_arrival_record("record-1", first)
+            second_record = store.save_campus_arrival_record("record-2", second)
+
+            records = store.list_campus_arrival_records()
+            average = store.average_campus_arrival_records([first_record["record_id"], second_record["record_id"]])
+
+            self.assertEqual([record["record_id"] for record in records], ["record-2", "record-1"])
+            self.assertIn("created_at", records[0])
+            self.assertEqual(records[0]["total_population"], 370)
+            self.assertEqual(first_record["teaching_population"], 30)
+            self.assertEqual(first_record["residential_population"], 100)
+            self.assertEqual(average["teaching_population"], 50)
+            self.assertEqual(average["residential_population"], 200)
+            self.assertEqual(average["campus_demand"]["buildings"][0]["floors"][0]["count"], 20)
+            self.assertEqual(average["campus_demand"]["buildings"][0]["floors"][1]["count"], 30)
+            self.assertEqual(average["campus_demand"]["residential_sources"][0]["population_override"], 200)
+            self.assertEqual(average["record_ids"], ["record-1", "record-2"])
+
+
+def _campus_record_payload(first_floor: int, second_floor: int, residential_population: int) -> dict:
+    return {
+        "enabled": True,
+        "cafeteria_id": "xuesi",
+        "source_mode": "live",
+        "meal_period": "lunch",
+        "buildings": [
+            {
+                "building_id": "no9",
+                "dismissal_minute": 690,
+                "release_ratio": 0.8,
+                "choice_probability": 0.5,
+                "floors": [
+                    {"floor": 1, "count": first_floor},
+                    {"floor": 2, "count": second_floor},
+                ],
+            }
+        ],
+        "residential_sources": [
+            {
+                "residential_id": "jiayuan_1",
+                "release_ratio": 1,
+                "choice_probability": 0.4,
+                "population_override": residential_population,
+                "source_type": "residential",
+            }
+        ],
+        "population_pool": {
+            "enabled": True,
+            "meal_period": "lunch",
+            "total_population_pool": 1000,
+            "total_population_mode": "manual",
+            "meal_participation_rate": 0.75,
+            "other_known_population": 50,
+            "residential_allocation_mode": "capacity_weight",
+            "residual_policy": "clamp_zero",
+        },
+        "residential_release_profile": {
+            "meal_period": "lunch",
+            "start_minute": 660,
+            "end_minute": 780,
+            "peak_minute": 720,
+            "distribution": "triangular",
+            "residential_participation_rate": 0.65,
+        },
+    }
+
 
 if __name__ == "__main__":
     unittest.main()

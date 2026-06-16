@@ -138,6 +138,75 @@ class SimulationStore:
                 ),
             )
 
+    # 保存一次校园到达采样记录，记录实时/随机获取后的教学楼人数和宿舍反推结果。
+    def save_campus_arrival_record(self, record_id: str, campus_demand: dict[str, Any]) -> dict[str, Any]:
+        created_at = _now_iso()
+        payload = _normalize_campus_demand(campus_demand)
+        summary = _campus_arrival_record_summary(record_id, created_at, payload)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO campus_arrival_record (
+                    record_id, created_at, source_mode, meal_period, cafeteria_id,
+                    teaching_population, residential_population, demand_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    summary["record_id"],
+                    summary["created_at"],
+                    summary["source_mode"],
+                    summary["meal_period"],
+                    summary["cafeteria_id"],
+                    summary["teaching_population"],
+                    summary["residential_population"],
+                    _json(payload),
+                ),
+            )
+        return summary
+
+    # 列出最近的校园到达采样记录，前端记录页可直接展示并导入。
+    def list_campus_arrival_records(self, limit: int = 80) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(500, int(limit or 80)))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM campus_arrival_record
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [_campus_arrival_record_dict(row) for row in rows]
+
+    # 对多条校园到达记录求平均，平均值可作为新的校园到达配置导入。
+    def average_campus_arrival_records(self, record_ids: list[str]) -> dict[str, Any]:
+        clean_ids = [str(record_id) for record_id in record_ids if str(record_id)]
+        if not clean_ids:
+            raise KeyError("至少需要选择一条校园到达记录。")
+        placeholders = ",".join("?" for _ in clean_ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM campus_arrival_record
+                WHERE record_id IN ({placeholders})
+                """,
+                clean_ids,
+            ).fetchall()
+        records_by_id = {}
+        for row in rows:
+            record = _campus_arrival_record_dict(row)
+            records_by_id[record["record_id"]] = record
+        missing = [record_id for record_id in clean_ids if record_id not in records_by_id]
+        if missing:
+            raise KeyError(f"校园到达记录不存在: {', '.join(missing)}")
+        records = [records_by_id[record_id] for record_id in clean_ids]
+        average_payload = _average_campus_demands([record["campus_demand"] for record in records])
+        summary = _campus_arrival_record_summary("average", _now_iso(), average_payload)
+        summary["record_ids"] = clean_ids
+        summary["source_mode"] = "average"
+        return summary
+
     # 按 run_id 读取所有分钟级过程记录，并恢复 JSON 字段。
     def get_records(self, run_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:
@@ -270,6 +339,17 @@ class SimulationStore:
                     risk_notes TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS campus_arrival_record (
+                    record_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    source_mode TEXT NOT NULL,
+                    meal_period TEXT NOT NULL,
+                    cafeteria_id TEXT,
+                    teaching_population INTEGER NOT NULL,
+                    residential_population INTEGER NOT NULL,
+                    demand_json TEXT NOT NULL
+                );
                 """
             )
             _ensure_column(conn, "metrics_summary", "extra_metrics_json", "TEXT NOT NULL DEFAULT '{}'")
@@ -329,6 +409,197 @@ def _record_dict(row: sqlite3.Row) -> dict[str, Any]:
     if "clock_minute" in data["snapshot"]:
         data["clock_minute"] = data["snapshot"]["clock_minute"]
     return data
+
+
+def _campus_arrival_record_dict(row: sqlite3.Row) -> dict[str, Any]:
+    data = dict(row)
+    data["campus_demand"] = json.loads(data.pop("demand_json"))
+    data["total_population"] = int(data.get("teaching_population") or 0) + int(data.get("residential_population") or 0)
+    return data
+
+
+def _normalize_campus_demand(campus_demand: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(campus_demand or {})
+    payload.setdefault("enabled", True)
+    payload.setdefault("source_mode", "manual")
+    payload.setdefault("meal_period", "lunch")
+    payload.setdefault("buildings", [])
+    payload.setdefault("residential_sources", [])
+    return payload
+
+
+def _campus_arrival_record_summary(record_id: str, created_at: str, campus_demand: dict[str, Any]) -> dict[str, Any]:
+    teaching_population = sum(
+        max(0, round(float(floor.get("count", 0) or 0)))
+        for building in campus_demand.get("buildings", []) or []
+        for floor in building.get("floors", []) or []
+    )
+    residential_population = sum(
+        max(0, round(float(source.get("population_override", 0) or 0)))
+        for source in campus_demand.get("residential_sources", []) or []
+    )
+    return {
+        "record_id": record_id,
+        "created_at": created_at,
+        "source_mode": str(campus_demand.get("source_mode") or "manual"),
+        "meal_period": str(campus_demand.get("meal_period") or "lunch"),
+        "cafeteria_id": campus_demand.get("cafeteria_id"),
+        "teaching_population": teaching_population,
+        "residential_population": residential_population,
+        "total_population": teaching_population + residential_population,
+        "campus_demand": campus_demand,
+    }
+
+
+def _average_campus_demands(campus_demands: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized = [_normalize_campus_demand(item) for item in campus_demands]
+    first = normalized[0]
+    return {
+        "enabled": True,
+        "cafeteria_id": first.get("cafeteria_id"),
+        "source_mode": "manual",
+        "meal_period": first.get("meal_period", "lunch"),
+        "buildings": _average_campus_buildings(normalized),
+        "residential_sources": _average_residential_sources(normalized),
+        "population_pool": _average_population_pool([item.get("population_pool") for item in normalized]),
+        "residential_release_profile": _average_residential_release_profiles(
+            [item.get("residential_release_profile") for item in normalized]
+        ),
+    }
+
+
+def _average_campus_buildings(campus_demands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    building_ids = _ordered_nested_ids(campus_demands, "buildings", "building_id")
+    averaged: list[dict[str, Any]] = []
+    for building_id in building_ids:
+        entries = [
+            building
+            for demand in campus_demands
+            for building in demand.get("buildings", []) or []
+            if building.get("building_id") == building_id
+        ]
+        floor_numbers = _ordered_floor_numbers(entries)
+        averaged.append(
+            {
+                "building_id": building_id,
+                "dismissal_minute": _rounded_average([entry.get("dismissal_minute") for entry in entries]),
+                "release_ratio": _float_average([entry.get("release_ratio", 1) for entry in entries], default=1.0),
+                "choice_probability": _nullable_float_average([entry.get("choice_probability") for entry in entries]),
+                "floors": [
+                    {
+                        "floor": floor,
+                        "count": _rounded_average(
+                            [
+                                floor_item.get("count")
+                                for entry in entries
+                                for floor_item in entry.get("floors", []) or []
+                                if int(floor_item.get("floor", 0) or 0) == floor
+                            ]
+                        ),
+                    }
+                    for floor in floor_numbers
+                ],
+            }
+        )
+    return averaged
+
+
+def _average_residential_sources(campus_demands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    source_ids = _ordered_nested_ids(campus_demands, "residential_sources", "residential_id")
+    averaged: list[dict[str, Any]] = []
+    for source_id in source_ids:
+        entries = [
+            source
+            for demand in campus_demands
+            for source in demand.get("residential_sources", []) or []
+            if source.get("residential_id") == source_id
+        ]
+        first = entries[0]
+        averaged.append(
+            {
+                "residential_id": source_id,
+                "release_ratio": _float_average([entry.get("release_ratio", 1) for entry in entries], default=1.0),
+                "choice_probability": _nullable_float_average([entry.get("choice_probability") for entry in entries]),
+                "population_override": _rounded_average([entry.get("population_override") for entry in entries]),
+                "source_type": first.get("source_type", "residential"),
+            }
+        )
+    return averaged
+
+
+def _average_population_pool(items: list[dict[str, Any] | None]) -> dict[str, Any] | None:
+    pools = [item for item in items if item]
+    if not pools:
+        return None
+    first = dict(pools[0])
+    for key in ("total_population_pool", "other_known_population"):
+        first[key] = _rounded_average([item.get(key) for item in pools])
+    first["meal_participation_rate"] = _float_average(
+        [item.get("meal_participation_rate") for item in pools],
+        default=1.0,
+    )
+    return first
+
+
+def _average_residential_release_profiles(items: list[dict[str, Any] | None]) -> dict[str, Any] | None:
+    profiles = [item for item in items if item]
+    if not profiles:
+        return None
+    first = dict(profiles[0])
+    for key in ("start_minute", "end_minute", "peak_minute"):
+        first[key] = _rounded_average([item.get(key) for item in profiles])
+    first["residential_participation_rate"] = _float_average(
+        [item.get("residential_participation_rate") for item in profiles],
+        default=1.0,
+    )
+    return first
+
+
+def _ordered_nested_ids(campus_demands: list[dict[str, Any]], list_key: str, id_key: str) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for demand in campus_demands:
+        for item in demand.get(list_key, []) or []:
+            item_id = str(item.get(id_key) or "")
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            ids.append(item_id)
+    return ids
+
+
+def _ordered_floor_numbers(building_entries: list[dict[str, Any]]) -> list[int]:
+    floors: list[int] = []
+    seen: set[int] = set()
+    for building in building_entries:
+        for floor in building.get("floors", []) or []:
+            floor_number = max(1, int(floor.get("floor", 1) or 1))
+            if floor_number in seen:
+                continue
+            seen.add(floor_number)
+            floors.append(floor_number)
+    return floors
+
+
+def _rounded_average(values: list[Any], default: int = 0) -> int:
+    clean = [float(value) for value in values if value is not None]
+    if not clean:
+        return default
+    return max(0, int(round(sum(clean) / len(clean))))
+
+
+def _float_average(values: list[Any], default: float = 0.0) -> float:
+    clean = [float(value) for value in values if value is not None]
+    if not clean:
+        return default
+    return sum(clean) / len(clean)
+
+
+def _nullable_float_average(values: list[Any]) -> float | None:
+    clean = [float(value) for value in values if value is not None]
+    if not clean:
+        return None
+    return sum(clean) / len(clean)
 
 
 # 用紧凑 JSON 保存嵌套配置、快照和指标，保留中文字符。

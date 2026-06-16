@@ -1,6 +1,7 @@
 # 文件说明：接口集成测试：验证 FastAPI 主要接口从运行到推荐解释的完整链路。
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,16 +10,28 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import app.main as main_module
 from app.main import (
+    average_campus_arrival_records,
     campus_locations,
     campus_occupancy,
+    campus_arrival_records,
     explain,
     get_run_metrics,
     get_run_records,
     recommend,
     run_full_simulation,
+    save_campus_arrival_record,
     validate_simulation_config,
 )
-from app.schemas import CampusOccupancyRequest, ExplanationRequest, RecommendationRequest, SimulationConfig, StepRequest
+from app.schemas import (
+    CampusArrivalRecordAverageRequest,
+    CampusArrivalRecordCreate,
+    CampusOccupancyRequest,
+    ExplanationRequest,
+    RecommendationRequest,
+    SimulationConfig,
+    StepRequest,
+)
+from app.storage import SimulationStore
 
 
 # 接口层集成测试，直接调用 FastAPI handler 验证主要业务链路。
@@ -215,6 +228,76 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["building_id"], "no9")
         self.assertGreater(len(payload["items"][0]["floors"]), 1)
         self.assertGreater(payload["items"][0]["total_used"], 0)
+
+    # 验证校园到达记录接口能保存采集时间，并对多条记录返回可导入的平均配置。
+    def test_campus_arrival_record_handlers_save_and_average_records(self):
+        original_store = main_module.STORE
+        with tempfile.TemporaryDirectory() as tmp:
+            main_module.STORE = SimulationStore(Path(tmp) / "api.sqlite")
+            try:
+                first = save_campus_arrival_record(CampusArrivalRecordCreate(campus_demand=_campus_demand_payload(10, 100)))
+                second = save_campus_arrival_record(CampusArrivalRecordCreate(campus_demand=_campus_demand_payload(30, 300)))
+
+                records = campus_arrival_records()
+                average = average_campus_arrival_records(
+                    CampusArrivalRecordAverageRequest(record_ids=[first["record_id"], second["record_id"]])
+                )
+            finally:
+                main_module.STORE = original_store
+
+        self.assertIn(first["record_id"], {record["record_id"] for record in records})
+        self.assertIn("created_at", first)
+        self.assertEqual(first["teaching_population"], 10)
+        self.assertEqual(first["residential_population"], 100)
+        self.assertEqual(average["source_mode"], "average")
+        self.assertEqual(average["campus_demand"]["source_mode"], "manual")
+        self.assertEqual(average["campus_demand"]["buildings"][0]["floors"][0]["count"], 20)
+        self.assertEqual(average["campus_demand"]["residential_sources"][0]["population_override"], 200)
+
+
+def _campus_demand_payload(teaching_count: int, residential_population: int) -> dict:
+    return {
+        "enabled": True,
+        "cafeteria_id": "xuesi",
+        "source_mode": "live",
+        "meal_period": "lunch",
+        "buildings": [
+            {
+                "building_id": "no9",
+                "dismissal_minute": 690,
+                "release_ratio": 1,
+                "choice_probability": 0.5,
+                "floors": [{"floor": 1, "count": teaching_count}],
+            }
+        ],
+        "residential_sources": [
+            {
+                "residential_id": "jiayuan_1",
+                "release_ratio": 1,
+                "choice_probability": 0.4,
+                "population_override": residential_population,
+                "source_type": "residential",
+            }
+        ],
+        "population_pool": {
+            "enabled": True,
+            "meal_period": "lunch",
+            "total_population_pool": 1000,
+            "total_population_mode": "manual",
+            "meal_participation_rate": 0.75,
+            "other_known_population": 0,
+            "residential_allocation_mode": "capacity_weight",
+            "residual_policy": "clamp_zero",
+        },
+        "residential_release_profile": {
+            "meal_period": "lunch",
+            "start_minute": 660,
+            "end_minute": 780,
+            "peak_minute": 720,
+            "distribution": "triangular",
+            "residential_participation_rate": 0.65,
+        },
+    }
 
 
 if __name__ == "__main__":

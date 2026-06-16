@@ -75,6 +75,46 @@ class ResidentialDemandTests(unittest.TestCase):
         self.assertGreater(sum(result["schedule"].values()), 0)
         self.assertGreater(result["breakdown"]["residential_arrived"], 0)
 
+    def test_residential_choice_probability_can_be_configured(self):
+        residential_data = {
+            "residential_areas": [
+                {
+                    "id": "jiayuan_a",
+                    "name": "嘉园A座",
+                    "campus_area": "嘉园片区",
+                    "capacity_weight": 1,
+                    "exclude_from_simulation": False,
+                }
+            ],
+            "walk_times": {
+                "jiayuan_a": {
+                    "xuesi": {"distance_m": 120, "duration_s": 60, "duration_min": 1, "source": "baidu_walking_api"}
+                }
+            },
+        }
+
+        blocked = build_mixed_campus_arrival_schedule(
+            cafeteria_id="xuesi",
+            buildings=[],
+            residential_sources=[CampusResidentialDemandData("jiayuan_a", population_override=20, choice_probability=0.0)],
+            population_pool=None,
+            meal_period="breakfast",
+            seed=21,
+            residential_data=residential_data,
+        )
+        forced = build_mixed_campus_arrival_schedule(
+            cafeteria_id="xuesi",
+            buildings=[],
+            residential_sources=[CampusResidentialDemandData("jiayuan_a", population_override=20, choice_probability=1.0)],
+            population_pool=None,
+            meal_period="breakfast",
+            seed=21,
+            residential_data=residential_data,
+        )
+
+        self.assertEqual(blocked["breakdown"]["residential_arrived"], 0)
+        self.assertEqual(forced["breakdown"]["residential_arrived"], 20)
+
     def test_fallback_duration_routes_missing_residential_source_to_target(self):
         result = build_mixed_campus_arrival_schedule(
             cafeteria_id="xuesi",
