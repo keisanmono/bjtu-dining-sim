@@ -595,7 +595,6 @@
               </el-table-column>
             </el-table>
             <div class="button-row compact">
-              <el-button type="primary" :icon="MagicStick" :disabled="!metrics" @click="generateRecommendation">生成推荐</el-button>
               <el-button :icon="Refresh" @click="activeView = 'config'">重新实验</el-button>
             </div>
           </el-card>

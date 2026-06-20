@@ -215,6 +215,19 @@ test('config recommendation panel can apply recommended and alternative plans', 
   assert.equal(source.includes('applyRecommendationConfig'), true)
 })
 
+// 验证结果分析页不再保留重复的生成推荐入口。
+test('analysis page removes duplicate recommendation action', () => {
+  const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const analysisStart = source.indexOf('<section v-show="activeView === \'analysis\'"')
+  const recordsStart = source.indexOf('<section v-show="activeView === \'records\'"')
+  const analysisSection = source.slice(analysisStart, recordsStart)
+
+  assert.ok(analysisStart >= 0)
+  assert.ok(recordsStart > analysisStart)
+  assert.equal(analysisSection.includes('生成推荐'), false)
+  assert.equal(analysisSection.includes('generateRecommendation'), false)
+})
+
 // 验证基础参数表单使用更明确的到达人数标签。
 test('config form uses a clear arrival volume label', () => {
   const source = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
