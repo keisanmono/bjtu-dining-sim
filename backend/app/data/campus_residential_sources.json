@@ -60,22 +60,6 @@
       "source_notes": "真实点位 source，容量仅作 residual 分配权重；离线坐标待百度地图 API 校验。"
     },
     {
-      "id": "xueyuan_1",
-      "name": "学苑1号楼",
-      "campus_area": "学苑片区",
-      "address_query": "北京交通大学 学苑1号楼",
-      "lat": 40.00752963465239,
-      "lng": 116.36761467206752,
-      "coordinate_source": "baidu_geocoding",
-      "geocode_status": "success",
-      "exclude_from_simulation": false,
-      "capacity_weight": 1,
-      "capacity_range": null,
-      "capacity_method": "equal_weight_no_single_building_capacity",
-      "confidence": "medium",
-      "source_notes": "真实点位 source，容量仅作 residual 分配权重；离线坐标待百度地图 API 校验。"
-    },
-    {
       "id": "xueyuan_2",
       "name": "学苑2号楼",
       "campus_area": "学苑片区",
@@ -360,32 +344,6 @@
         "distance_m": 1254,
         "duration_s": 1071,
         "duration_min": 18,
-        "source": "baidu_walking_api"
-      }
-    },
-    "xueyuan_1": {
-      "xuehuo": {
-        "distance_m": 8077,
-        "duration_s": 6912,
-        "duration_min": 116,
-        "source": "baidu_walking_api"
-      },
-      "minghu": {
-        "distance_m": 7229,
-        "duration_s": 6186,
-        "duration_min": 104,
-        "source": "baidu_walking_api"
-      },
-      "xuesi": {
-        "distance_m": 7462,
-        "duration_s": 6385,
-        "duration_min": 107,
-        "source": "baidu_walking_api"
-      },
-      "xueyuan": {
-        "distance_m": 6745,
-        "duration_s": 5772,
-        "duration_min": 97,
         "source": "baidu_walking_api"
       }
     },

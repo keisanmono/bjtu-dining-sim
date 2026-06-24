@@ -18,11 +18,13 @@
       <el-tab-pane label="场景预览" name="layout" />
       <el-tab-pane label="实时运行" name="run" />
       <el-tab-pane label="结果分析" name="analysis" />
+      <el-tab-pane label="记录页" name="records" />
     </el-tabs>
 
     <main>
       <section v-show="activeView === 'config'" class="config-grid">
-        <el-card class="panel">
+        <div class="config-sidebar">
+          <el-card class="panel config-basic-panel">
           <template #header>
             <div class="panel-title">
               <el-icon><Setting /></el-icon>
@@ -94,175 +96,6 @@
             show-icon
             :closable="false"
           />
-        </el-card>
-
-        <el-card class="panel campus-panel">
-          <template #header>
-            <div class="panel-title">
-              <el-icon><Grid /></el-icon>
-              <span>校园到达</span>
-            </div>
-          </template>
-          <el-form label-position="top" class="campus-form">
-            <div class="campus-mode-strip">
-              <el-form-item label="到达模式">
-                <el-radio-group v-model="arrivalMode">
-                  <el-radio-button label="manual">手动平均</el-radio-button>
-                  <el-radio-button label="campus">校园人数</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-            </div>
-
-            <template v-if="arrivalMode === 'campus'">
-              <div class="campus-toolbar">
-                <el-form-item label="目标食堂">
-                  <el-select v-model="selectedCafeteriaId" placeholder="选择食堂">
-                    <el-option
-                      v-for="cafeteria in campusCafeterias"
-                      :key="cafeteria.id"
-                      :label="cafeteria.name"
-                      :value="cafeteria.id"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="就餐时段">
-                  <el-select v-model="config.meal_period" @change="applyMealPeriodDefaults">
-                    <el-option label="早餐" value="breakfast" />
-                    <el-option label="午餐" value="lunch" />
-                    <el-option label="晚餐" value="dinner" />
-                    <el-option label="周末" value="weekend" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item label="人数来源" class="campus-source-field">
-                  <el-tag effect="light">{{ campusSourceLabel }}</el-tag>
-                </el-form-item>
-                <div class="campus-actions">
-                  <el-button
-                    :icon="Refresh"
-                    :loading="campusLoadingSource === 'live'"
-                    :disabled="campusLoadingSource !== '' && campusLoadingSource !== 'live'"
-                    @click="loadCampusOccupancy('live')"
-                  >
-                    获取实时数据
-                  </el-button>
-                  <el-button
-                    :icon="MagicStick"
-                    :loading="campusLoadingSource === 'random'"
-                    :disabled="campusLoadingSource !== '' && campusLoadingSource !== 'random'"
-                    @click="loadCampusOccupancy('random')"
-                  >
-                    随机生成
-                  </el-button>
-                </div>
-              </div>
-
-              <el-alert
-                v-if="campusWarning"
-                class="validation-alert"
-                type="warning"
-                :title="campusWarning"
-                show-icon
-                :closable="false"
-              />
-
-              <div class="campus-population-controls">
-                <div class="config-section-title">人口池与宿舍释放</div>
-                <div class="campus-population-control-grid">
-                  <el-form-item label="潜在人群池">
-                    <el-input-number v-model="campusPopulationPoolForm.total_population_pool" :min="0" :step="500" size="small" controls-position="right" />
-                  </el-form-item>
-                  <el-form-item label="食堂参与率">
-                    <div class="percent-input">
-                      <el-input-number v-model="campusPopulationPoolForm.meal_participation_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
-                      <span class="percent-suffix">%</span>
-                    </div>
-                  </el-form-item>
-                  <el-form-item label="其他已知来源">
-                    <el-input-number v-model="campusPopulationPoolForm.other_known_population" :min="0" :step="100" size="small" controls-position="right" />
-                  </el-form-item>
-                  <el-form-item label="宿舍参与率">
-                    <div class="percent-input">
-                      <el-input-number v-model="campusResidentialProfileForm.residential_participation_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
-                      <span class="percent-suffix">%</span>
-                    </div>
-                  </el-form-item>
-                  <el-form-item label="宿舍开始">
-                    <el-input v-model="campusResidentialProfileForm.start_time" size="small" placeholder="11:00" />
-                  </el-form-item>
-                  <el-form-item label="宿舍结束">
-                    <el-input v-model="campusResidentialProfileForm.end_time" size="small" placeholder="13:00" />
-                  </el-form-item>
-                  <el-form-item label="宿舍峰值">
-                    <el-input v-model="campusResidentialProfileForm.peak_time" size="small" placeholder="12:00" />
-                  </el-form-item>
-                </div>
-              </div>
-
-              <el-table :data="campusCombinedRows" class="campus-table" size="small">
-                <el-table-column label="来源" min-width="128">
-                  <template #default="{ row }">{{ campusTableSourceName(row) }}</template>
-                </el-table-column>
-                <el-table-column label="类型" width="78">
-                  <template #default="{ row }">
-                    <el-tag :type="isResidentialCampusRow(row) ? 'success' : 'primary'" effect="light">
-                      {{ campusTableSourceType(row) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="时间" width="112">
-                  <template #default="{ row }">
-                    <span v-if="isResidentialCampusRow(row)">{{ row.release_window }}</span>
-                    <el-input v-else v-model="row.dismissal_time" size="small" placeholder="11:30" @change="syncDismissalTime(row)" />
-                  </template>
-                </el-table-column>
-                <el-table-column label="就餐比例" width="120">
-                  <template #default="{ row }">
-                    <span v-if="isResidentialCampusRow(row)" class="campus-readonly-cell">
-                      {{ formatPercent(residentialParticipationRate) }}
-                    </span>
-                    <div v-else class="percent-input">
-                      <el-input-number v-model="row.release_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
-                      <span class="percent-suffix">%</span>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="选择概率" width="92">
-                  <template #default="{ row }">{{ formatPercent(campusTableChoiceProbability(row)) }}</template>
-                </el-table-column>
-                <el-table-column label="路程" width="78">
-                  <template #default="{ row }">{{ campusTableWalkMinutes(row) }} min</template>
-                </el-table-column>
-                <el-table-column label="人数（教学楼可手动填写）" min-width="280">
-                  <template #default="{ row }">
-                    <div v-if="isResidentialCampusRow(row)" class="campus-readonly-source">
-                      <strong>{{ row.population_label }}</strong>
-                      <span>{{ row.campus_area }} / {{ row.basis }}</span>
-                      <label class="campus-weight-input">
-                        <span>权重</span>
-                        <el-input-number
-                          :model-value="residentialCapacityWeight(row.source_id)"
-                          :min="0"
-                          :step="0.5"
-                          size="small"
-                          controls-position="right"
-                          @update:model-value="updateResidentialCapacityWeight(row.source_id, $event)"
-                        />
-                      </label>
-                    </div>
-                    <div v-else class="floor-inputs">
-                      <label v-for="floor in row.floors" :key="`${row.building_id}-${floor.floor}`" class="floor-input">
-                        <span>{{ floor.floor }}F</span>
-                        <el-input-number v-model="floor.count" :min="0" :max="999" size="small" controls-position="right" />
-                      </label>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="到达人数" width="88">
-                  <template #default="{ row }">{{ campusTablePopulationLabel(row) }}</template>
-                </el-table-column>
-              </el-table>
-            </template>
-          </el-form>
         </el-card>
 
         <el-card class="panel recommendation-panel">
@@ -377,7 +210,265 @@
             </template>
           </div>
         </el-card>
+        </div>
 
+        <el-card class="panel campus-panel">
+          <template #header>
+            <div class="panel-title">
+              <el-icon><Grid /></el-icon>
+              <span>校园到达</span>
+            </div>
+          </template>
+          <el-form label-position="top" class="campus-form">
+            <div class="campus-mode-strip">
+              <el-form-item label="到达模式">
+                <el-radio-group v-model="arrivalMode">
+                  <el-radio-button label="manual">手动平均</el-radio-button>
+                  <el-radio-button label="campus">校园人数</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+            </div>
+
+            <template v-if="arrivalMode === 'campus'">
+              <div class="campus-toolbar">
+                <el-form-item label="目标食堂">
+                  <el-select v-model="selectedCafeteriaId" placeholder="选择食堂">
+                    <el-option
+                      v-for="cafeteria in campusCafeterias"
+                      :key="cafeteria.id"
+                      :label="cafeteria.name"
+                      :value="cafeteria.id"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="就餐时段">
+                  <el-select v-model="config.meal_period" @change="applyMealPeriodDefaults">
+                    <el-option label="早餐" value="breakfast" />
+                    <el-option label="午餐" value="lunch" />
+                    <el-option label="晚餐" value="dinner" />
+                    <el-option label="周末" value="weekend" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="人数来源" class="campus-source-field">
+                  <el-tag effect="light">{{ campusSourceLabel }}</el-tag>
+                </el-form-item>
+                <div class="campus-actions">
+                  <el-button
+                    :icon="Refresh"
+                    :loading="campusLoadingSource === 'live'"
+                    :disabled="campusLoadingSource !== '' && campusLoadingSource !== 'live'"
+                    @click="loadCampusOccupancy('live')"
+                  >
+                    获取实时数据
+                  </el-button>
+                  <el-button
+                    :icon="MagicStick"
+                    :loading="campusLoadingSource === 'random'"
+                    :disabled="campusLoadingSource !== '' && campusLoadingSource !== 'random'"
+                    @click="loadCampusOccupancy('random')"
+                  >
+                    随机生成
+                  </el-button>
+                  <el-button
+                    :icon="Tickets"
+                    :loading="campusRecordSaving"
+                    :disabled="campusLoadingSource !== ''"
+                    @click="saveCampusArrivalRecord()"
+                  >
+                    保存当前记录
+                  </el-button>
+                </div>
+              </div>
+
+              <el-alert
+                v-if="campusWarning"
+                class="validation-alert"
+                type="warning"
+                :title="campusWarning"
+                show-icon
+                :closable="false"
+              />
+
+              <el-tabs v-model="campusSourceTab" class="campus-source-tabs">
+                <el-tab-pane label="教学楼实时人数" name="teaching">
+                  <el-table :data="campusRows" class="campus-table" size="small" height="420">
+                    <el-table-column label="教学楼" min-width="128">
+                      <template #default="{ row }">{{ row.building_name }}</template>
+                    </el-table-column>
+                    <el-table-column label="下课时间" width="112">
+                      <template #default="{ row }">
+                        <el-input v-model="row.dismissal_time" size="small" placeholder="11:30" @change="syncDismissalTime(row)" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="就餐比例" width="120">
+                      <template #default="{ row }">
+                        <div class="percent-input">
+                          <el-input-number v-model="row.release_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
+                          <span class="percent-suffix">%</span>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="选择概率" width="124">
+                      <template #default="{ row }">
+                        <div class="percent-input">
+                          <el-input-number
+                            :model-value="campusTableChoicePercent(row)"
+                            :min="0"
+                            :max="100"
+                            :step="5"
+                            size="small"
+                            controls-position="right"
+                            @update:model-value="updateCampusRowChoicePercent(row, $event)"
+                          />
+                          <span class="percent-suffix">%</span>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="路程" width="78">
+                      <template #default="{ row }">{{ campusTableWalkMinutes(row) }} min</template>
+                    </el-table-column>
+                    <el-table-column label="人数（教学楼可手动填写）" min-width="280">
+                      <template #default="{ row }">
+                        <div class="floor-inputs">
+                          <label v-for="floor in row.floors" :key="`${row.building_id}-${floor.floor}`" class="floor-input">
+                            <span>{{ floor.floor }}F</span>
+                            <el-input-number v-model="floor.count" :min="0" :max="999" size="small" controls-position="right" />
+                          </label>
+                        </div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="到达人数" width="88">
+                      <template #default="{ row }">{{ campusTablePopulationLabel(row) }}</template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <el-tab-pane label="宿舍人口反推" name="residential">
+                  <div class="campus-population-controls">
+                    <div class="config-section-title">人口池与宿舍释放</div>
+                    <div class="campus-population-control-grid">
+                      <el-form-item label="潜在人群池">
+                        <el-input-number v-model="campusPopulationPoolForm.total_population_pool" :min="0" :step="500" size="small" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="食堂参与率">
+                        <div class="percent-input">
+                          <el-input-number v-model="campusPopulationPoolForm.meal_participation_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
+                          <span class="percent-suffix">%</span>
+                        </div>
+                      </el-form-item>
+                      <el-form-item label="其他已知来源">
+                        <el-input-number v-model="campusPopulationPoolForm.other_known_population" :min="0" :step="100" size="small" controls-position="right" />
+                      </el-form-item>
+                      <el-form-item label="宿舍参与率">
+                        <div class="percent-input">
+                          <el-input-number v-model="campusResidentialProfileForm.residential_participation_percent" :min="0" :max="100" :step="5" size="small" controls-position="right" />
+                          <span class="percent-suffix">%</span>
+                        </div>
+                      </el-form-item>
+                      <el-form-item label="宿舍开始">
+                        <el-input v-model="campusResidentialProfileForm.start_time" size="small" placeholder="11:00" />
+                      </el-form-item>
+                      <el-form-item label="宿舍结束">
+                        <el-input v-model="campusResidentialProfileForm.end_time" size="small" placeholder="13:00" />
+                      </el-form-item>
+                      <el-form-item label="宿舍峰值">
+                        <el-input v-model="campusResidentialProfileForm.peak_time" size="small" placeholder="12:00" />
+                      </el-form-item>
+                    </div>
+                  </div>
+
+                  <el-table :data="campusResidentialAreaSummaryRows" class="campus-table campus-residential-summary" size="small">
+                    <el-table-column label="片区" min-width="110">
+                      <template #default="{ row }">{{ row.campus_area }}</template>
+                    </el-table-column>
+                    <el-table-column label="宿舍来源" min-width="220" show-overflow-tooltip>
+                      <template #default="{ row }">{{ row.source_names }}</template>
+                    </el-table-column>
+                    <el-table-column label="释放窗口" width="118">
+                      <template #default="{ row }">{{ row.release_window }}</template>
+                    </el-table-column>
+                    <el-table-column label="参与率" width="82">
+                      <template #default="{ row }">{{ row.participation_label }}</template>
+                    </el-table-column>
+                    <el-table-column label="权重合计" width="88">
+                      <template #default="{ row }">{{ formatNumber(row.capacity_weight) }}</template>
+                    </el-table-column>
+                    <el-table-column label="反推人口" width="94">
+                      <template #default="{ row }">{{ row.population_label }}</template>
+                    </el-table-column>
+                    <el-table-column label="到达人数" width="94">
+                      <template #default="{ row }">{{ row.arrival_population_label }}</template>
+                    </el-table-column>
+                  </el-table>
+
+                  <el-collapse v-model="campusResidentialDetailPanels" class="campus-detail-collapse">
+                    <el-collapse-item title="详细权重输入" name="weights">
+                      <el-table :data="campusResidentialTableRows" class="campus-table" size="small" height="360">
+                        <el-table-column label="宿舍" min-width="150">
+                          <template #default="{ row }">{{ row.source_name }}</template>
+                        </el-table-column>
+                        <el-table-column label="片区" min-width="110">
+                          <template #default="{ row }">{{ row.campus_area }}</template>
+                        </el-table-column>
+                        <el-table-column label="释放窗口" width="118">
+                          <template #default="{ row }">{{ row.release_window }}</template>
+                        </el-table-column>
+                        <el-table-column label="参与率" width="86">
+                          <template #default>{{ formatPercent(residentialParticipationRate) }}</template>
+                        </el-table-column>
+                        <el-table-column label="选择概率" width="124">
+                          <template #default="{ row }">
+                            <div class="percent-input">
+                              <el-input-number
+                                :model-value="campusTableChoicePercent(row)"
+                                :min="0"
+                                :max="100"
+                                :step="5"
+                                size="small"
+                                controls-position="right"
+                                @update:model-value="updateResidentialChoicePercent(row.source_id, $event)"
+                              />
+                              <span class="percent-suffix">%</span>
+                            </div>
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="路程" width="78">
+                          <template #default="{ row }">{{ campusTableWalkMinutes(row) }} min</template>
+                        </el-table-column>
+                        <el-table-column label="反推人口" min-width="150">
+                          <template #default="{ row }">
+                            <div class="campus-readonly-source">
+                              <strong>{{ row.population_label }}</strong>
+                              <span>{{ row.basis }}</span>
+                            </div>
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="权重" width="138">
+                          <template #default="{ row }">
+                            <label class="campus-weight-input">
+                              <span>权重</span>
+                              <el-input-number
+                                :model-value="residentialCapacityWeight(row.source_id)"
+                                :min="0"
+                                :step="0.5"
+                                size="small"
+                                controls-position="right"
+                                @update:model-value="updateResidentialCapacityWeight(row.source_id, $event)"
+                              />
+                            </label>
+                          </template>
+                        </el-table-column>
+                        <el-table-column label="到达人数" width="94">
+                          <template #default="{ row }">{{ campusTablePopulationLabel(row) }}</template>
+                        </el-table-column>
+                      </el-table>
+                    </el-collapse-item>
+                  </el-collapse>
+                </el-tab-pane>
+              </el-tabs>
+            </template>
+          </el-form>
+        </el-card>
       </section>
 
       <section v-show="activeView === 'layout'" class="layout-page">
@@ -504,11 +595,71 @@
               </el-table-column>
             </el-table>
             <div class="button-row compact">
-              <el-button type="primary" :icon="MagicStick" :disabled="!metrics" @click="generateRecommendation">生成推荐</el-button>
               <el-button :icon="Refresh" @click="activeView = 'config'">重新实验</el-button>
             </div>
           </el-card>
         </div>
+      </section>
+
+      <section v-show="activeView === 'records'" class="records-layout">
+        <el-card class="panel records-panel">
+          <template #header>
+            <div class="panel-title records-panel-title">
+              <span class="panel-title-main">
+                <el-icon><Tickets /></el-icon>
+                <span>校园到达记录</span>
+              </span>
+              <div class="records-toolbar">
+                <el-button :icon="Refresh" :loading="campusRecordLoading" @click="loadCampusArrivalRecords">刷新记录</el-button>
+                <el-button
+                  type="primary"
+                  :icon="Download"
+                  :loading="campusRecordImporting"
+                  :disabled="!selectedCampusArrivalRecords.length"
+                  @click="importSelectedCampusArrivalAverage"
+                >
+                  导入选中平均值
+                </el-button>
+              </div>
+            </div>
+          </template>
+
+          <el-table
+            :data="campusArrivalRecords"
+            row-key="record_id"
+            height="520"
+            size="small"
+            @selection-change="onCampusRecordSelectionChange"
+          >
+            <el-table-column type="selection" width="46" />
+            <el-table-column prop="created_at" label="记录时间" min-width="170">
+              <template #default="{ row }">{{ formatCampusRecordTime(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="来源" width="92">
+              <template #default="{ row }">{{ campusRecordSourceLabel(row.source_mode) }}</template>
+            </el-table-column>
+            <el-table-column label="时段" width="82">
+              <template #default="{ row }">{{ mealPeriodLabel(row.meal_period) }}</template>
+            </el-table-column>
+            <el-table-column label="目标食堂" min-width="110">
+              <template #default="{ row }">{{ cafeteriaName(row.cafeteria_id) }}</template>
+            </el-table-column>
+            <el-table-column label="教学楼人数" width="104">
+              <template #default="{ row }">{{ formatNumber(row.teaching_population) }}</template>
+            </el-table-column>
+            <el-table-column label="宿舍反推" width="104">
+              <template #default="{ row }">{{ formatNumber(row.residential_population) }}</template>
+            </el-table-column>
+            <el-table-column label="合计" width="92">
+              <template #default="{ row }">{{ formatNumber(row.total_population) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="104" fixed="right">
+              <template #default="{ row }">
+                <el-button type="primary" size="small" plain @click="importCampusArrivalRecord(row)">导入</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
       </section>
 
     </main>
@@ -712,6 +863,7 @@ const isRecommending = ref(false)
 const recommendation = ref(null)
 const explanation = ref(null)
 const arrivalMode = ref('manual')
+const campusSourceTab = ref('teaching')
 const campusLocations = ref({
   cafeterias: [],
   teaching_buildings: [],
@@ -726,6 +878,7 @@ const campusRows = ref([])
 const campusSourceMode = ref('manual')
 const campusLoadingSource = ref('')
 const campusWarning = ref('')
+const campusResidentialDetailPanels = ref([])
 const campusPopulationPoolForm = reactive({
   total_population_pool: DEFAULT_POPULATION_POOL_BY_PERIOD.lunch.total_population_pool,
   meal_participation_percent: Math.round(DEFAULT_POPULATION_POOL_BY_PERIOD.lunch.meal_participation_rate * 100),
@@ -740,6 +893,12 @@ const campusResidentialProfileForm = reactive({
 })
 const residentialCapacityWeights = reactive({})
 const residentialPopulationOverrides = reactive({})
+const residentialChoicePercents = reactive({})
+const campusArrivalRecords = ref([])
+const selectedCampusArrivalRecords = ref([])
+const campusRecordLoading = ref(false)
+const campusRecordSaving = ref(false)
+const campusRecordImporting = ref(false)
 
 // ECharts 容器和实例：records 或 metrics 变化后会触发图表刷新。
 const queueChartEl = ref(null)
@@ -782,6 +941,10 @@ const movementMetricsForCards = computed(() => (
   || currentRecord.value?.snapshot?.movement_metrics
   || {}
 ))
+const showMovementDetailCards = computed(() => (
+  config.movement_quality_preset === 'quality'
+  || (!config.movement_quality_preset && config.movement_model === 'advanced_floor_field')
+))
 // 运行页四张指标卡，实时运行时用最新记录，结束后用最终 metrics。
 const runCards = computed(() => {
   const record = currentRecord.value
@@ -792,23 +955,29 @@ const runCards = computed(() => {
   const availableSeats = record?.available_seats ?? currentState.value?.available_seats ?? physicalEmptySeats
   const entryWaiting = record?.snapshot?.entry_waiting_count ?? currentState.value?.entry_waiting_count ?? 0
   const movement = movementMetricsForCards.value
-  return [
+  const baseRunCards = [
     { label: '平均等待时间', value: metrics.value ? formatMinutes(metrics.value.avg_wait) : formatMinutes(record?.avg_wait_so_far || 0), hint: metrics.value?.bottleneck_type || '运行中' },
     { label: '当前排队人数', value: queue, hint: `峰值 ${peakQueue} 人 / 边界待入 ${entryWaiting} 人` },
     { label: '物理空座', value: physicalEmptySeats, hint: `当前等座 ${record?.waiting_for_seat_count || 0} 人` },
-    { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` },
+    { label: '累计接待人数', value: record?.total_seated ?? metrics.value?.throughput ?? 0, hint: `到达 ${record?.total_arrived || 0} 人` }
+  ]
+  const movementDetailCards = [
     { label: '平均步行时间', value: formatSeconds(movement.avg_walking_time || 0), hint: `可用 ${availableSeats} / 预留 ${reservedSeats}` },
     { label: '路径绕行比', value: formatNumber(movement.avg_walking_distance_ratio || 0), hint: '按目标段统计：实际步行距离 / 直线距离' },
     { label: '移动冲突次数', value: movement.movement_conflict_count ?? 0, hint: '同 tick 目标格冲突' },
     { label: '平均停滞 tick', value: formatNumber(movement.avg_stuck_ticks || 0), hint: '无法移动或等待的 tick' },
     { label: '最大局部密度', value: movement.max_density ?? 0, hint: '邻域内最高人数' }
   ]
+  return [
+    ...baseRunCards,
+    ...(showMovementDetailCards.value ? movementDetailCards : [])
+  ]
 })
 // 分析页指标卡，展示最终等待、排队、利用率、同行行为和座位碎片化。
 const analysisCards = computed(() => {
   const m = metrics.value
   const partySplitCount = m?.party_window_split_count ?? m?.party_split_count ?? 0
-  return [
+  const baseAnalysisCards = [
     { label: '平均等待', value: formatMinutes(m?.avg_wait || 0), hint: `取餐排队等待 ${formatMinutes(m?.avg_queue_wait || 0)}` },
     { label: '峰值排队', value: m?.peak_queue ?? 0, hint: `高峰最多等座 ${m?.peak_waiting_for_seat || 0} 人` },
     { label: '全程窗口利用率', value: formatPercent(m?.window_utilization || 0), hint: `服务忙碌期 ${formatPercent(m?.active_window_utilization || 0)} / 瓶颈判断：${m?.bottleneck_type || '待分析'}` },
@@ -816,12 +985,18 @@ const analysisCards = computed(() => {
     { label: '同行分流次数', value: partySplitCount, hint: '小队成员分配到多个窗口' },
     { label: '同行集合等待', value: formatMinutes(m?.avg_party_gather_wait || 0), hint: `等座排队等待 ${formatMinutes(m?.avg_party_seat_wait || 0)}` },
     { label: '等座小队数', value: m?.blocked_party_count ?? 0, hint: `实际拼桌 ${m?.shared_table_count || 0} 次` },
-    { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' },
+    { label: '座位碎片化', value: m?.fragmented_seats ?? 0, hint: '空座分散但不适合同桌小队' }
+  ]
+  const analysisMovementDetailCards = [
     { label: '平均步行时间', value: formatSeconds(m?.avg_walking_time || 0), hint: `入座完成耗时 ${formatMinutes(m?.avg_post_service_to_seat_time || 0)}` },
     { label: '路径绕行比', value: formatNumber(m?.avg_walking_distance_ratio || 0), hint: '按目标段统计：实际步行距离 / 直线距离' },
     { label: '移动冲突次数', value: m?.movement_conflict_count ?? 0, hint: '并行 CA 冲突解决次数' },
     { label: '平均停滞 tick', value: formatNumber(m?.avg_stuck_ticks || 0), hint: '移动等待强度' },
     { label: '最大局部密度', value: m?.max_density ?? 0, hint: '拥堵热力峰值' }
+  ]
+  return [
+    ...baseAnalysisCards,
+    ...(showMovementDetailCards.value ? analysisMovementDetailCards : [])
   ]
 })
 // 运行记录表格倒序展示最近 80 条。
@@ -910,21 +1085,48 @@ const campusResidentialTableRows = computed(() => (
     }
   })
 ))
+const campusResidentialAreaSummaryRows = computed(() => {
+  const areaMap = new Map()
+  campusResidentialTableRows.value.forEach((row) => {
+    const areaKey = row.campus_area || '未分类'
+    const current = areaMap.get(areaKey) || {
+      campus_area: areaKey,
+      source_names: [],
+      source_count: 0,
+      capacity_weight: 0,
+      population: 0,
+      arrival_population: 0,
+      release_window: residentialReleaseWindowLabel(),
+      participation_label: formatPercent(residentialParticipationRate.value)
+    }
+    current.source_names.push(row.source_name)
+    current.source_count += 1
+    current.capacity_weight += residentialCapacityWeight(row.source_id)
+    current.population += row.population
+    current.arrival_population += campusTableArrivalPopulation(row)
+    areaMap.set(areaKey, current)
+  })
+  return [...areaMap.values()].map((row) => ({
+    ...row,
+    source_names: row.source_names.join('、'),
+    population_label: `${formatNumber(row.population)} 人`,
+    arrival_population_label: `${formatNumber(row.arrival_population)} 人`
+  }))
+})
 const campusResidentialDemandPayload = computed(() => (
   editableResidentialSources.value.map((source) => ({
     residential_id: source.id,
     release_ratio: 1,
+    choice_probability: residentialChoiceProbability(source.id),
     population_override: residentialSourcePopulation(source.id),
     source_type: 'residential'
   }))
-))
-const campusCombinedRows = computed(() => (
-  [...campusRows.value, ...campusResidentialTableRows.value]
 ))
 
 onMounted(() => {
   checkHealth()
   loadCampusLocations()
+  loadCampusArrivalRecords()
   window.addEventListener('resize', resizeCharts)
 })
 
@@ -1064,10 +1266,14 @@ function applyCampusResidentialProfileConfig(profile) {
 
 function applyCampusResidentialSourcesConfig(sources) {
   clearResidentialPopulationOverrides()
+  clearResidentialChoiceOverrides()
   for (const source of sources || []) {
     if (!source?.residential_id) continue
     if (source.population_override != null) {
       residentialPopulationOverrides[source.residential_id] = Math.max(0, Math.round(Number(source.population_override) || 0))
+    }
+    if (source.choice_probability != null) {
+      residentialChoicePercents[source.residential_id] = choicePercentFromProbability(source.choice_probability)
     }
   }
 }
@@ -1075,6 +1281,12 @@ function applyCampusResidentialSourcesConfig(sources) {
 function clearResidentialPopulationOverrides() {
   Object.keys(residentialPopulationOverrides).forEach((key) => {
     delete residentialPopulationOverrides[key]
+  })
+}
+
+function clearResidentialChoiceOverrides() {
+  Object.keys(residentialChoicePercents).forEach((key) => {
+    delete residentialChoicePercents[key]
   })
 }
 
@@ -1101,6 +1313,7 @@ function buildEmptyCampusRows(buildings) {
     dismissal_minute: dismissalMinute,
     dismissal_time: formatClockMinute(dismissalMinute),
     release_percent: 100,
+    choice_percent: null,
     source: 'manual',
     floors: Array.from({ length: Math.max(1, Number(building.default_floor_count || 5)) }, (_, index) => ({
       floor: index + 1,
@@ -1128,6 +1341,7 @@ async function loadCampusOccupancy(sourceMode) {
     campusSourceMode.value = sourceMode
     campusWarning.value = (payload.warnings || []).join(' ')
     arrivalMode.value = 'campus'
+    await saveCampusArrivalRecord({ silent: true, sourceMode })
     ElMessage.success(sourceMode === 'live' ? '已获取校园实时人数' : '已随机生成校园人数')
   } catch (error) {
     campusWarning.value = error?.response?.data?.detail || '校园人数加载失败'
@@ -1135,6 +1349,86 @@ async function loadCampusOccupancy(sourceMode) {
     if (campusLoadingSource.value === sourceMode) {
       campusLoadingSource.value = ''
     }
+  }
+}
+
+async function loadCampusArrivalRecords() {
+  try {
+    campusRecordLoading.value = true
+    campusArrivalRecords.value = await api.campusArrivalRecords()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || '校园到达记录加载失败')
+  } finally {
+    campusRecordLoading.value = false
+  }
+}
+
+async function saveCampusArrivalRecord(options = {}) {
+  const { silent = false, sourceMode = campusSourceMode.value } = options
+  try {
+    campusRecordSaving.value = true
+    const demand = buildCampusDemandPayload()
+    if (!demand?.enabled) {
+      if (!silent) ElMessage.warning('请先切换到校园人数模式再保存记录')
+      return null
+    }
+    const record = await api.saveCampusArrivalRecord({
+      campus_demand: {
+        ...demand,
+        source_mode: sourceMode || demand.source_mode
+      }
+    })
+    upsertCampusArrivalRecord(record)
+    if (!silent) ElMessage.success('已保存校园到达记录')
+    return record
+  } catch (error) {
+    if (!silent) {
+      ElMessage.error(error?.response?.data?.detail || '校园到达记录保存失败')
+    }
+    return null
+  } finally {
+    campusRecordSaving.value = false
+  }
+}
+
+function upsertCampusArrivalRecord(record) {
+  if (!record?.record_id) return
+  campusArrivalRecords.value = [
+    record,
+    ...campusArrivalRecords.value.filter((item) => item.record_id !== record.record_id)
+  ]
+}
+
+function onCampusRecordSelectionChange(selection) {
+  selectedCampusArrivalRecords.value = selection
+}
+
+function importCampusArrivalRecord(row) {
+  if (!row?.campus_demand) return
+  applyCampusDemandConfig(row.campus_demand)
+  activeView.value = 'config'
+  ElMessage.success('已导入校园到达记录')
+}
+
+async function importSelectedCampusArrivalAverage() {
+  const selected = selectedCampusArrivalRecords.value
+  if (!selected.length) return
+  if (selected.length === 1) {
+    importCampusArrivalRecord(selected[0])
+    return
+  }
+  try {
+    campusRecordImporting.value = true
+    const average = await api.campusArrivalRecordAverage({
+      record_ids: selected.map((record) => record.record_id)
+    })
+    applyCampusDemandConfig(average.campus_demand)
+    activeView.value = 'config'
+    ElMessage.success(`已导入 ${selected.length} 条校园到达记录的平均值`)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || '导入平均记录失败')
+  } finally {
+    campusRecordImporting.value = false
   }
 }
 
@@ -1150,6 +1444,7 @@ function applyCampusOccupancyItems(items, sourceMode) {
       dismissal_minute: defaultCampusDismissalMinute(),
       dismissal_time: formatClockMinute(defaultCampusDismissalMinute()),
       release_percent: 100,
+      choice_percent: null,
       source: sourceMode,
       floors: []
     }))
@@ -1166,6 +1461,7 @@ function applyCampusOccupancyItems(items, sourceMode) {
       dismissal_minute: dismissalMinute,
       dismissal_time: row.dismissal_time || formatClockMinute(dismissalMinute),
       release_percent: releasePercent,
+      choice_percent: row.choice_percent ?? null,
       source: item.source || sourceMode,
       floors: (item.floors || []).map((floor) => ({
         floor: Number(floor.floor) || 1,
@@ -1195,6 +1491,7 @@ function applyCampusDemandConfig(campusDemand) {
     dismissal_minute: Math.max(0, Math.round(Number(building.dismissal_minute) || 0)),
     dismissal_time: formatClockMinute(Math.max(0, Math.round(Number(building.dismissal_minute) || 0))),
     release_percent: releasePercentFromRatio(building.release_ratio ?? 1),
+    choice_percent: choicePercentFromProbability(building.choice_probability),
     source: campusSourceMode.value,
     floors: (building.floors || []).map((floor) => ({
       floor: Math.max(1, Math.round(Number(floor.floor) || 1)),
@@ -1218,6 +1515,7 @@ function loadDefault() {
   arrivalMode.value = 'manual'
   campusSourceMode.value = 'manual'
   campusWarning.value = ''
+  clearResidentialChoiceOverrides()
   campusRows.value = buildEmptyCampusRows(campusLocations.value.teaching_buildings || [])
   layout.value = createDefaultLayout(defaultConfig)
   layoutSeatLimit.value = calculateLayoutSeatLimit(layout.value)
@@ -1528,6 +1826,7 @@ function buildCampusDemandPayload() {
       building_id: row.building_id,
       dismissal_minute: parseClockTime(row.dismissal_time ?? row.dismissal_minute),
       release_ratio: releasePercentToRatio(row.release_percent),
+      choice_probability: campusTableChoiceProbability(row),
       floors: (row.floors || []).map((floor) => ({
         floor: Math.max(1, Math.round(Number(floor.floor) || 1)),
         count: Math.max(0, Math.round(Number(floor.count) || 0))
@@ -1565,14 +1864,6 @@ function isResidentialCampusRow(row) {
   return row?.source_type === '宿舍'
 }
 
-function campusTableSourceName(row) {
-  return isResidentialCampusRow(row) ? row.source_name : row.building_name
-}
-
-function campusTableSourceType(row) {
-  return isResidentialCampusRow(row) ? '宿舍' : '教学楼'
-}
-
 function campusTableWalkMinutes(row) {
   return isResidentialCampusRow(row) ? residentialWalkMinutes(row.source_id) : campusWalkMinutes(row)
 }
@@ -1582,7 +1873,7 @@ function campusTablePopulationLabel(row) {
 }
 
 function campusTableChoiceProbability(row) {
-  return isResidentialCampusRow(row) ? residentialChoiceProbability(row.source_id) : campusChoiceProbability(row)
+  return releasePercentToRatio(campusTableChoicePercent(row))
 }
 
 function campusTableArrivalPopulation(row) {
@@ -1655,6 +1946,40 @@ function releasePercentToRatio(value) {
   return percent / 100
 }
 
+function choicePercentFromProbability(value) {
+  if (value == null) return null
+  return releasePercentFromRatio(value)
+}
+
+function normalizedPercent(value) {
+  return Math.min(100, Math.max(0, Number(value) || 0))
+}
+
+function campusTableChoicePercent(row) {
+  if (isResidentialCampusRow(row)) {
+    return residentialChoicePercent(row.source_id)
+  }
+  if (row?.choice_percent != null && Number.isFinite(Number(row.choice_percent))) {
+    return normalizedPercent(row.choice_percent)
+  }
+  return releasePercentFromRatio(campusChoiceProbability(row))
+}
+
+function updateCampusRowChoicePercent(row, value) {
+  row.choice_percent = normalizedPercent(value)
+}
+
+function residentialChoicePercent(residentialId) {
+  if (residentialChoicePercents[residentialId] != null && Number.isFinite(Number(residentialChoicePercents[residentialId]))) {
+    return normalizedPercent(residentialChoicePercents[residentialId])
+  }
+  return releasePercentFromRatio(estimatedResidentialChoiceProbability(residentialId))
+}
+
+function updateResidentialChoicePercent(residentialId, value) {
+  residentialChoicePercents[residentialId] = normalizedPercent(value)
+}
+
 // 按步行时间估算该教学楼学生选择当前食堂的概率。
 function campusChoiceProbability(row) {
   const routes = campusLocations.value.walk_times?.[row.building_id]
@@ -1672,7 +1997,7 @@ function campusChoiceProbability(row) {
   return total > 0 ? weights[selectedCafeteriaId.value] / total : 0
 }
 
-function residentialChoiceProbability(residentialId) {
+function estimatedResidentialChoiceProbability(residentialId) {
   const routes = campusLocations.value.residential_walk_times?.[residentialId]
   if (!routes || !selectedCafeteriaId.value || !routes[selectedCafeteriaId.value]) return 0
   const durations = Object.fromEntries(
@@ -1684,6 +2009,10 @@ function residentialChoiceProbability(residentialId) {
   )
   const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
   return total > 0 ? weights[selectedCafeteriaId.value] / total : 0
+}
+
+function residentialChoiceProbability(residentialId) {
+  return releasePercentToRatio(residentialChoicePercent(residentialId))
 }
 
 // 将推荐方案写回基础参数，并重新生成对应布局。
@@ -1834,6 +2163,42 @@ function formatSeconds(value) {
 // 将 0-1 比例格式化为百分比展示文本。
 function formatPercent(value) {
   return `${Math.round((Number(value) || 0) * 100)}%`
+}
+
+function formatCampusRecordTime(value) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date)
+}
+
+function campusRecordSourceLabel(value) {
+  if (value === 'live') return '实时'
+  if (value === 'random') return '随机'
+  if (value === 'average') return '平均'
+  return '手动'
+}
+
+function mealPeriodLabel(value) {
+  const labels = {
+    breakfast: '早餐',
+    lunch: '午餐',
+    dinner: '晚餐',
+    weekend: '周末'
+  }
+  return labels[value] || value || '-'
+}
+
+function cafeteriaName(cafeteriaId) {
+  return campusCafeterias.value.find((item) => item.id === cafeteriaId)?.name || cafeteriaId || '-'
 }
 
 // 整数不显示小数，非整数保留一位。

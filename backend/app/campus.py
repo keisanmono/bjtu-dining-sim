@@ -107,6 +107,7 @@ class CampusBuildingDemandData:
     building_id: str
     dismissal_minute: int = 0
     release_ratio: float = 1.0
+    choice_probability: float | None = None
     floors: list[CampusFloorDemandData] = field(default_factory=list)
 
 
@@ -115,6 +116,7 @@ class CampusBuildingDemandData:
 class CampusResidentialDemandData:
     residential_id: str
     release_ratio: float = 1.0
+    choice_probability: float | None = None
     population_override: int | None = None
     source_type: str = "residential"
 
@@ -420,7 +422,10 @@ def build_campus_arrival_schedule(
         if cafeteria_id not in walk_times[building.building_id]:
             raise ValueError(f"缺少 {building.building_id} 到 {cafeteria_id} 的步行时间。")
         probabilities = cafeteria_choice_probabilities(building.building_id)
-        target_probability = 1.0 if force_target else probabilities[cafeteria_id]
+        target_probability = 1.0 if force_target else _target_choice_probability(
+            building.choice_probability,
+            probabilities[cafeteria_id],
+        )
         route_seconds = int(walk_times[building.building_id][cafeteria_id]["duration_s"])
         release_ratio = _clamp(building.release_ratio, 0.0, 1.0)
         for floor in building.floors:
@@ -529,7 +534,10 @@ def build_mixed_campus_arrival_schedule(
         target_probability = (
             1.0
             if force_target or route.get("source") == "fallback_duration_min"
-            else _residential_target_probability(data, source_id, cafeteria_id)
+            else _target_choice_probability(
+                config_item.choice_probability if config_item else None,
+                _residential_target_probability(data, source_id, cafeteria_id),
+            )
         )
         route_seconds = int(route["duration_s"])
         for _ in range(source_population):
@@ -863,6 +871,12 @@ def _residential_target_probability(data: dict[str, Any], residential_id: str, c
     except KeyError:
         return 0.0
     return probabilities.get(cafeteria_id, 0.0)
+
+
+def _target_choice_probability(configured: float | None, estimated: float) -> float:
+    if configured is None:
+        return _clamp(estimated, 0.0, 1.0)
+    return _clamp(configured, 0.0, 1.0)
 
 
 # 安全读取接口中的人数/容量字段，异常或负值统一当作 0。

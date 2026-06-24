@@ -42,6 +42,26 @@ class CampusDemandTests(unittest.TestCase):
         self.assertGreater(probabilities["xuesi"], probabilities["xuehuo"])
         self.assertAlmostEqual(sum(probabilities.values()), 1.0, places=6)
 
+    # 验证教学楼可显式配置目标食堂选择概率，覆盖按距离估算的默认值。
+    def test_building_choice_probability_can_be_configured(self):
+        blocked = CampusBuildingDemandData(
+            building_id="no9",
+            dismissal_minute=0,
+            release_ratio=1.0,
+            choice_probability=0.0,
+            floors=[CampusFloorDemandData(floor=1, count=12)],
+        )
+        forced = CampusBuildingDemandData(
+            building_id="no9",
+            dismissal_minute=0,
+            release_ratio=1.0,
+            choice_probability=1.0,
+            floors=[CampusFloorDemandData(floor=1, count=12)],
+        )
+
+        self.assertEqual(build_campus_arrival_schedule("xuesi", [blocked], seed=3), {})
+        self.assertEqual(sum(build_campus_arrival_schedule("xuesi", [forced], seed=3).values()), 12)
+
     # 验证高楼层因为下楼时间更长，到达食堂不会早于低楼层。
     def test_upper_floor_arrivals_are_not_earlier_than_lower_floor(self):
         lower = CampusBuildingDemandData(

@@ -54,6 +54,16 @@ class ResidentialSourcesFlatTests(unittest.TestCase):
             self.assertIn(source["id"], walk_times)
             self.assertEqual(set(walk_times[source["id"]]), cafeteria_ids)
 
+    def test_invalid_xueyuan_1_source_is_removed(self):
+        payload = _load_payload()
+        source_ids = {item["id"] for item in payload["residential_areas"]}
+
+        self.assertNotIn("xueyuan_1", source_ids)
+        self.assertNotIn("xueyuan_1", payload.get("walk_times", {}))
+        payload_text = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("学苑1号楼", payload_text)
+        self.assertNotIn("北京交通大学 学苑1号楼", payload_text)
+
     def test_residential_by_source_total_matches_residential_population(self):
         sources = [
             {"id": "jiayuan_a", "campus_area": "嘉园片区", "capacity_weight": 1, "exclude_from_simulation": False},
@@ -112,4 +122,3 @@ class ResidentialSourcesFlatTests(unittest.TestCase):
             result["breakdown"]["residential_source_walk_times"]["dorm_12"]["xuesi"]["duration_s"],
             900,
         )
-

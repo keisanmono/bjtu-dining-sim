@@ -476,6 +476,8 @@ def _estimated_building_demand(building: CampusBuildingDemandData, cafeteria_id:
     released = sum(max(0, floor.count) for floor in building.floors) * max(0.0, min(1.0, building.release_ratio))
     if not cafeteria_id:
         return released
+    if building.choice_probability is not None:
+        return released * max(0.0, min(1.0, building.choice_probability))
     try:
         return released * cafeteria_choice_probabilities(building.building_id).get(cafeteria_id, 1.0)
     except ValueError:

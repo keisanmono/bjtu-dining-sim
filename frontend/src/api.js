@@ -15,6 +15,12 @@ export const api = {
   campusLocations: () => client.get('/campus/locations').then((res) => res.data),
   // /campus/occupancy：按实时、随机或手动来源生成校园到达人数。
   campusOccupancy: (payload) => client.post('/campus/occupancy', payload).then((res) => res.data),
+  // /campus/arrival-records：读取已保存的校园到达采样记录。
+  campusArrivalRecords: () => client.get('/campus/arrival-records').then((res) => res.data),
+  // /campus/arrival-records：保存当前校园到达快照。
+  saveCampusArrivalRecord: (payload) => client.post('/campus/arrival-records', payload).then((res) => res.data),
+  // /campus/arrival-records/average：对多条校园到达记录求平均。
+  campusArrivalRecordAverage: (payload) => client.post('/campus/arrival-records/average', payload).then((res) => res.data),
   // /config/validate：把前端配置交给后端 Pydantic 和业务规则校验。
   validateConfig: (config) => client.post('/config/validate', config).then((res) => res.data),
   // /sim/run：一次性完整运行仿真，适合直接进入结果分析。

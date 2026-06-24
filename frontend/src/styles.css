@@ -74,18 +74,32 @@ input {
 }
 
 .config-grid {
-  grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
+  grid-template-columns: minmax(320px, 0.8fr) minmax(560px, 1.2fr);
   align-items: start;
 }
 
-.campus-panel {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+.config-sidebar {
+  display: grid;
+  gap: 18px;
+  align-self: start;
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
-.recommendation-panel {
-  grid-column: 1;
-  grid-row: 2;
+.campus-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100vh - 190px);
+}
+
+.campus-panel > .el-card__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .layout-page {
@@ -97,7 +111,8 @@ input {
 }
 
 .run-layout,
-.analysis-layout {
+.analysis-layout,
+.records-layout {
   display: grid;
   gap: 18px;
 }
@@ -108,6 +123,26 @@ input {
 
 .analysis-grid {
   grid-template-columns: minmax(520px, 1.3fr) minmax(360px, 0.85fr);
+}
+
+.records-panel {
+  min-width: 0;
+}
+
+.records-panel-title {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.records-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.records-toolbar .el-button + .el-button {
+  margin-left: 0;
 }
 
 .panel {
@@ -307,6 +342,19 @@ input {
   align-items: end;
 }
 
+.campus-source-tabs {
+  min-width: 0;
+}
+
+.campus-source-tabs .el-tabs__content {
+  overflow: visible;
+}
+
+.campus-source-tabs .el-tab-pane {
+  display: grid;
+  gap: 12px;
+}
+
 .campus-population-controls {
   display: grid;
   gap: 10px;
@@ -330,6 +378,24 @@ input {
 
 .campus-table {
   width: 100%;
+}
+
+.campus-residential-summary {
+  margin-top: 2px;
+}
+
+.campus-detail-collapse {
+  border-top: 1px solid #e2ebf3;
+  border-bottom: 1px solid #e2ebf3;
+}
+
+.campus-detail-collapse .el-collapse-item__header {
+  color: #1f4f85;
+  font-weight: 700;
+}
+
+.campus-detail-collapse .el-collapse-item__content {
+  padding-bottom: 12px;
 }
 
 .percent-input {
@@ -1071,10 +1137,10 @@ input {
     grid-template-columns: 1fr;
   }
 
-  .campus-panel,
-  .recommendation-panel {
-    grid-column: auto;
-    grid-row: auto;
+  .config-sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 
   .metric-grid {

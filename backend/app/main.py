@@ -18,6 +18,8 @@ from .campus import campus_occupancy as build_campus_occupancy
 from .explanation import build_rule_based_explanation
 from .optimization import RecommendationRequestData, recommend_config
 from .schemas import (
+    CampusArrivalRecordAverageRequest,
+    CampusArrivalRecordCreate,
     CampusOccupancyRequest,
     ExplanationRequest,
     ExplanationResponse,
@@ -92,6 +94,28 @@ def campus_occupancy(request: CampusOccupancyRequest) -> dict[str, Any]:
         return build_campus_occupancy(request.source_mode, building_ids=buildings, seed=request.seed)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/campus/arrival-records")
+# 返回已保存的校园到达采样记录，供记录页按时间回看和导入。
+def campus_arrival_records() -> list[dict[str, Any]]:
+    return STORE.list_campus_arrival_records()
+
+
+@app.post("/api/campus/arrival-records")
+# 保存当前校园到达配置快照，包括教学楼人数和宿舍反推人口。
+def save_campus_arrival_record(request: CampusArrivalRecordCreate) -> dict[str, Any]:
+    record_id = uuid.uuid4().hex
+    return STORE.save_campus_arrival_record(record_id, request.campus_demand.model_dump())
+
+
+@app.post("/api/campus/arrival-records/average")
+# 对记录页选中的多条校园到达记录求平均，并返回可直接导入的校园到达配置。
+def average_campus_arrival_records(request: CampusArrivalRecordAverageRequest) -> dict[str, Any]:
+    try:
+        return STORE.average_campus_arrival_records(request.record_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 # 完整仿真：一次运行到结束，保存所有 StepRecord 和最终 MetricsSummary。
